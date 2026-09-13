@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Local-only JSON CLI for the Workboard agent protocol."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlparse
+from urllib.request import Request, urlopen
+from uuid import UUID
+
+
+DEFAULT_API_BASE = "http://127.0.0.1:8787/api"
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+PROTECTED_COMMANDS = {"list", "sources", "context", "propose", "update", "dispatch"}
+
+
+class CliError(Exception):
+    """A user-facing, JSON-serializable command error."""
+
+
+def local_api_base(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme != "http" or parsed.hostname not in LOCAL_HOSTS:
+        raise CliError("API base must be an http loopback URL (localhost, 127.0.0.1, or ::1).")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise CliError("API base must not contain credentials, a query, or a fragment.")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise CliError("API base contains an invalid port.") from error
+    if port is not None and not 1 <= port <= 65535:
+        raise CliError("API base contains an invalid port.")
+    return value.rstrip("/")
+
+
+def request_json(
+    api_base: str,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    api_token: str | None = None,
+) -> Any:
+    url = f"{local_api_base(api_base)}{path}"
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Accept": "application/json"}
+    if body:
+        headers["Content-Type"] = "application/json"
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+    request = Request(url, data=body, method=method, headers=headers)
+    try:
+        with urlopen(request, timeout=10) as response:  # nosec B310: URL is loopback-validated above
+            raw = response.read().decode("utf-8")
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:1000]
+        raise CliError(f"API returned HTTP {error.code}: {detail}") from error
+    except URLError as error:
+        raise CliError(f"Could not reach local Workboard API: {error.reason}") from error
+    try:
+        return json.loads(raw) if raw else {}
+    except json.JSONDecodeError as error:
+        raise CliError("Local Workboard API returned invalid JSON.") from error
+
+
+def load_json_argument(value: str) -> dict[str, Any]:
+    if value == "-":
+        raw = sys.stdin.read()
+    else:
+        raw = Path(value).read_text(encoding="utf-8")
+    try:
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise CliError(f"Could not read JSON payload: {error}") from error
+    if not isinstance(payload, dict):
+        raise CliError("JSON payload must be an object.")
+    return payload
+
+
+def proposal_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if args.json:
+        return load_json_argument(args.json)
+    if not args.title or not args.source_kind:
+        raise CliError("propose requires --json or both --title and --source-kind.")
+    payload: dict[str, Any] = {"title": args.title, "source_kind": args.source_kind}
+    for name in ("summary", "source_external_id", "source_url", "due_at"):
+        value = getattr(args, name)
+        if value is not None:
+            payload[name] = value
+    return payload
+
+
+def work_item_id(value: str) -> str:
+    """Require the API's UUID identifier instead of interpolating arbitrary paths."""
+    try:
+        return str(UUID(value))
+    except ValueError as error:
+        raise CliError("work-item ID must be a UUID.") from error
+
+
+def local_api_token(command: str) -> str | None:
+    """Return the local app credential required by private work-item endpoints."""
+    if command not in PROTECTED_COMMANDS:
+        return None
+    token = os.environ.get("PENDING_WORK_API_TOKEN", "")
+    if not token.strip():
+        raise CliError(
+            f"{command} requires PENDING_WORK_API_TOKEN, a local Workboard API credential. "
+            "Do not use a Microsoft Graph token."
+        )
+    if any(character in token for character in "\r\n"):
+        raise CliError("PENDING_WORK_API_TOKEN must not contain line breaks.")
+    return token
+
+
+def update_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if args.json:
+        return load_json_argument(args.json)
+    payload = {key: value for key, value in {"status": args.status, "assigned_agent": args.assigned_agent, "title": args.title, "summary": args.summary, "due_at": args.due_at}.items() if value is not None}
+    if not payload:
+        raise CliError("update requires --json or at least one field to change.")
+    return payload
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--api-base", default=os.environ.get("PENDING_WORK_API_BASE", DEFAULT_API_BASE), help="Loopback API base URL (default: %(default)s)")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("health")
+    commands.add_parser("status")
+    list_parser = commands.add_parser("list")
+    list_parser.add_argument("--status", choices=("pending", "in_progress", "blocked", "done"))
+    sources = commands.add_parser("sources")
+    sources.add_argument("--kind", choices=("outlook_email", "teams_message", "manual"))
+    context = commands.add_parser("context")
+    context.add_argument("work_item_id")
+    propose = commands.add_parser("propose")
+    propose.add_argument("--json", metavar="FILE", help="Proposal JSON file, or - for standard input")
+    propose.add_argument("--title")
+    propose.add_argument("--summary")
+    propose.add_argument("--source-kind", choices=("outlook_email", "teams_message", "manual"))
+    propose.add_argument("--source-external-id")
+    propose.add_argument("--source-url")
+    propose.add_argument("--due-at")
+    propose.add_argument("--client", choices=("codex", "claude-code"), default="codex")
+    propose.add_argument("--confidence", type=float, default=0.5)
+    update = commands.add_parser("update")
+    update.add_argument("work_item_id")
+    update.add_argument("--json", metavar="FILE", help="Update JSON file, or - for standard input")
+    update.add_argument("--status", choices=("pending", "in_progress", "blocked", "done"))
+    update.add_argument("--assigned-agent")
+    update.add_argument("--title")
+    update.add_argument("--summary")
+    update.add_argument("--due-at")
+    dispatch = commands.add_parser("dispatch")
+    dispatch.add_argument("work_item_id")
+    dispatch.add_argument("--client", required=True, choices=("codex", "claude-code"))
+    dispatch.add_argument("--instruction", required=True)
+    return parser
+
+
+def run(args: argparse.Namespace) -> Any:
+    token = local_api_token(args.command)
+    if args.command == "health":
+        return request_json(args.api_base, "GET", "/health")
+    if args.command == "status":
+        return request_json(args.api_base, "GET", "/sync/status")
+    if args.command == "list":
+        query = f"?{urlencode({'status': args.status})}" if args.status else ""
+        return request_json(args.api_base, "GET", f"/work-items{query}", api_token=token)
+    if args.command == "sources":
+        query = f"?{urlencode({'kind': args.kind})}" if args.kind else ""
+        return request_json(args.api_base, "GET", f"/sources{query}", api_token=token)
+    if args.command == "context":
+        return request_json(args.api_base, "GET", f"/agent-context/{work_item_id(args.work_item_id)}", api_token=token)
+    if args.command == "propose":
+        payload = proposal_payload(args)
+        payload["client"] = args.client
+        payload["confidence"] = args.confidence
+        return request_json(args.api_base, "POST", "/agent/proposals", payload, token)
+    if args.command == "update":
+        return request_json(args.api_base, "PATCH", f"/work-items/{work_item_id(args.work_item_id)}", update_payload(args), token)
+    if args.command == "dispatch":
+        return request_json(args.api_base, "POST", f"/work-items/{work_item_id(args.work_item_id)}/dispatch", {"client": args.client, "instruction": args.instruction}, token)
+    raise CliError(f"Unsupported command: {args.command}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        args = build_parser().parse_args(argv)
+        result = run(args)
+    except CliError as error:
+        print(json.dumps({"error": str(error)}))
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

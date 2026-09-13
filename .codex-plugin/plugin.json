@@ -1,0 +1,25 @@
+{
+  "name": "pending-work",
+  "version": "0.1.0",
+  "description": "Review, propose, and dispatch locally stored pending work from Codex.",
+  "author": {
+    "name": "Workboard"
+  },
+  "license": "MIT",
+  "keywords": ["workboard", "outlook", "teams", "local-first"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Pending Work",
+    "shortDescription": "Work with the local pending-work queue.",
+    "longDescription": "A local-only agent skill and CLI for reviewing pending work extracted from Outlook and Teams.",
+    "developerName": "Workboard",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Review my pending work and propose next actions.",
+      "Show context for a pending-work item.",
+      "Prepare a bounded plan for this work item."
+    ],
+    "brandColor": "#2563EB"
+  }
+}
