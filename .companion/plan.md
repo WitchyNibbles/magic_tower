@@ -65,7 +65,7 @@ first and show it failing, then clear the store in the autouse fixture. Do not c
 locking or the `hmac.compare_digest` comparison (`backend/app/security.py:48`).
 
 ## T06 — CI enforces the whole bar
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T03, T04, T05
 - done-when: `uv run --project backend --with pyyaml python -c "import yaml,pathlib,sys; w=yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text()); s=str(w); sys.exit(0 if 'uv run pytest' in s and 'docker' in s.lower() else 1)"`
