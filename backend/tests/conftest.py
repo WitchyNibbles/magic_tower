@@ -1,11 +1,19 @@
-
 """Shared test configuration, loaded before individual test modules."""
 
+import atexit
 import os
+import shutil
+import tempfile
 
-# ``app.database`` creates its engine at import time. Configure a writable,
-# isolated database before any test module can import application code.
-os.environ["DATABASE_URL"] = "sqlite:////tmp/workboard-tests.db"
+# ``app.database`` builds its engine at import time from an ``@lru_cache``d
+# ``get_settings()``, so ``DATABASE_URL`` has to be set before any test module
+# imports application code -- a session-scoped ``tmp_path_factory`` fixture would
+# run long after collection has already imported ``app.database``. Choosing the
+# directory here, at conftest import time, gives every pytest process its own
+# SQLite file, so parallel runs cannot drop each other's tables.
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="workboard-tests-")
+atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/workboard-tests.db"
 os.environ["LOCAL_API_TOKEN"] = "test-local-agent-token"
 
 import pytest
