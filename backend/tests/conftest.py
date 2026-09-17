@@ -35,7 +35,17 @@ def _clear_session_store() -> None:
 
 @pytest.fixture(autouse=True)
 def clean_database_and_settings():
-    """Give every API test a fresh schema and uncached environment settings."""
+    """Give every API test a fresh schema and uncached environment settings.
+
+    The schema is built with ``create_all`` rather than by running the Alembic
+    chain. A per-test ``drop_all`` + ``upgrade head`` would leave a stale
+    ``alembic_version`` row behind and cost far more than it proves: API tests
+    that pass against ``create_all`` but whose author forgot to add a revision
+    would still pass, because both mechanisms read the same ``app.models``.
+    ``tests/test_migrations.py`` covers the real risk instead -- it applies the
+    chain to an empty database and asserts the result has not drifted from the
+    metadata -- so the two mechanisms cannot silently disagree.
+    """
     get_settings.cache_clear()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

@@ -1,10 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import inspect, text
 
 from .contracts import HealthResponse
 from .config import get_settings
-from .database import Base, engine
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
@@ -41,19 +39,6 @@ async def add_local_security_headers_and_limit_json(request: Request, call_next)
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     return response
-
-
-@app.on_event("startup")
-def create_schema() -> None:
-    # Alembic migrations replace this bootstrap once persistent schema changes begin.
-    Base.metadata.create_all(bind=engine)
-    # Preserve existing local development volumes while this greenfield app uses
-    # SQLAlchemy bootstrap before it has an Alembic migration history.
-    if engine.dialect.name == "sqlite":
-        columns = {column["name"] for column in inspect(engine).get_columns("work_items")}
-        if "priority" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE work_items ADD COLUMN priority VARCHAR(6) NOT NULL DEFAULT 'medium'"))
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
