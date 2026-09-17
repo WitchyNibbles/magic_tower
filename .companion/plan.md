@@ -1,77 +1,175 @@
-# Plan — backend suite green, for real and for everyone
+# Plan — a populated queue, and a GUI worth looking at
 
-One task per `## Txx` heading. Statuses: `todo` → `doing` → `claimed` → `verified`, or `blocked(<reason>)`.
-Only the manager edits this file.
+One task per `## Txx — title` heading. Statuses: `todo` → `doing` → `claimed` → `verified`,
+or `blocked(<reason>)`. Only the manager edits this file.
 
-## T01 — Commit the uv migration
-- status: verified
+## T01 — Make the frontend build reproducible
+- status: todo
 - complexity: simple
 - deps:
-- done-when: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d" && docker compose build && test -f backend/pyproject.toml && test -f backend/uv.lock`
+- done-when: `git ls-files --error-unmatch frontend/package-lock.json && grep -q 'npm ci' frontend/Dockerfile && cd frontend && npm ci --silent && npm run build && cd .. && test -z "$(git status --porcelain)"`
 
-Commit 1 of the two the owner asked for. Track `backend/pyproject.toml`, `backend/uv.lock` and the
-modified `backend/Dockerfile` together — the Dockerfile already COPYs the other two
-(`backend/Dockerfile:12-13`), so committing it alone breaks `docker compose build` on a fresh clone.
-Also in this commit: add `[build-system]` (hatchling or setuptools, whichever matches the existing
-`magic_tower_api.egg-info` layout) so `project.scripts` stops being skipped by `uv sync`, and add
-`*.db`, `.venv/`, `*.egg-info/` to `.gitignore`. Track `backend/.python-version` too — it pins 3.12 and
-is what makes `uv sync` reproducible. Do not commit `backend/workboard.db`.
-Leaves the suite red on a fresh clone — that is expected and T02 closes it.
+Commit `frontend/package-lock.json`, pin the `"latest"` specifiers in `frontend/package.json:11-17`
+to what the lockfile resolved, switch `frontend/Dockerfile:3-4` from `npm install` to `npm ci`, and
+gitignore the tsc leftovers (`frontend/*.tsbuildinfo`, `frontend/vite.config.js`,
+`frontend/vite.config.d.ts`). Closes backlog B6.
+Probe note: config-only, no revertible impl file — falsify by hand (remove the lockfile, confirm
+`npm ci` fails).
 
-## T02 — Commit the test fix and correct the README
-- status: verified
-- complexity: simple
+## T02 — Introduce Alembic
+- status: todo
+- complexity: complex
+- deps:
+- done-when: `cd backend && rm -f /tmp/t02.db && DATABASE_URL=sqlite:////tmp/t02.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
+
+Add `alembic` as a runtime dependency, scaffold `backend/alembic/` with `env.py` reading
+`DATABASE_URL` from settings, and autogenerate an initial migration matching today's models. Remove
+the hand-written `ALTER TABLE` and the `create_all` from startup (`backend/app/main.py:46`) — but
+existing databases already have these tables, so the migration must be safe to stamp rather than
+re-run. Tests must not regress: `backend/tests/conftest.py` currently builds schema via
+`Base.metadata.create_all`, so decide and document whether tests migrate or keep `create_all`.
+Probe note: scaffolding-shaped; falsify by hand.
+
+## T03 — Encrypt message content at rest
+- status: todo
+- complexity: complex
+- deps: T02
+- done-when: `cd backend && uv run pytest tests -q -k excerpt_is_encrypted_at_rest`
+
+`Source.excerpt` holds up to 2000 chars of real mail and Teams content in plaintext
+(`backend/app/services/graph.py:50`). Encrypt with the existing AES-GCM helper
+(`backend/app/services/crypto.py:34`) under its **own AAD** — never reuse `b"workboard-graph-v1"`,
+which belongs to the token store. Decrypt on read so the API and the GUI evidence blockquotes keep
+working. Test first: persist a signal with a distinctive marker, assert the marker is absent from
+the raw bytes of the database file. Ship the data migration as an Alembic revision (T02), including
+rows written before this change.
+
+## T04 — Dispatch sync per source kind
+- status: todo
+- complexity: normal
+- deps: T03
+- done-when: `cd backend && uv run pytest tests -q -k per_source_dispatch`
+
+`sync()` is hardwired to Graph and asserts the connected Graph user id
+(`backend/app/services/sync.py:35-50`). Introduce a registry keyed by `SourceKind` so another kind
+registers without editing `sync()`. Prove it with a test that registers a fake kind and syncs it end
+to end. Keep the Graph identity assertion for the Graph kind only. No new connector here.
+
+## T05 — Promote actionable signals into work items
+- status: todo
+- complexity: complex
+- deps: T04
+- done-when: `cd backend && uv run pytest tests -q -k promotion`
+
+The missing link: `persist_signals` writes only `Source` rows (`backend/app/services/graph.py:45`)
+and nothing calls `create_work_item` (`backend/app/services/work_items.py:42`), so the queue is
+empty after every sync. One named, unit-testable function holds the heuristic with its rules in a
+docstring: promote signals addressed directly to the user, skip automated/newsletter senders and
+bulk mail, carry the excerpt across as `WorkEvidence`. Synthetic fixtures must include a newsletter
+that must NOT promote and a direct message that must. `source_external_id` is unique
+(`backend/app/models.py:41`), so promoting twice must not raise or duplicate —
+`test_promotion_is_idempotent` covers it.
+
+## T06 — Backfill the Sources already stored
+- status: todo
+- complexity: normal
+- deps: T05
+- done-when: `cd backend && uv run pytest tests -q -k backfill`
+
+Promote `Source` rows written before T05 once, so the queue populates without waiting for a sync.
+Re-running must be safe — run the backfill twice in the test and assert a stable count. Document
+where it runs (startup vs explicit endpoint); if startup, it must not slow boot on an empty DB.
+Probe note: test-shaped; falsify by hand (stub the body, confirm the test reddens).
+
+## T07 — Index and paginate the list endpoints
+- status: todo
+- complexity: normal
+- deps: T06
+- done-when: `cd backend && uv run pytest tests -q -k "pagination or indexes"`
+
+`GET /api/work-items` and `/api/sources` return every row (`backend/app/api/routes.py:66`) and
+`backend/app/models.py` has no `index=True` anywhere. Add indexes on the columns actually filtered
+and sorted (status, source_kind, updated_at, and `Source.external_id` beyond its unique constraint
+if the query plan needs it) via an Alembic revision. Return a consistent envelope —
+items, total, limit, offset — with a sane default limit and a cap. This changes the shape
+`frontend/src/api.ts:33` consumes; T13 adapts the GUI, so leave the frontend working or coordinate
+via that task.
+
+## T08 — Promote and dismiss from the API
+- status: todo
+- complexity: normal
+- deps: T07
+- done-when: `cd backend && uv run pytest tests -q -k "promote_endpoint or dismiss_endpoint"`
+
+Endpoints to correct the heuristic by hand: promote a `Source` the rules missed, and dismiss a
+`WorkItem` that should not have been promoted. Dismiss must not delete provenance — prefer a status
+transition over a hard delete, and make a dismissed item stay dismissed across re-syncs and the
+T06 backfill (otherwise the next run promotes it again). Both are cookie-writable, so they need the
+CSRF path (`backend/app/security.py:106-109`).
+
+## T09 — Measure the heuristic against real mail
+- status: todo
+- complexity: normal
+- deps: T05
+- done-when: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
+
+A command that replays a labeled sample through the heuristic and reports precision and recall.
+The sample is the owner's real mail and **must never enter the repository** — read it from a
+gitignored local path, default `~/.magic-tower/labeled-sample.json`, and **exit 0 with a clear
+message when the file is absent** so CI and other machines pass. Ship a documented sample schema
+plus a small synthetic example committed in its place, and document how the owner exports and
+labels theirs. Report counts, precision, recall, and list the misclassified items so the rules can
+be tuned.
+
+## T10 — Frontend test infrastructure and shadcn foundation
+- status: todo
+- complexity: normal
 - deps: T01
-- done-when: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d/backend" && uv sync -q && uv run pytest tests ../tests/agent_protocol -q`
+- done-when: `cd frontend && npm run test -- --run`
 
-Commit 2. Track `backend/tests/conftest.py` and the diffs to `test_security.py` / `test_work_items.py`.
-Delete the now-orphaned `create_item()` at `backend/tests/test_security.py:9`. Rewrite
-`README.md:30-33`: drop the AnyIO-portal hang paragraph entirely and document
-`cd backend && uv run pytest tests ../tests/agent_protocol` as the green command, including the fact
-that it must run from `backend/` because `env_file=".env"` is cwd-relative (`backend/app/config.py:13`).
+There are no frontend tests today. Add vitest + @testing-library/react + jsdom, a `test` script,
+and one real test of the existing app. In the same task add Tailwind and the shadcn CLI setup so
+later tasks can copy components in. Pin every version — no `"latest"` — and keep `npm ci` green.
 
-## T03 — Give every test its own database
-- status: verified
+## T11 — Three-pane Mail layout with command palette
+- status: todo
+- complexity: complex
+- deps: T10
+- done-when: `cd frontend && npm run test -- --run -t "layout"`
+
+Rebuild the shell on shadcn's Mail example: resizable list + detail panes, and `cmdk` for a command
+palette. Replace `frontend/src/styles.css` rather than layering Tailwind over it, and leave no dead
+CSS. Keep the existing behaviour that works — session/token handling (`frontend/src/api.ts:14`),
+the demo-data fallback on 401/503 (`main.tsx:6-10,17`), and the dispatch clipboard copy.
+
+## T12 — Triage view with grouping
+- status: todo
+- complexity: complex
+- deps: T11, T08
+- done-when: `cd frontend && npm run test -- --run -t "triage"`
+
+The view the owner actually wanted: promoted items grouped for triage (by source kind and thread —
+deterministic grouping, no LLM). Tests assert that items group correctly, that an empty queue says
+so instead of rendering blank, and that the group counts match the data.
+
+## T13 — Wire pagination, promote and dismiss into the GUI
+- status: todo
 - complexity: normal
-- deps: T02
-- done-when: `cd backend && (uv run pytest tests -q & uv run pytest tests -q & wait) && ! grep -q '/tmp/workboard-tests.db' tests/conftest.py`
+- deps: T12
+- done-when: `cd frontend && npm run test -- --run -t "pagination or actions"`
 
-Replace the fixed `/tmp/workboard-tests.db` with a per-session path from `tmp_path_factory`, so two
-pytest processes cannot drop each other's tables. The engine is built at import time
-(`backend/app/database.py:17`) from `@lru_cache get_settings` (`backend/app/config.py:65-67`), so the
-env var must still be set before app import — keep that ordering and write a comment saying why.
-Test first: a test that fails under the current shared path.
+Consume T07's envelope (items/total/limit/offset) instead of assuming a bare array
+(`frontend/src/api.ts:33`), with load-more or pager controls. Wire T08's promote and dismiss,
+including the CSRF header the write path requires. Tests assert the request carries the right
+offset and that a dismissed item leaves the list.
 
-## T04 — Make a hang fail loudly
-- status: verified
-- complexity: simple
-- deps: T02
-- done-when: `cd backend && uv run pytest tests ../tests/agent_protocol -q --timeout=30`
-
-Add `pytest-timeout` to the dev dependency group and configure a default timeout with
-`--timeout-method=thread` in `[tool.pytest.ini_options]` (`backend/pyproject.toml:23-25`). Thread
-method is the one that can interrupt a blocked C-level call. Re-run `uv lock`. If the original
-hang ever returns, this turns it into a dumped stack instead of a stuck CI job.
-
-## T05 — Stop the session store leaking between tests
-- status: verified
+## T14 — Prove it end to end and on CI
+- status: todo
 - complexity: normal
-- deps: T02
-- done-when: `cd backend && uv run pytest tests -q -k session_store_is_isolated`
+- deps: T13, T09
+- done-when: `cd backend && uv run pytest tests -q -k sync_populates_api && test "$(gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --limit 1 --json headSha,conclusion -q '.[0].headSha+":"+.[0].conclusion')" = "$(git rev-parse HEAD):success"`
 
-`_sessions` is a module-level dict guarded by a `Lock` (`backend/app/security.py:31-32`) and is never
-cleared, so session state survives from test to test in-process. Write `session_store_is_isolated`
-first and show it failing, then clear the store in the autouse fixture. Do not change the production
-locking or the `hmac.compare_digest` comparison (`backend/app/security.py:48`).
-
-## T06 — CI enforces the whole bar
-- status: verified
-- complexity: normal
-- deps: T03, T04, T05
-- done-when: `uv run --project backend --with pyyaml python -c "import yaml,pathlib,sys; w=yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text()); s=str(w); sys.exit(0 if 'uv run pytest' in s and 'docker' in s.lower() else 1)"`
-
-Net-new: there is no `.github`, Makefile or justfile. One workflow, on push and pull_request, with a
-test job (`astral-sh/setup-uv`, Python 3.12, `cd backend && uv run pytest tests ../tests/agent_protocol`)
-and a build job (`docker compose build`). Run the tests from `backend/` — from the repo root a
-checkout without `.env` would pass locally-inconsistently, and the cwd-relative `env_file` is a trap
-worth not re-learning. That the workflow goes green on GitHub is manual; no runner and no actionlint here.
+One backend test running a fixture sync through the whole path, asserting `GET /api/work-items`
+returns promoted items with evidence. Extend `.github/workflows/ci.yml` to run the frontend tests
+too — today it runs only pytest and the Docker build. Then push so CI runs on this exact commit;
+a stale earlier run does not count.
