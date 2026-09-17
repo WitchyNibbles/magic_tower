@@ -1,81 +1,130 @@
-# Contract — backend suite green, for real and for everyone
+# Contract — a populated queue, and a GUI worth looking at
 
-Approved: 2026-09-17 · Sealed by `.companion/contract.sha256`.
+Approved: 2026-09-18 · Sealed by `.companion/contract.sha256`.
 Changing this file after approval requires `/companion:contract` again; `companion build` refuses otherwise.
 
 ## Result
-A fresh clone of this branch can run one command and see the whole backend suite pass —
-today that is impossible, because the fix lives in three untracked files. The README stops
-claiming a hang that no longer exists. Test isolation stops depending on a single shared
-SQLite path and a fixed engine built at import time, so the import-order bug that caused
-the original failure cannot come back silently. CI enforces all of it on every push.
+After a Graph sync, the GUI shows real work items grouped for triage instead of an empty queue, and
+the owner can promote or dismiss them by hand when the heuristic gets it wrong. The heuristic is
+measured against a labeled sample of the owner's real mail, not only invented fixtures. Mail and
+chat content stops sitting in plaintext on disk. Schema changes go through Alembic instead of a
+hand-written `ALTER TABLE`. Lists are indexed and paginated. `sync()` stops being hardwired to
+Graph, so Jira and Freshservice can be added later without surgery.
 
 ## Non-goals
-- Chasing the reported AnyIO portal hang. Three independent runs (12x, 3x, per-file, reverse
-  order) show 8/8 passing; the symptom was `OperationalError: unable to open database file`
-  from import order, not a portal deadlock.
-- Rewriting tests to `httpx.AsyncClient` + `ASGITransport`. Every route is sync `def`.
-- Bumping fastapi 0.115→0.141 / starlette 1.6. That forces the `@app.on_event("startup")`
-  → lifespan rewrite (`backend/app/main.py:46`) and is a separate task.
-- Touching the frontend, or its unpinned `latest` dependencies (`frontend/package.json:11-17`).
+- Any Jira or Freshservice connector. This contract only makes room for them
+  (`backend/app/services/sync.py:35-50` currently asserts the Graph-connected user id).
+- Any LLM call. Promotion is deterministic rules; LLM cleaning and grouping is a later contract.
+- MCP server / real agent hand-off. Dispatch stays a queue row and the clipboard copy of
+  `pending-work context <id>`.
+- Any LLM-based cleaning, titling or grouping. Grouping in this contract is deterministic
+  (by source thread/kind), not semantic.
+- Session persistence across API restart (`backend/app/security.py:31` stays a process-local dict)
+  and authentication on `GET /api/sync/status` (`backend/app/api/sync.py:14`). Both are backlog.
 
 ## Environment facts
 - test: `cd backend && uv run pytest tests ../tests/agent_protocol -q`
-  — **runs today: 26 passed in 4.70s** (was 18 at first sealing; T03–T06 added 8). Covers the
-  backend tests and the `tests/agent_protocol` tests in one invocation.
-- run: `cd backend && DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app`
-  (verified: startup completes, `GET /api/health` → 200 with security headers)
-- lint: none — no ruff/black/flake8/mypy configured anywhere in `backend/pyproject.toml`.
-- (no `dead-code:` key: vulture is not installed and adding it is out of scope. The key is omitted
-  rather than given a prose value, because the verifier runs whatever follows `dead-code:` as a command.)
-- Python 3.12 (`backend/.python-version`), package manager **uv**. No CI exists (`.github` absent),
-  no Makefile, no justfile.
-- **The test command must be run from `backend/`.** `app/config.py:13` sets `env_file=".env"`,
-  which is cwd-relative; from the repo root pytest loads the root `.env`, whose empty
-  `MICROSOFT_*` values fail Settings validation and abort collection with 3 pydantic
-  `ValidationError`s. Verified today.
-- `backend/tests/conftest.py`, `backend/pyproject.toml` and `backend/uv.lock` are **untracked**.
-  `backend/Dockerfile:12-13` already COPYs the latter two, so a fresh clone cannot build.
-- Env var names the suite depends on: `DATABASE_URL`, `LOCAL_API_TOKEN` (test literals are
-  asserted verbatim — `conftest.py:8` is consumed at `test_work_items.py:8,37`).
+  — **runs today: 26 passed in 1.79s.**
+- run: `docker compose build && docker compose up` (GUI same-origin behind nginx, which proxies
+  `/api/` → `api:8000`, `frontend/nginx.conf:11`). Backend alone:
+  `cd backend && DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app`.
+- lint: none — no ruff/black/flake8/mypy configured.
+- dead-code: `{ ( cd backend && uv run --with vulture vulture app tests --min-confidence 80 | wc -l ); ( cd frontend && npx --yes knip@latest --reporter json 2>/dev/null | jq '[.issues[] | (.files|length)+(.exports|length)+(.types|length)+(.dependencies|length)+(.devDependencies|length)+(.unlisted|length)+(.unresolved|length)+(.duplicates|length)+(.enumMembers|length)+(.namespaceMembers|length)+(.binaries|length)] | add // 0' ); } | paste -sd+ | bc`
+  — **baseline 4 today**, covering *both* languages. Python side (vulture, 2): both `cls` in
+  `@classmethod` pydantic validators (`backend/app/config.py:34,45`), false positives; do not use
+  vulture's default 60% confidence, which reports 80 findings that are nearly all pydantic fields
+  and SQLAlchemy columns. TypeScript side (knip, 2): the generated `frontend/vite.config.d.ts`
+  (removed by T01) and an unused exported type `Evidence` (`frontend/src/api.ts:5`). knip runs
+  zero-config here and counts unused files, exports, types, dependencies and unresolved imports, so
+  the shadcn rebuild cannot hide dead TS or CSS behind a Python-only gate.
+- Python 3.12 + uv; Node 22 for the frontend (`frontend/Dockerfile:1`).
+- **There are no frontend tests today** — `frontend/src/` is 4 files and `frontend/package.json`
+  has no vitest/jest/testing-library/playwright dependency. Test infrastructure is part of T10, and
+  no GUI acceptance criterion can be written before it exists.
+- **There is no Alembic today** — startup does `create_all` plus a hand-written `ALTER TABLE`
+  (`backend/app/main.py:46`), and `alembic` is not a dependency.
+- The labeled real-mail sample is **local and gitignored**; CI and every committed test run on
+  synthetic fixtures only. No real mail content ever enters the repository.
+- **The test command must be run from `backend/`** — `env_file=".env"` is cwd-relative
+  (`backend/app/config.py:13`), so from the repo root the root `.env`'s empty `MICROSOFT_*` values
+  abort collection with 3 pydantic ValidationErrors.
+- `httpx` is currently a **dev-only** dependency; `EncryptedTokenStore` is single-slot, one path and
+  AAD `b"workboard-graph-v1"` (`backend/app/services/crypto.py:23-48`).
+- Untracked in the tree at sealing: `frontend/package-lock.json` (keep, T01),
+  `frontend/tsconfig*.tsbuildinfo`, `frontend/vite.config.js`, `frontend/vite.config.d.ts`
+  (generated by tsc despite `noEmit`; gitignore them).
 
 ## Acceptance criteria
-- AC1: One command runs both suites green from a fresh clone of the branch.
-  - verify: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d/backend" && uv sync -q && uv run pytest tests ../tests/agent_protocol -q`
-- AC2: The fix is committed — the uv migration and conftest are tracked files.
-  - verify: `git ls-files --error-unmatch backend/pyproject.toml backend/uv.lock backend/tests/conftest.py`
-- AC3: The README documents the green command and no longer claims a hang.
-  - verify: `grep -q 'uv run pytest' README.md && ! grep -qiE 'hang|AnyIO portal' README.md`
-- AC4: Tests no longer share one fixed SQLite path; two suite runs in parallel both pass.
-  - verify: `cd backend && { uv run pytest tests -q & a=$!; uv run pytest tests -q & b=$!; wait $a && wait $b; }`
-  - verify: `! grep -q '/tmp/workboard-tests.db' backend/tests/conftest.py`
-- AC5: A hang anywhere in the suite fails loudly instead of blocking forever.
-  - verify: `cd backend && uv run pytest tests ../tests/agent_protocol -q --timeout=30 && grep -qE '^timeout' pyproject.toml`
-- AC6: The in-process session store does not leak across tests, and a test proves it.
-  - verify: `cd backend && uv run pytest tests -q -k session_store_is_isolated`
-- AC7: `docker compose build` succeeds from a fresh clone (not just from this working tree).
-  - verify: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d" && docker compose build`
-- AC8: A CI workflow runs the test command and the Docker build on push.
-  - verify: `uv run --project backend --with pyyaml python -c "import yaml,pathlib,sys; w=yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text()); s=str(w); sys.exit(0 if 'uv run pytest' in s and 'docker' in s.lower() else 1)"`
-  - verify: manual — that the workflow goes green on GitHub. No runner and no actionlint here, so
-    nothing local can check it; the parse check above is the most a command can prove.
-- AC9: The README's `uv tool install --editable .` path works — `[build-system]` is present.
-  - verify: `cd backend && uv sync -q && ./.venv/bin/magic-tower-api --help`
-- AC10: Build artefacts are ignored; `git status` is clean after a full test + run cycle.
-  - verify: `cd backend && uv run pytest tests -q >/dev/null && cd .. && test -z "$(git status --porcelain)"`
+- AC1: The whole backend suite is green, including every new test this contract adds.
+  - verify: `cd backend && uv run pytest tests ../tests/agent_protocol -q`
+- AC2: The frontend builds from a committed lockfile, and the image uses `npm ci`.
+  - verify: `git ls-files --error-unmatch frontend/package-lock.json && grep -q 'npm ci' frontend/Dockerfile && cd frontend && npm ci --silent && npm run build`
+- AC3: A full build leaves the tree clean — no generated artefact is untracked or unignored.
+  - verify: `cd frontend && npm run build >/dev/null 2>&1; cd .. && test -z "$(git status --porcelain)"`
+- AC4: Schema changes go through Alembic; the migration chain applies to an empty database and
+  startup no longer hand-writes DDL.
+  - verify: `cd backend && rm -f /tmp/ac4-alembic.db && DATABASE_URL=sqlite:////tmp/ac4-alembic.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
+- AC5: Message content is not readable in the database file.
+  - verify: `cd backend && uv run pytest tests -q -k excerpt_is_encrypted_at_rest`
+- AC6: `sync()` dispatches per source kind; a second kind registers without editing `sync()`.
+  - verify: `cd backend && uv run pytest tests -q -k per_source_dispatch`
+- AC7: A sync promotes actionable signals into work items, ignores noise, and does not duplicate
+  on a second run.
+  - verify: `cd backend && uv run pytest tests -q -k promotion`
+- AC8: Sources stored before this change are promoted once, by a backfill that is safe to re-run.
+  - verify: `cd backend && uv run pytest tests -q -k backfill`
+- AC9: List endpoints are paginated and the columns they filter and sort on are indexed.
+  - verify: `cd backend && uv run pytest tests -q -k "pagination or indexes"`
+- AC10: The owner can promote a missed Source and dismiss a wrongly-promoted item through the API.
+  - verify: `cd backend && uv run pytest tests -q -k "promote_endpoint or dismiss_endpoint"`
+- AC11: The heuristic is measured against the owner's labeled real-mail sample, and the command
+  reports precision and recall. It skips cleanly when the gitignored sample is absent.
+  - verify: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
+- AC12: The frontend has tests and they pass.
+  - verify: `cd frontend && npm run test -- --run`
+- AC13: The GUI renders grouped triage items, paginates, and can promote/dismiss — proven by
+  frontend tests, not by the build succeeding.
+  - verify: `cd frontend && npm run test -- --run -t "triage"`
+- AC14: End to end — after a fixture sync, `GET /api/work-items` returns promoted items with
+  evidence.
+  - verify: `cd backend && uv run pytest tests -q -k sync_populates_api`
+- AC15: CI is green **for the exact commit at HEAD** — a stale earlier run does not satisfy this.
+  - verify: `test "$(gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --limit 1 --json headSha,conclusion -q '.[0].headSha+":"+.[0].conclusion')" = "$(git rev-parse HEAD):success"`
 
 ## Quality bar
-- Tests first; each behaviour change has a test that fails without it. AC6 in particular:
-  the worker must show the new test failing before the cleanup fixture is added.
-- No dead code left behind — `create_item()` at `backend/tests/test_security.py:9` is already
-  orphaned by the conftest move and must go.
-- No debug output, no unrelated formatting churn.
-- Matches existing conventions: sync `def` routes, module-level `app`, docstring style in
-  `backend/tests/conftest.py`.
-- Secrets stay out of source: settings default `None` (`backend/app/config.py:18-26`), missing
-  token → 503 (`backend/app/security.py:35-43`), `hmac.compare_digest` compare. A test fix must
-  not weaken any asserted invariant.
+- Tests first; every behaviour change has a test that fails without it. For the heuristic in
+  particular, the fixtures must include both a newsletter/automated sender that must NOT be
+  promoted and a direct message that must be.
+- The heuristic lives in one named, unit-testable function with its rules stated in a docstring —
+  not scattered through `persist_signals`.
+- No dead code (baseline 2, false positives only), no debug output, no unrelated formatting churn.
+- Matches existing conventions: sync `def` routes, module-level `app`, injectable transports for
+  I/O (`backend/app/integrations/graph.py:18-36`), `"kind:{external_id}"` prefixes for
+  `Source.external_id`.
+- Paginated list endpoints return a consistent envelope — items, total, limit, offset — and the
+  frontend consumes it rather than assuming a bare array (`frontend/src/api.ts:33`).
+- **No real mail content in the repository.** The labeled sample stays at a gitignored local path;
+  committed fixtures are synthetic.
+- The shadcn rebuild replaces `frontend/src/styles.css` rather than layering Tailwind on top of it;
+  no dead CSS left behind.
+- Secrets stay out of source. Encryption uses the existing AES-GCM helper with its own AAD, never a
+  second hardcoded key. Nothing weakens the fail-closed 503, the CSRF check, or
+  `hmac.compare_digest`.
 
 ## Playbook checks applied
-- No `.companion/playbook.md` exists yet — this is the first loop, nothing to carry in.
-
+- Verify lines run through the verifier's own parser before sealing, not by hand — done, all 10
+  extracted and executed via `verifyCommands()`; results in the table below.
+- Contract carries a `dead-code:` command with a measured baseline — done: baseline **2**, measured
+  today with vulture at `--min-confidence 80`.
+- Push to prove CI rather than writing `verify: manual` — done: `origin` exists and `gh` is
+  authenticated as WitchyNibbles, so AC10 is a real command, not a manual note.
+- Out-of-scope findings go to `.companion/backlog.md` in the same session — done: Alembic,
+  indexes/pagination, session persistence, unauth'd `GET /api/sync/status`, and the UI rebuild are
+  recorded there, not dropped.
+- Each task's revertibility checked for the vacuity probe — T01 (lockfile/config), T02 (Alembic
+  scaffolding) and T06 (backfill) are config- or test-shaped and will produce weak or vacuous
+  probes; the manager must falsify those by hand rather than trust a RED.
+- The dead-code gate covers **both** languages (vulture + knip, baseline 4) at the owner's
+  instruction — a Python-only gate would have let the T10–T13 rebuild leave dead TypeScript and CSS
+  behind. T01 removes one of the four (the generated `vite.config.d.ts`), so the count should fall,
+  never rise.
