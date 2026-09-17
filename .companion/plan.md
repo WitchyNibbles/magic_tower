@@ -4,7 +4,7 @@ One task per `## Txx` heading. Statuses: `todo` → `doing` → `claimed` → `v
 Only the manager edits this file.
 
 ## T01 — Commit the uv migration
-- status: todo
+- status: verified
 - complexity: simple
 - deps:
 - done-when: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d" && docker compose build && test -f backend/pyproject.toml && test -f backend/uv.lock`
