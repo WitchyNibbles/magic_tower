@@ -1,0 +1,14 @@
+# Backlog — found in scope of one run, deliberately not done in it
+
+Out of scope is a scheduling decision, not a decision to forget. Each item names where it came
+from and what it blocks.
+
+| # | Item | Why deferred | What it blocks | Size |
+|---|------|--------------|----------------|------|
+| B1 | `@app.on_event("startup")` → lifespan handler (`backend/app/main.py:46`) | Non-goal of run 2026-09-17T18-57-48 | Any fastapi/starlette upgrade. Removed in Starlette 1.x, so the bump breaks the app, not the tests. Emits 2 DeprecationWarnings per test run today. | S |
+| B2 | Bump fastapi 0.115.6 → 0.141 / starlette 0.41.3 → 1.6 | Same run's non-goal; depends on B1 | Clears the anyio 4.15 deprecated-alias tripwire: starlette 0.41.3 imports `anyio.abc.BlockingPortal`, so adding `filterwarnings = ["error"]` would break collection. Fixed upstream by Kludex/starlette#3498. | M |
+| B3 | Add a `dead-code:` gate to the contract (vulture, `--min-confidence 80`, baseline 2) | The gate was simply absent in the first contract | Nothing today — but it means no run so far has been checked for dead code. Baseline measured 2026-09-17: 2 findings, both false positives. | S |
+| B4 | Decide a whitelist or config for vulture's 60%-confidence noise | Deferred with B3 | Makes the gate usable at default confidence: 80 findings today, nearly all pydantic fields, `model_config`, SQLAlchemy columns and pytest fixtures. | S |
+| B5 | `env_file=".env"` is cwd-relative (`backend/app/config.py:13`) | Worked around, not fixed | Running pytest from the repo root loads the root `.env`, whose empty `MICROSOFT_*` values abort collection with 3 pydantic ValidationErrors. The suite must be run from `backend/`. A cwd-independent settings path would remove the trap. | S |
+| B6 | Frontend pins every dependency to `latest` and has no lockfile (`frontend/package.json:11-17`) | Backend-only run | Frontend builds are not reproducible; `docker compose build` can change behaviour between runs with no commit. | M |
+| B7 | Web dashboard for build visibility | Requested as feedback after run 2026-09-17T18-57-48 | Owner has no view into an autonomous run: what is happening, what is left, what already happened. Next idea for `/companion:explore`. | L |
