@@ -1,22 +1,6 @@
-import os
-
-import pytest
 from fastapi.testclient import TestClient
 
-# The application reads its connection string while importing the database module.
-os.environ["DATABASE_URL"] = "sqlite:////tmp/workboard-api-tests.db"
-os.environ["LOCAL_API_TOKEN"] = "test-local-agent-token"
-
-from app.database import Base, engine
 from app.main import app
-
-
-@pytest.fixture(autouse=True)
-def clean_database():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
 
 
 def test_work_item_evidence_context_and_dispatch_round_trip():

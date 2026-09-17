@@ -1,31 +1,9 @@
 """Security boundary tests; Graph credentials are intentionally out of scope."""
 
-import os
-
-os.environ["DATABASE_URL"] = "sqlite:////tmp/workboard-security-tests.db"
-
-import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.database import Base, engine
 from app.main import app
-
-
-@pytest.fixture(autouse=True)
-def clean_database_and_settings(monkeypatch):
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-    Base.metadata.drop_all(bind=engine)
-
-
-def create_item(client: TestClient) -> dict[str, object]:
-    response = client.post("/api/work-items", json={"title": "Review private conversation"}, headers={"Authorization": "Bearer unit-test-token"})
-    assert response.status_code == 201
-    return response.json()
 
 
 def test_workboard_fails_closed_without_a_configured_token(monkeypatch):

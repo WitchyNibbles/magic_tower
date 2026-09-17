@@ -6,6 +6,49 @@
 
 Magic Tower is a local-first workboard for tasks found in a specific Outlook mailbox and Teams conversations. Microsoft Graph ingestion and agent-driven work extraction are deliberately opt-in: nothing crosses the threshold until you invite it in.
 
+## Develop the API with uv
+
+The backend is a standalone [uv](https://docs.astral.sh/uv/) project pinned to Python 3.12. From the repository root:
+
+```sh
+cd backend
+uv sync
+DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app --reload
+```
+
+`/data` is the Docker data directory, so the `DATABASE_URL` override gives a
+local checkout a writable SQLite database. If you enable Microsoft Graph,
+also set `TOKEN_STORE_PATH` and `OAUTH_STATE_STORE_PATH` to writable local
+paths.
+
+Run the backend test command from `backend/`:
+
+```sh
+cd backend
+uv run pytest tests ../tests/agent_protocol
+```
+
+The suite must run from `backend/` because `app/config.py:13` sets
+`env_file=".env"`, which is resolved relative to the current working
+directory. From the repository root, pytest would load the root `.env`
+instead, whose empty `MICROSOFT_*` values fail Settings validation and abort
+collection.
+
+When dependencies move, update the committed lockfile with `uv lock`.
+
+## Install the API command with uv
+
+To install the API command into uv's tool environment from a local checkout:
+
+```sh
+cd backend
+uv tool install --editable .
+magic-tower-api app.main:app --reload
+```
+
+Set `DATABASE_URL=sqlite:///./workboard.db` before starting the command if you
+want a writable SQLite database in the checkout.
+
 ## Raise the tower locally
 
 ```sh
@@ -15,7 +58,7 @@ docker compose up --build
 
 Open [http://localhost:8787](http://localhost:8787). The web service binds to loopback only; the API stays inside the Compose network. Stop with `docker compose down`; persistent SQLite data is held in the `workboard-data` Docker volume.
 
-On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to create an HttpOnly, eight-hour local session. The typed value is not persisted in browser storage; cookie-backed changes also require CSRF protection.
+On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to create an HttpOnly, eight-hour local session. The typed value is not persisted in browser storage; cookie-backed writes also require CSRF protection.
 
 ## What waits within
 
