@@ -9,3 +9,6 @@ dist/
 .venv/
 *.egg-info/
 *.db
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
