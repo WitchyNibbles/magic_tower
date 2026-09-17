@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local-first Magic Tower API"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic==1.20.0",
     "cryptography==44.0.0",
     "fastapi==0.115.6",
     "pydantic-settings==2.7.1",
@@ -17,6 +18,11 @@ dependencies = [
 
 [project.scripts]
 magic-tower-api = "uvicorn.main:main"
+
+# Explicit so a second top-level directory under backend/ (alembic/ is one) can
+# never trip setuptools' flat-layout auto-discovery and break every `uv sync`.
+[tool.setuptools]
+packages = ["app"]
 
 [dependency-groups]
 dev = [

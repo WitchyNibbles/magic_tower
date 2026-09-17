@@ -12,8 +12,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY app ./app
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 RUN useradd --create-home appuser && mkdir -p /data && chown -R appuser:appuser /app /data
 USER appuser
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# The application writes no DDL of its own, so the schema is brought to head before
+# the first request. The baseline revision tolerates a workboard-data volume that
+# predates Alembic, so an existing volume needs no manual stamp.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

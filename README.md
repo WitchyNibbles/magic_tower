@@ -13,6 +13,7 @@ The backend is a standalone [uv](https://docs.astral.sh/uv/) project pinned to P
 ```sh
 cd backend
 uv sync
+DATABASE_URL=sqlite:///./workboard.db uv run alembic upgrade head
 DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app --reload
 ```
 
@@ -35,6 +36,33 @@ instead, whose empty `MICROSOFT_*` values fail Settings validation and abort
 collection.
 
 When dependencies move, update the committed lockfile with `uv lock`.
+
+## Migrate the schema with Alembic
+
+Alembic owns every table. The application creates none of its own at startup, so a
+database must be migrated before it can serve a request. `backend/alembic.ini`
+holds no URL: `backend/alembic/env.py` reads `DATABASE_URL` through the same
+`app.config.get_settings` the API uses, so both always open the same file.
+
+```sh
+cd backend
+DATABASE_URL=sqlite:///./workboard.db uv run alembic upgrade head                            # apply
+DATABASE_URL=sqlite:///./workboard.db uv run alembic revision --autogenerate -m "what changed"
+```
+
+Commit the generated revision together with the `app/models.py` change that motivated
+it; `tests/test_migrations.py` fails if the chain and the models drift apart.
+
+**A database created before Alembic existed** (a `workboard.db` or `workboard-data`
+volume left by the old `create_all` startup hook) already holds the baseline
+tables. Revision `0001` detects that and records itself without recreating them,
+so plain `alembic upgrade head` -- which the API container now runs before
+serving -- works unchanged on such a database. Marking it explicitly is equivalent:
+
+```sh
+cd backend
+DATABASE_URL=sqlite:///./workboard.db uv run alembic stamp 0001
+```
 
 ## Install the API command with uv
 
