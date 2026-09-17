@@ -43,7 +43,7 @@ env var must still be set before app import — keep that ordering and write a c
 Test first: a test that fails under the current shared path.
 
 ## T04 — Make a hang fail loudly
-- status: todo
+- status: verified
 - complexity: simple
 - deps: T02
 - done-when: `cd backend && uv run pytest tests ../tests/agent_protocol -q --timeout=30`
