@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "magic-tower-api"
+version = "0.1.0"
+description = "Local-first Magic Tower API"
+requires-python = ">=3.12"
+dependencies = [
+    "cryptography==44.0.0",
+    "fastapi==0.115.6",
+    "pydantic-settings==2.7.1",
+    "SQLAlchemy==2.0.36",
+    "uvicorn[standard]==0.32.1",
+]
+
+[project.scripts]
+magic-tower-api = "uvicorn.main:main"
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==8.3.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

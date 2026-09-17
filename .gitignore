@@ -6,3 +6,6 @@ dist/
 .codex/
 .devgod/
 .serena/
+.venv/
+*.egg-info/
+*.db
