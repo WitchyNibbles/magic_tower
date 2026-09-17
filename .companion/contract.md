@@ -21,12 +21,13 @@ the original failure cannot come back silently. CI enforces all of it on every p
 
 ## Environment facts
 - test: `cd backend && uv run pytest tests ../tests/agent_protocol -q`
-  — **runs today: 18 passed in 0.67s.** Covers both the 8 backend tests and the 10
-  `tests/agent_protocol` tests in one invocation.
+  — **runs today: 26 passed in 4.70s** (was 18 at first sealing; T03–T06 added 8). Covers the
+  backend tests and the `tests/agent_protocol` tests in one invocation.
 - run: `cd backend && DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app`
   (verified: startup completes, `GET /api/health` → 200 with security headers)
 - lint: none — no ruff/black/flake8/mypy configured anywhere in `backend/pyproject.toml`.
-- dead-code: omitted — vulture is not installed and adding it is out of scope.
+- (no `dead-code:` key: vulture is not installed and adding it is out of scope. The key is omitted
+  rather than given a prose value, because the verifier runs whatever follows `dead-code:` as a command.)
 - Python 3.12 (`backend/.python-version`), package manager **uv**. No CI exists (`.github` absent),
   no Makefile, no justfile.
 - **The test command must be run from `backend/`.** `app/config.py:13` sets `env_file=".env"`,
@@ -46,18 +47,18 @@ the original failure cannot come back silently. CI enforces all of it on every p
 - AC3: The README documents the green command and no longer claims a hang.
   - verify: `grep -q 'uv run pytest' README.md && ! grep -qiE 'hang|AnyIO portal' README.md`
 - AC4: Tests no longer share one fixed SQLite path; two suite runs in parallel both pass.
-  - verify: `cd backend && (uv run pytest tests -q & uv run pytest tests -q & wait)` — both exit 0
+  - verify: `cd backend && { uv run pytest tests -q & a=$!; uv run pytest tests -q & b=$!; wait $a && wait $b; }`
   - verify: `! grep -q '/tmp/workboard-tests.db' backend/tests/conftest.py`
 - AC5: A hang anywhere in the suite fails loudly instead of blocking forever.
-  - verify: `cd backend && uv run pytest tests ../tests/agent_protocol -q --timeout=30` exits 0,
-    and `grep -qE 'timeout' backend/pyproject.toml`
+  - verify: `cd backend && uv run pytest tests ../tests/agent_protocol -q --timeout=30 && grep -qE '^timeout' pyproject.toml`
 - AC6: The in-process session store does not leak across tests, and a test proves it.
   - verify: `cd backend && uv run pytest tests -q -k session_store_is_isolated`
 - AC7: `docker compose build` succeeds from a fresh clone (not just from this working tree).
   - verify: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d" && docker compose build`
 - AC8: A CI workflow runs the test command and the Docker build on push.
   - verify: `uv run --project backend --with pyyaml python -c "import yaml,pathlib,sys; w=yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text()); s=str(w); sys.exit(0 if 'uv run pytest' in s and 'docker' in s.lower() else 1)"`
-  - note: that the workflow actually passes on GitHub is manual — no runner here, actionlint absent.
+  - verify: manual — that the workflow goes green on GitHub. No runner and no actionlint here, so
+    nothing local can check it; the parse check above is the most a command can prove.
 - AC9: The README's `uv tool install --editable .` path works — `[build-system]` is present.
   - verify: `cd backend && uv sync -q && ./.venv/bin/magic-tower-api --help`
 - AC10: Build artefacts are ignored; `git status` is clean after a full test + run cycle.
@@ -78,16 +79,3 @@ the original failure cannot come back silently. CI enforces all of it on every p
 ## Playbook checks applied
 - No `.companion/playbook.md` exists yet — this is the first loop, nothing to carry in.
 
-## Verify commands, run once at contract time (2026-09-17)
-| AC | exit | note |
-|----|------|------|
-| AC1 | 2 | fresh clone has no `pyproject.toml`/`uv.lock` — `uv sync` fails |
-| AC2 | 1 | the three files are untracked |
-| AC3 | 1 | `README.md:30-33` still claims the hang |
-| AC4 | 1 | conftest still pins `/tmp/workboard-tests.db` |
-| AC5 | 4 | `pytest: error: unrecognized arguments: --timeout=30` — pytest-timeout absent |
-| AC6 | 5 | no such test — 8 deselected |
-| AC7 | **0** | passes *today only because HEAD still has the pip Dockerfile + `requirements.txt`*. It becomes a real guard the moment T01 commits the uv Dockerfile; that is exactly the hazard it protects against. |
-| AC8 | 1 | no `.github/workflows/ci.yml` |
-| AC9 | 127 | no `[build-system]`, so no `magic-tower-api` script in the venv |
-| AC10 | 1 | untracked `workboard.db`, `.venv/`, `*.egg-info/` dirty the tree |
