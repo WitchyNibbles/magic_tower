@@ -31,7 +31,7 @@ Delete the now-orphaned `create_item()` at `backend/tests/test_security.py:9`. R
 that it must run from `backend/` because `env_file=".env"` is cwd-relative (`backend/app/config.py:13`).
 
 ## T03 — Give every test its own database
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T02
 - done-when: `cd backend && (uv run pytest tests -q & uv run pytest tests -q & wait) && ! grep -q '/tmp/workboard-tests.db' tests/conftest.py`
