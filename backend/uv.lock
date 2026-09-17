@@ -344,6 +344,7 @@ dev = [
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-timeout" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -360,6 +361,7 @@ dev = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "pytest", specifier = "==8.3.4" },
     { name = "pytest-timeout", specifier = "==2.3.1" },
+    { name = "pyyaml", specifier = "==6.0.3" },
 ]
 
 [[package]]
