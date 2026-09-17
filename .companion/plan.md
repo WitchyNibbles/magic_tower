@@ -19,7 +19,7 @@ is what makes `uv sync` reproducible. Do not commit `backend/workboard.db`.
 Leaves the suite red on a fresh clone — that is expected and T02 closes it.
 
 ## T02 — Commit the test fix and correct the README
-- status: todo
+- status: verified
 - complexity: simple
 - deps: T01
 - done-when: `d=$(mktemp -d) && git clone -q . "$d" && cd "$d/backend" && uv sync -q && uv run pytest tests ../tests/agent_protocol -q`
