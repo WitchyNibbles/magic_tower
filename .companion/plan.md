@@ -4,7 +4,7 @@ One task per `## Txx — title` heading. Statuses: `todo` → `doing` → `claim
 or `blocked(<reason>)`. Only the manager edits this file.
 
 ## T01 — Make the frontend build reproducible
-- status: todo
+- status: verified
 - complexity: simple
 - deps:
 - done-when: `git ls-files --error-unmatch frontend/package-lock.json && grep -q 'npm ci' frontend/Dockerfile && cd frontend && npm ci --silent && npm run build && cd .. && test -z "$(git status --porcelain)"`
