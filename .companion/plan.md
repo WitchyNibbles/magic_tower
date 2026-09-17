@@ -54,7 +54,7 @@ method is the one that can interrupt a blocked C-level call. Re-run `uv lock`. I
 hang ever returns, this turns it into a dumped stack instead of a stuck CI job.
 
 ## T05 — Stop the session store leaking between tests
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T02
 - done-when: `cd backend && uv run pytest tests -q -k session_store_is_isolated`
