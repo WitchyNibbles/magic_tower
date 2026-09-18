@@ -315,7 +315,7 @@ too — today it runs only pytest and the Docker build. Then push so CI runs on 
 a stale earlier run does not count.
 
 ## T15 — Build the migration tests from the frozen baseline
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T02
 - done-when: `cd backend && uv run pytest tests -q -k "alembic_stamp or migrations"`
