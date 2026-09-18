@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import App from './App'
 import type { Source, WorkItem } from './api'
+import { demoItems } from '@/lib/work-items'
 
 afterEach(() => {
   cleanup()
@@ -15,9 +16,14 @@ const item = (id: string, title: string, rest: Partial<WorkItem> = {}): WorkItem
 
 const offsetOf = (path: string) => new URL(path, 'http://localhost').searchParams.get('offset') ?? '0'
 
-// A source the queue never promoted, so the MISSED panel has something to offer.
+// One source the queue never promoted, so the MISSED panel has something to offer, and one
+// that item 'a' already came from, which the panel must leave out.
 const missedSource: Source = {
   id: 's1', kind: 'outlook_email', external_id: 'outlook_email:z', subject: 'Missed source',
+  url: null, excerpt: null, observed_at: '',
+}
+const promotedSource: Source = {
+  id: 's0', kind: 'outlook_email', external_id: 'outlook_email:a', subject: 'Already in the queue',
   url: null, excerpt: null, observed_at: '',
 }
 const promotedItem = item('p', 'Promoted item', { source_external_id: missedSource.external_id })
@@ -34,7 +40,7 @@ const pagedQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
       return { ok: true, status: 200, json: async () => ({ items: page, total: 3, limit: 2, offset: Number(offsetOf(path)) }) }
     }
     if (url.pathname === '/api/sources') {
-      return { ok: true, status: 200, json: async () => ({ items: [missedSource], total: 1, limit: 200, offset: 0 }) }
+      return { ok: true, status: 200, json: async () => ({ items: [promotedSource, missedSource], total: 2, limit: 200, offset: 0 }) }
     }
     if (url.pathname.endsWith('/promote')) return { ok: true, status: 200, json: async () => promotedItem }
     if (url.pathname === '/api/session') return { ok: true, status: 200, json: async () => ({ csrf_token: 'csrf-test' }) }
@@ -46,6 +52,26 @@ const pagedQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
     return { ok: true, status: 200, json: async () => ({ status: 'ok', service: 'workboard' }) }
   })
   return { firstPage, secondPage }
+}
+
+// Five items over pages of two, so a third page sits behind the second and each Load more
+// has to trust the envelope's `total` rather than the size of the page it just received.
+const deepQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
+  const pages = [
+    [item('a', 'First item'), item('b', 'Second item')],
+    [item('c', 'Third item'), item('d', 'Fourth item')],
+    [item('e', 'Fifth item')],
+  ]
+  fetchMock.mockImplementation(async (path: string) => {
+    const url = new URL(path, 'http://localhost')
+    if (url.pathname === '/api/work-items') {
+      const page = pages[Number(offsetOf(path)) / 2] ?? []
+      return { ok: true, status: 200, json: async () => ({ items: page, total: 5, limit: 2, offset: Number(offsetOf(path)) }) }
+    }
+    if (url.pathname === '/api/sources') return { ok: true, status: 200, json: async () => ({ items: [], total: 0, limit: 200, offset: 0 }) }
+    if (url.pathname === '/api/session') return { ok: true, status: 200, json: async () => ({ csrf_token: 'csrf-test' }) }
+    return { ok: true, status: 200, json: async () => ({ status: 'ok', service: 'workboard' }) }
+  })
 }
 
 describe('Pagination', () => {
@@ -76,6 +102,36 @@ describe('Pagination', () => {
     await within(queue).findByText('First item')
     fireEvent.click(await within(queue).findByRole('button', { name: 'Load more' }))
     await within(queue).findByText('Third item')
+
+    expect(within(queue).queryByRole('button', { name: 'Load more' })).toBeNull()
+  })
+
+  it('pagination keeps paging past the second page while the envelope total exceeds what is loaded', async () => {
+    const fetchMock = vi.fn()
+    deepQueue(fetchMock)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const queue = await screen.findByRole('region', { name: 'Work queue' })
+    await within(queue).findByText('First item')
+    fireEvent.click(await within(queue).findByRole('button', { name: 'Load more' }))
+    await within(queue).findByText('Third item')
+    fireEvent.click(await within(queue).findByRole('button', { name: 'Load more' }))
+    await within(queue).findByText('Fifth item')
+  })
+
+  it('pagination is not offered once the sample queue replaces the real one', async () => {
+    const fetchMock = vi.fn()
+    pagedQueue(fetchMock)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const queue = await screen.findByRole('region', { name: 'Work queue' })
+    await within(queue).findByRole('button', { name: 'Load more' })
+    fireEvent.click(screen.getByRole('button', { name: 'View sample' }))
+    await within(queue).findByText(demoItems[0].title)
 
     expect(within(queue).queryByRole('button', { name: 'Load more' })).toBeNull()
   })
@@ -152,5 +208,17 @@ describe('Promote', () => {
     expect(promoteCall?.[0]).toBe(`/api/sources/${missedSource.id}/promote`)
     expect(promoteCall?.[1]?.method).toBe('POST')
     expect((promoteCall?.[1]?.headers as Record<string, string>)['X-CSRF-Token']).toBe('csrf-test')
+  })
+
+  it('promote only offers sources that are not already in the queue', async () => {
+    const fetchMock = vi.fn()
+    pagedQueue(fetchMock)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const panel = await screen.findByRole('group', { name: 'Missed sources' })
+    await within(panel).findByText(missedSource.subject as string)
+    expect(within(panel).queryByText(promotedSource.subject as string)).toBeNull()
   })
 })
