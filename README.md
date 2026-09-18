@@ -112,21 +112,41 @@ Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to i
 
 The promotion heuristic in `app/services/promotion.py` can only be trusted once it has been checked against real mail, but real mail must never enter this repository. This is a two-machine workflow: sign in and sync on the machine with Outlook access, then hand-label and evaluate.
 
-On the machine with Outlook access, after `.env` holds `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI`, and `APP_ENCRYPTION_KEY`, and a sync has run (`POST /api/sync`), export the synced sources into a labeled-sample file for hand judging:
+On the machine with Outlook access, after `.env` holds `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI`, and `APP_ENCRYPTION_KEY`, and a sync has run (`POST /api/sync`), export the synced sources into a labeled-sample file for hand judging.
 
-```
-cd backend && uv run python -m app.tools.heuristic_export --output ~/.magic-tower/labeled-sample.json
-```
+`heuristic_export` reads the database the sync wrote to and never talks to Microsoft Graph, so it has to be pointed at that same database -- which one it is depends on how you ran the API.
 
-Each row carries the fields `should_promote` reads (sender, recipients, headers, an excerpt) plus an empty `label` field. Open the file and set `label` to `true` or `false` on the rows you have judged by hand; leave the rest `null`. This file is real mail: `~/.magic-tower/` and any `labeled-sample.json` are gitignored everywhere in this repository, and the file never needs to leave the machine it was exported on.
+If you ran it from the checkout with uv ([above](#develop-the-api-with-uv)), that is `backend/workboard.db`, and the export needs the same `DATABASE_URL`:
 
-Then score the heuristic against the labeled rows:
-
-```
-cd backend && uv run python -m app.tools.heuristic_eval --sample ~/.magic-tower/labeled-sample.json
+```sh
+cd backend
+DATABASE_URL=sqlite:///./workboard.db uv run python -m app.tools.heuristic_export \
+    --output ~/.magic-tower/labeled-sample.json
 ```
 
-`heuristic_eval` reads only that JSON file -- no database, no Graph credentials -- so it also runs safely on a machine that has never synced real mail: with no sample file present it prints a message and exits 0. See `app/tools/labeled-sample.example.json` for the (entirely synthetic) row shape, and pass `--owner-address` (repeatable) to exercise the copied-only rule.
+If you ran it with `docker compose up`, the database is `/data/workboard.db` inside the `workboard-data` volume, which no host-side `DATABASE_URL` reaches. Export from the running container instead, copy the file out, and delete the container's copy -- `docker compose cp` cannot read the container's `/tmp` tmpfs, so the volume is the only way out and your mail would otherwise stay in it:
+
+```sh
+docker compose exec api python -m app.tools.heuristic_export --output /data/labeled-sample.json
+docker compose cp api:/data/labeled-sample.json ~/.magic-tower/labeled-sample.json
+docker compose exec api rm /data/labeled-sample.json
+```
+
+Pointed at a database that does not exist or was never migrated, the export names the problem and exits 1 rather than raising a traceback. On success it writes the file `0600` under a `0700` directory: it is real mail, and a second PC is often a shared one.
+
+Each row carries the fields `should_promote` reads (sender, recipients, the headers the rules read, an excerpt) plus an empty `label` field. Open the file and set `label` to `true` or `false` on the rows you have judged by hand; leave the rest `null`. This file is real mail: `~/.magic-tower/` and any `labeled-sample.json` are gitignored everywhere in this repository, and the file never needs to leave the machine it was exported on.
+
+Then score the heuristic against the labeled rows, naming every address the owner receives mail at -- both the `userPrincipalName` and the mail address, since alias-domain tenants hand out different ones:
+
+```sh
+cd backend
+uv run python -m app.tools.heuristic_eval --sample ~/.magic-tower/labeled-sample.json \
+    --owner-address you@tenant.com --owner-address you@tenant.onmicrosoft.com
+```
+
+`--owner-address` is what a live sync takes from the Graph profile, and without it the rule for mail you were only copied on (rule 4) never fires: every cc-only message you labeled `false` is then scored a false positive the production path would never have made, and the reported precision is lower than the heuristic actually achieves.
+
+`heuristic_eval` reads only that JSON file -- no database, no Graph credentials -- so it also runs safely on a machine that has never synced real mail: with no sample file present it prints a message and exits 0. See `app/tools/labeled-sample.example.json` for the (entirely synthetic) row shape.
 
 ## Agent integration
 

@@ -12,6 +12,20 @@ from ..integrations.graph import GraphClient
 from ..models import Source, SourceKind, SourceSignalContext
 
 
+def _heuristic_headers(headers: Any) -> dict[str, str]:
+    """Only the headers ``should_promote`` reads, so nothing else is kept on disk.
+
+    Graph returns the whole ``internetMessageHeaders`` block -- routing chains,
+    authentication results, the subject line again, tenant bookkeeping -- and none of
+    it is an input to any rule. ``HEURISTIC_HEADERS`` is imported here rather than at
+    module scope because ``promotion`` imports ``parse_observed_at`` from this module.
+    """
+    from .promotion import HEURISTIC_HEADERS
+
+    return {str(name): str(value) for name, value in dict(headers or {}).items()
+            if str(name).lower() in HEURISTIC_HEADERS}
+
+
 def parse_observed_at(value: Any) -> datetime:
     """Graph's ISO-8601 timestamp, or now if it is missing or unparseable."""
     try:
@@ -86,11 +100,13 @@ def persist_signals(db: Session, signals: list[dict[str, Any]]) -> int:
         # Carried across so a labeled-sample export can rebuild the exact signal
         # shape ``should_promote`` decided from -- otherwise a sample read back
         # from the database could only ever hit the heuristic's default rule.
+        # Headers are narrowed to the ones a rule reads: that is the whole reason
+        # they are stored, and the rest of the block is content-bearing metadata.
         source.signal_context = SourceSignalContext(
             sender=str(signal["sender"])[:320] if signal.get("sender") else None,
             sender_kind=str(signal.get("sender_kind") or "") or None,
             to_recipients=list(signal.get("to_recipients") or []) or None,
-            headers=dict(signal.get("headers") or {}) or None,
+            headers=_heuristic_headers(signal.get("headers")) or None,
         )
         db.add(source)
         created += 1
