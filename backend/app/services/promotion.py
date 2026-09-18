@@ -30,7 +30,14 @@ from .work_items import create_work_item
 AUTOMATED_SENDER_MARKERS = ("noreply", "donotreply", "autoreply", "mailerdaemon", "postmaster",
                             "bounce", "newsletter", "marketing", "campaign", "mailinglist")
 BULK_HEADERS = ("list-unsubscribe", "list-id", "list-post", "x-campaign-id")
+PRECEDENCE_HEADER = "precedence"
+AUTO_SUBMITTED_HEADER = "auto-submitted"
 BULK_PRECEDENCE = frozenset({"bulk", "list", "junk"})
+# Every header name ``_is_bulk_mail`` looks at, lowercased, derived from the names the
+# rule itself uses so the two cannot drift apart. ``persist_signals`` stores these and
+# discards the rest of Graph's header block: a name no rule reads is message metadata
+# kept on disk for nothing.
+HEURISTIC_HEADERS = frozenset(BULK_HEADERS) | {PRECEDENCE_HEADER, AUTO_SUBMITTED_HEADER}
 
 TITLE_LIMIT = 500
 # The same bound ``persist_signals`` puts on ``Source.excerpt``; the evidence copy
@@ -56,9 +63,9 @@ def _is_bulk_mail(headers: dict[str, Any]) -> bool:
     lowered = {str(name).lower(): str(value).strip().lower() for name, value in headers.items()}
     if any(header in lowered for header in BULK_HEADERS):
         return True
-    if lowered.get("precedence") in BULK_PRECEDENCE:
+    if lowered.get(PRECEDENCE_HEADER) in BULK_PRECEDENCE:
         return True
-    return lowered.get("auto-submitted", "no") != "no"
+    return lowered.get(AUTO_SUBMITTED_HEADER, "no") != "no"
 
 
 def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) -> bool:

@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import SessionLocal
@@ -35,6 +37,20 @@ def export_rows(db: Session) -> list[dict]:
     return [row_from_source(source) for source in db.scalars(query)]
 
 
+def _write_sample(path: Path, rows: list[dict]) -> None:
+    """Write the sample where only its owner can read it.
+
+    The rows are the owner's real mail in cleartext, and a second PC is often a
+    shared or managed one, so neither the default 0644 of a fresh file nor the mode
+    an earlier run left behind is good enough; the umask cannot loosen either.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
+    os.chmod(path, 0o600)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export a labeled-sample file for the heuristic eval tool.")
     parser.add_argument("--output", type=Path, default=DEFAULT_SAMPLE_PATH,
@@ -45,12 +61,23 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     db = SessionLocal()
+    # The database actually opened, not the environment's idea of it, so the message
+    # is true whatever set it. ``URL.__str__`` masks a password if the URL carries one.
+    database_url = db.get_bind().url
     try:
         rows = export_rows(db)
+    except OperationalError as error:
+        # An absent file, an unmigrated schema and a wrong URL all arrive here, and
+        # all three are the owner pointing the tool at the wrong database or at one
+        # no sync has prepared. Name the two remedies instead of raising a traceback.
+        print(f"cannot read the database at {database_url}: {error.orig}\n"
+              "Set DATABASE_URL to the database the sync wrote to (a local checkout uses "
+              "sqlite:///./workboard.db), and bring it to head with `alembic upgrade head`.",
+              file=sys.stderr)
+        return 1
     finally:
         db.close()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
+    _write_sample(args.output, rows)
     print(f"wrote {len(rows)} row(s) to {args.output}; label each row's \"label\" field "
           "(true/false) and run heuristic_eval", file=sys.stderr)
     return 0

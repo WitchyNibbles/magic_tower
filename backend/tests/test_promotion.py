@@ -35,7 +35,8 @@ from app.database import Base, engine
 from app.integrations.graph import GraphClient
 from app.models import SourceKind, WorkItem, WorkStatus
 from app.services.crypto import EncryptedTokenStore, generate_encryption_key
-from app.services.promotion import EXCERPT_LIMIT, TITLE_LIMIT, promote_signals, should_promote
+from app.services.promotion import (EXCERPT_LIMIT, HEURISTIC_HEADERS, TITLE_LIMIT, promote_signals,
+                                    should_promote)
 from app.services.sync import sync
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -178,6 +179,20 @@ def test_promotion_skips_a_human_looking_sender_whose_only_marker_is_auto_submit
 def test_promotion_accepts_mail_that_declares_auto_submitted_no() -> None:
     """``Auto-Submitted: no`` is the RFC 3834 way of saying a person sent it."""
     assert should_promote(_email(headers={"Auto-Submitted": "no"}), OWNER) is True
+
+
+# The value that makes each allowlisted header say "bulk"; the four list headers are
+# markers whose value the rule never looks at.
+_BULK_VALUE = {"precedence": "bulk", "auto-submitted": "auto-generated"}
+
+
+@pytest.mark.parametrize("header", sorted(HEURISTIC_HEADERS))
+def test_every_allowlisted_header_is_one_the_heuristic_actually_reads(header: str) -> None:
+    """``HEURISTIC_HEADERS`` is what ``persist_signals`` keeps out of everything Graph
+    returns, so a name in it that no rule reads would put a header on disk for nothing."""
+    headers = {header: _BULK_VALUE.get(header, "<https://vendor.example/u>")}
+
+    assert should_promote(_bulk_mailing(headers=headers), OWNER) is False
 
 
 def test_promotion_skips_mail_the_owner_was_only_copied_on() -> None:

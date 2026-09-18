@@ -80,6 +80,10 @@ class SourceSignalContext(Base):
     itself never renders belongs in its own table instead of growing that one.
     Without this, a labeled-sample export built from the database alone could only
     ever replay the heuristic's last rule: every other rule reads one of these.
+    ``headers`` holds only the names a rule reads (``promotion.HEURISTIC_HEADERS``):
+    ``persist_signals`` drops the rest of Graph's ``internetMessageHeaders`` block
+    rather than storing routing chains and authentication results for nobody.
+
     Not encrypted: a sender address and a bulk-mail header are metadata, the same
     tier ``Source.subject`` already sits at, not message content.
     """
