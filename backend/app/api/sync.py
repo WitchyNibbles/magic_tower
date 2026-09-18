@@ -36,6 +36,8 @@ def run_backfill(db: Session = Depends(get_db)) -> dict[str, object]:
 
     The envelope never collapses to one number: see
     ``app.services.backfill.backfill_promoted_sources`` for what ``considered``,
-    ``new_work_items`` and ``judged_without_context`` each distinguish.
+    ``new_work_items``, ``judged_without_context`` and
+    ``promoted_without_owner_check`` each distinguish. The last two report the two
+    ways a backfilled judgement is weaker than the one a live sync reaches.
     """
     return backfill_promoted_sources(db)
