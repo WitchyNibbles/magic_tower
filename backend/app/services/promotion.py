@@ -30,6 +30,14 @@ from .work_items import conflict, create_work_item
 AUTOMATED_SENDER_MARKERS = ("noreply", "donotreply", "autoreply", "mailerdaemon", "postmaster",
                             "bounce", "newsletter", "marketing", "campaign", "mailinglist")
 BULK_HEADERS = ("list-unsubscribe", "list-id", "list-post", "x-campaign-id")
+# Senders whose mail is work despite being machine-generated. A ticket system
+# raising a comment or an assignment is a request someone made of the owner; it
+# only reaches them through a robot. Matched against the whole address, because the
+# marker lives in the domain (``jira@acme.atlassian.net``,
+# ``helpdesk@acme.freshservice.com``) as often as in the local part. Measured
+# against a labeled sample: rules 2 and 3 rejected every ticket mail in it, and the
+# owner had labeled all of them work.
+TICKET_SENDER_MARKERS = ("jira", "atlassian", "freshservice")
 PRECEDENCE_HEADER = "precedence"
 AUTO_SUBMITTED_HEADER = "auto-submitted"
 BULK_PRECEDENCE = frozenset({"bulk", "list", "junk"})
@@ -59,6 +67,23 @@ def _is_automated_sender(sender: str | None) -> bool:
     return bool(sender) and any(marker in _local_part(str(sender)) for marker in AUTOMATED_SENDER_MARKERS)
 
 
+def _is_ticket_system(sender: str | None) -> bool:
+    """True for a sender whose machine-generated mail is nonetheless somebody's request."""
+    return bool(sender) and any(marker in str(sender).lower() for marker in TICKET_SENDER_MARKERS)
+
+
+def _is_allowlisted(sender: str | None, allowlisted_senders: Collection[str]) -> bool:
+    """True for an address the owner has declared work whatever the rules decide.
+
+    Compared whole and case-insensitively, not by substring: an allowlist is the
+    owner naming one mailbox, and a substring match on a short name would quietly
+    cover addresses they never named.
+    """
+    if not sender:
+        return False
+    return str(sender).strip().lower() in {address.strip().lower() for address in allowlisted_senders if address.strip()}
+
+
 def _is_bulk_mail(headers: dict[str, Any]) -> bool:
     lowered = {str(name).lower(): str(value).strip().lower() for name, value in headers.items()}
     if any(header in lowered for header in BULK_HEADERS):
@@ -77,11 +102,16 @@ def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) ->
     return owners.isdisjoint(str(address).strip().lower() for address in recipients)
 
 
-def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()) -> bool:
+def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = (),
+                   allowlisted_senders: Collection[str] = ()) -> bool:
     """Decide whether one normalized signal belongs in the triage queue.
 
     The rules, in order; the first that matches decides:
 
+    0. Promote an allowlisted sender, whatever every later rule would say. This is
+       the owner naming a mailbox the rules get wrong -- an internal robot whose
+       output they act on -- and it overrides even rule 4, because such mail often
+       arrives through a list rather than addressed to them.
     1. Skip anything posted by an application rather than a person. A Teams bot
        relaying build output is not work addressed to anybody.
     2. Skip an automated sender -- a local part carrying ``noreply``, ``donotreply``,
@@ -99,16 +129,28 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
        not a request. Teams messages carry no To list, so this rule cannot reject them.
     5. Otherwise promote: it reached the owner's own mailbox or chat, from a person.
 
+    Rule 3 alone is skipped for a ticket-system sender (see
+    ``TICKET_SENDER_MARKERS``): Jira and Freshservice mail carries the
+    ``Auto-Submitted`` and ``Precedence`` a mass mailing carries, and rule 3 read it
+    as bulk. Rules 2 and 4 still apply to them. Rule 2 costs a ticket system
+    nothing -- ``jira@`` and ``helpdesk@`` carry no automated marker -- and keeping
+    it in force means a ``noreply@`` on a ticket domain is still rejected. Rule 4
+    means a ticket notification the owner was only copied on is as much an FYI as
+    any other.
+
     ``owner_addresses`` are the signed-in user's own addresses -- both the principal
     name and the mail address, since alias-domain tenants hand out different ones.
     Without any, rule 4 is skipped rather than guessed at, so a missing profile
     costs recall, never silence.
     """
+    sender = signal.get("sender")
+    if _is_allowlisted(sender, allowlisted_senders):
+        return True
     if signal.get("sender_kind") == "application":
         return False
-    if _is_automated_sender(signal.get("sender")):
+    if _is_automated_sender(sender):
         return False
-    if _is_bulk_mail(signal.get("headers") or {}):
+    if not _is_ticket_system(sender) and _is_bulk_mail(signal.get("headers") or {}):
         return False
     return not _is_only_copied(signal, owner_addresses)
 
@@ -194,7 +236,8 @@ def promote_source(db: Session, source: Source) -> WorkItem:
     ))
 
 
-def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = ()) -> int:
+def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = (),
+                    allowlisted_senders: Collection[str] = ()) -> int:
     """Create a pending work item for every actionable signal; return how many are new.
 
     Idempotent through ``work_items.source_external_id``: a signal already promoted
@@ -213,7 +256,7 @@ def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses:
     for signal in signals:
         external_id = str(signal["external_id"])
         _record_considered(db, external_id)
-        if not should_promote(signal, owner_addresses):
+        if not should_promote(signal, owner_addresses, allowlisted_senders):
             continue
         if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == external_id)) is not None:
             continue

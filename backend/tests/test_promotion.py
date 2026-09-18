@@ -118,6 +118,17 @@ def _bulk_mailing(**overrides: Any) -> dict[str, Any]:
                   sender=HUMAN_LOOKING_SENDER, **overrides)
 
 
+def _ticket(**overrides: Any) -> dict[str, Any]:
+    """A ticket-system notification: machine-generated, and still somebody's request.
+
+    Carries both markers rule 3 rejects on, because a real Jira mail carries both;
+    the ticket exception has to clear the whole rule, not one clause of it.
+    """
+    return _email(**{"external_id": "outlook:ticket-1", "title": "[Jira] (TS-16) Burofax cierre automatico",
+                     "sender": "jira@contoso-team.atlassian.net",
+                     "headers": {"Auto-Submitted": "auto-generated", "Precedence": "bulk"}, **overrides})
+
+
 def _teams(**overrides: Any) -> dict[str, Any]:
     return {
         "external_id": "teams:direct-1",
@@ -214,6 +225,55 @@ def test_promotion_accepts_mail_addressed_to_the_owners_principal_name() -> None
 def test_promotion_does_not_reject_on_recipients_when_the_owner_address_is_unknown() -> None:
     """A missing profile costs the rule, not the queue: nothing is silently dropped."""
     assert should_promote(_email(to_recipients=["someone-else@contoso.com"]), ()) is True
+
+
+@pytest.mark.parametrize("sender", ["jira@contoso-team.atlassian.net",
+                                    "helpdesk@contoso.freshservice.com",
+                                    "JIRA@Contoso-Team.Atlassian.NET"])
+def test_promotion_accepts_a_ticket_system_whose_headers_look_like_bulk_mail(sender: str) -> None:
+    """A ticket comment is a request that happens to be delivered by a robot.
+
+    Scored against the owner's labeled sample, rule 3 rejected every ticket mail in
+    it and the owner had labeled all of them work; this is the exception that fixes
+    that. The marker is matched against the whole address because it lives in the
+    domain as often as the local part, and case cannot change the verdict.
+    """
+    assert should_promote(_ticket(sender=sender), OWNER) is True
+
+
+def test_promotion_still_skips_a_ticket_system_the_owner_was_only_copied_on() -> None:
+    """The ticket exception clears rules 2 and 3, never rule 4.
+
+    A ticket notification addressed to somebody else is the same FYI any other
+    copied-in mail is, so the exception must not read as "tickets always promote".
+    """
+    assert should_promote(_ticket(to_recipients=["someone-else@contoso.com"]), OWNER) is False
+
+
+def test_promotion_skips_an_automated_sender_that_merely_contains_a_ticket_word() -> None:
+    """``noreply@`` stays rejected even when the address also names a ticket system."""
+    assert should_promote(_ticket(sender="noreply@contoso.atlassian.net"), OWNER) is False
+
+
+def test_promotion_accepts_an_allowlisted_sender_the_rules_would_reject() -> None:
+    """Rule 0 overrides rule 4: allowlisted mail often arrives through a list, not addressed to the owner."""
+    robot = _email(sender="validator@contoso.com", to_recipients=["someone-else@contoso.com"])
+
+    assert should_promote(robot, OWNER) is False
+    assert should_promote(robot, OWNER, ("validator@contoso.com",)) is True
+
+
+@pytest.mark.parametrize("configured", ["  Validator@Contoso.com  ", "validator@contoso.com"])
+def test_promotion_matches_an_allowlisted_sender_whatever_its_case_and_padding(configured: str) -> None:
+    assert should_promote(_email(sender="validator@contoso.com"), OWNER, (configured,)) is True
+
+
+def test_promotion_does_not_allowlist_an_address_that_merely_contains_a_listed_one() -> None:
+    """Whole-address comparison; a substring match would cover mailboxes the owner never named."""
+    impostor = _email(sender="validator@contoso.com.evil.example",
+                      to_recipients=["someone-else@contoso.com"])
+
+    assert should_promote(impostor, OWNER, ("validator@contoso.com",)) is False
 
 
 def test_promotion_accepts_a_teams_message_from_a_person() -> None:
