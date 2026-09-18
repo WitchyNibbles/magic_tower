@@ -381,3 +381,16 @@ with every prerequisite named (the five `MICROSOFT_*` settings, `APP_ENCRYPTION_
 risk on `Chat.Read`), and confirm every command in it runs as written up to the point real
 credentials are required. Push the branch when done.
 
+## T19 — Remove the Teams source
+- status: todo
+- complexity: normal
+- deps: T16
+- done-when: `cd backend && uv run pytest tests ../tests/agent_protocol -q && ! grep -rn "teams_message" app/ && rm -f /tmp/t19.db && DATABASE_URL=sqlite:////tmp/t19.db uv run alembic upgrade head`
+
+Teams ingestion is unreachable: it needs Azure `Chat.Read` consent the owner does not have
+(2026-09-19). Remove the Graph chat fetch path, the `teams_message` member of `SourceKind`, its
+promotion rules and its fixtures, with an Alembic revision handling existing rows — decide and
+document whether they are deleted or remapped, and say which in the migration docstring. Keep the
+per-source dispatch registry intact; it is what Jira will plug into next. Do not weaken the Graph
+mail path or its tests while cutting the chat half out of shared code.
+
