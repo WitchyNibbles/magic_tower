@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..integrations.graph import GraphClient
-from ..models import Source, SourceKind
+from ..models import Source, SourceKind, SourceSignalContext
 
 
 def parse_observed_at(value: Any) -> datetime:
@@ -75,14 +75,24 @@ def persist_signals(db: Session, signals: list[dict[str, Any]]) -> int:
             continue
         parsed_time = parse_observed_at(signal.get("observed_at"))
         kind = SourceKind(str(signal["source_kind"]))
-        db.add(Source(
+        source = Source(
             kind=kind,
             external_id=external_id,
             subject=str(signal.get("title") or "")[:500] or None,
             url=str(signal.get("source_url") or "")[:2048] or None,
             excerpt=str(signal.get("excerpt") or "")[:2_000] or None,
             observed_at=parsed_time,
-        ))
+        )
+        # Carried across so a labeled-sample export can rebuild the exact signal
+        # shape ``should_promote`` decided from -- otherwise a sample read back
+        # from the database could only ever hit the heuristic's default rule.
+        source.signal_context = SourceSignalContext(
+            sender=str(signal["sender"])[:320] if signal.get("sender") else None,
+            sender_kind=str(signal.get("sender_kind") or "") or None,
+            to_recipients=list(signal.get("to_recipients") or []) or None,
+            headers=dict(signal.get("headers") or {}) or None,
+        )
+        db.add(source)
         created += 1
     db.commit()
     return created

@@ -108,6 +108,26 @@ Register a Microsoft Entra application for the intended work/school account. Add
 
 Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook/Teams metadata. It never sends messages or acts in Microsoft 365.
 
+## Measure the heuristic against real mail
+
+The promotion heuristic in `app/services/promotion.py` can only be trusted once it has been checked against real mail, but real mail must never enter this repository. This is a two-machine workflow: sign in and sync on the machine with Outlook access, then hand-label and evaluate.
+
+On the machine with Outlook access, after `.env` holds `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI`, and `APP_ENCRYPTION_KEY`, and a sync has run (`POST /api/sync`), export the synced sources into a labeled-sample file for hand judging:
+
+```
+cd backend && uv run python -m app.tools.heuristic_export --output ~/.magic-tower/labeled-sample.json
+```
+
+Each row carries the fields `should_promote` reads (sender, recipients, headers, an excerpt) plus an empty `label` field. Open the file and set `label` to `true` or `false` on the rows you have judged by hand; leave the rest `null`. This file is real mail: `~/.magic-tower/` and any `labeled-sample.json` are gitignored everywhere in this repository, and the file never needs to leave the machine it was exported on.
+
+Then score the heuristic against the labeled rows:
+
+```
+cd backend && uv run python -m app.tools.heuristic_eval --sample ~/.magic-tower/labeled-sample.json
+```
+
+`heuristic_eval` reads only that JSON file -- no database, no Graph credentials -- so it also runs safely on a machine that has never synced real mail: with no sample file present it prints a message and exits 0. See `app/tools/labeled-sample.example.json` for the (entirely synthetic) row shape, and pass `--owner-address` (repeatable) to exercise the copied-only rule.
+
 ## Agent integration
 
 Set a separate random `LOCAL_API_TOKEN` in `.env`, then expose it to the agent process as `PENDING_WORK_API_TOKEN`. It is a Magic Tower-only credential, never an Azure or Graph token. See [the agent protocol](docs/agent-protocol.md) for installation and exact commands.

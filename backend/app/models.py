@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -67,6 +67,32 @@ class Source(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    signal_context: Mapped["SourceSignalContext | None"] = relationship(back_populates="source", uselist=False, cascade="all, delete-orphan")
+
+
+class SourceSignalContext(Base):
+    """The rest of the signal ``should_promote`` decides from, kept for later replay.
+
+    ``sender``, ``sender_kind``, ``to_recipients`` and ``headers`` are not part of
+    ``sources`` -- a legacy pre-Alembic database is recognised by that table's exact
+    column set (``alembic/versions/0001_initial_schema.py``), so a field the queue
+    itself never renders belongs in its own table instead of growing that one.
+    Without this, a labeled-sample export built from the database alone could only
+    ever replay the heuristic's last rule: every other rule reads one of these.
+    Not encrypted: a sender address and a bulk-mail header are metadata, the same
+    tier ``Source.subject`` already sits at, not message content.
+    """
+
+    __tablename__ = "source_signal_context"
+
+    source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    sender: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    sender_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_recipients: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    headers: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+
+    source: Mapped[Source] = relationship(back_populates="signal_context")
 
 
 class WorkEvidence(Base):

@@ -12,3 +12,9 @@ dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# T09: a labeled sample is real mail read off the owner's machine and must never
+# enter the repository, wherever it lands. The committed schema reference is
+# named differently on purpose so this pattern cannot also hide it.
+.magic-tower/
+labeled-sample.json
