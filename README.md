@@ -114,7 +114,7 @@ Set a separate random `LOCAL_API_TOKEN` in `.env`, then expose it to the agent p
 
 ## The warding circle
 
-The API is loopback-only through Compose, Graph tokens are AES-GCM encrypted at rest, and agent operations require the local token. This is a trusted-local-host design, not protection from a compromised browser profile, Docker host, or local administrator. Keep `.env` local, never store raw Graph credentials in the database, and retain only source excerpts necessary to explain a work suggestion.
+The API is loopback-only through Compose, Graph tokens and stored message excerpts are AES-GCM encrypted at rest under the same `APP_ENCRYPTION_KEY` but separate associated data, and agent operations require the local token. This is a trusted-local-host design, not protection from a compromised browser profile, Docker host, or local administrator. Keep `.env` local, never store raw Graph credentials in the database, and retain only source excerpts necessary to explain a work suggestion.
 
 ## License
 

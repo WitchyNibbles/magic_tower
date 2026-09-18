@@ -6,6 +6,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+from .services.field_crypto import EncryptedText
 
 
 class WorkStatus(str, enum.Enum):
@@ -51,7 +52,7 @@ class WorkItem(Base):
 
 
 class Source(Base):
-    """Normalized message/source metadata. Content is deliberately not persisted."""
+    """Normalized message/source metadata; the message body is stored encrypted."""
 
     __tablename__ = "sources"
 
@@ -60,7 +61,9 @@ class Source(Base):
     external_id: Mapped[str] = mapped_column(String(512), unique=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Real mail and Teams bodies land here, so the column -- and only the column --
+    # holds ciphertext; readers still see cleartext. Stays ``TEXT`` on disk.
+    excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
