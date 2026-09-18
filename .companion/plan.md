@@ -265,7 +265,7 @@ deterministic grouping, no LLM). Tests assert that items group correctly, that a
 so instead of rendering blank, and that the group counts match the data.
 
 ## T13 — Wire pagination, promote and dismiss into the GUI
-- status: blocked(promote() bumps remoteTotal without loadedCount, resurrecting "Load more" on a full queue and rendering a duplicate row)
+- status: todo
 - complexity: normal
 - deps: T12
 - done-when: `cd frontend && npx vitest run -t "pagination|dismiss" --reporter=json --outputFile=/tmp/t13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t13.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
@@ -302,6 +302,15 @@ confirming that one test reddens. Do **not** re-litigate what already holds: the
 consumption, the `!demo` clause (dropping it → 19 / 1), the CSRF assertions, the `'dismissed'`
 union/label/tone, or the describe-block naming. Advisories B65–B68 are backlogged, not this task's
 work.
+
+**Repair forward from `c1ff32a` — do not start over.** Attempts 1 and 2 are merged and their tests
+are sound. One blocking defect: `promote()` increments `remoteTotal` without `loadedCount`, so a
+fully-loaded queue resurrects "Load more" and renders a duplicate row.
+**Owner decision 2026-09-18 — derive the flag, do not count.** Remove `loadedCount` as tracked
+state; compute "more to load" from the rendered rows against `remoteTotal`, so the two cannot
+disagree by construction. A test must fail without the fix: promote on a full queue, assert no
+"Load more" control and no duplicate row.
+Probe note: the probe reverts all six impl files at once and is VACUOUS — falsify per clause by hand.
 
 ## T14 — Prove it end to end and on CI
 - status: todo
