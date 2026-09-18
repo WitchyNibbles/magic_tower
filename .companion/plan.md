@@ -17,10 +17,10 @@ Probe note: config-only, no revertible impl file — falsify by hand (remove the
 `npm ci` fails).
 
 ## T02 — Introduce Alembic
-- status: blocked(0001 skips-and-stamps on table names only, so a column-drifted legacy DB is marked migrated and left broken — see B10)
+- status: todo
 - complexity: complex
 - deps:
-- done-when: `cd backend && rm -f /tmp/t02.db && DATABASE_URL=sqlite:////tmp/t02.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
+- done-when: `cd backend && uv run pytest tests -q -k alembic_stamp && rm -f /tmp/t02.db && DATABASE_URL=sqlite:////tmp/t02.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
 
 Add `alembic` as a runtime dependency, scaffold `backend/alembic/` with `env.py` reading
 `DATABASE_URL` from settings, and autogenerate an initial migration matching today's models. Remove
@@ -28,7 +28,19 @@ the hand-written `ALTER TABLE` and the `create_all` from startup (`backend/app/m
 existing databases already have these tables, so the migration must be safe to stamp rather than
 re-run. Tests must not regress: `backend/tests/conftest.py` currently builds schema via
 `Base.metadata.create_all`, so decide and document whether tests migrate or keep `create_all`.
-Probe note: scaffolding-shaped; falsify by hand.
+**Owner decision, 2026-09-18 — the stamp must be column-aware.** Attempt 1 keyed its skip-and-stamp
+on table names only, so a pre-Alembic database holding all four tables with a drifted column set was
+stamped `0001` and left broken: reproduced by dropping `priority`, after which `alembic upgrade head`
+exits 0, `alembic_version='0001'`, the column is still missing and `GET /api/work-items` 500s with
+`no such column: work_items.priority`. Before this task, startup's `ALTER TABLE` repaired that
+automatically — a loud self-healing path must not become a silent stamp. Compare the real columns
+against the model metadata before stamping and **refuse loudly** on any mismatch, naming the
+offending table and column. Tests (`-k alembic_stamp`) must cover three cases: fresh database
+migrates; matching legacy database stamps; drifted legacy database is refused with a non-zero exit
+and a message naming the drift. Closes backlog B10; re-check B11's README/Dockerfile claims match
+the behaviour that ships.
+Probe note: scaffolding-shaped; falsify by hand, and falsify **each clause** of the compound
+done-when separately — a RED on an `&&` chain only proves whichever clause short-circuited.
 
 ## T03 — Encrypt message content at rest
 - status: todo
@@ -146,8 +158,10 @@ the demo-data fallback on 401/503 (`main.tsx:6-10,17`), and the dispatch clipboa
 - status: todo
 - complexity: complex
 - deps: T11, T08
-- done-when: `cd frontend && npm run test -- --run -t "triage"`
+- done-when: `cd frontend && npx vitest run -t "triage" --reporter=json --outputFile=/tmp/t12.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t12.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
 
+Gate note: `npm run test -- -t <pattern>` **exits 0 when nothing matches** (verified: a bogus
+pattern exits 0), so this done-when asserts a passing-test count via vitest's JSON reporter.
 The view the owner actually wanted: promoted items grouped for triage (by source kind and thread —
 deterministic grouping, no LLM). Tests assert that items group correctly, that an empty queue says
 so instead of rendering blank, and that the group counts match the data.
@@ -156,7 +170,7 @@ so instead of rendering blank, and that the group counts match the data.
 - status: todo
 - complexity: normal
 - deps: T12
-- done-when: `cd frontend && npm run test -- --run -t "pagination or actions"`
+- done-when: `cd frontend && npx vitest run -t "pagination|dismiss" --reporter=json --outputFile=/tmp/t13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t13.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
 
 Consume T07's envelope (items/total/limit/offset) instead of assuming a bare array
 (`frontend/src/api.ts:33`), with load-more or pager controls. Wire T08's promote and dismiss,
