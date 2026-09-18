@@ -340,7 +340,7 @@ upgrades a legacy database correctly. Owner asked for this as its own task rathe
 (2026-09-18).
 
 ## T16 — Make the documented run command actually start the app
-- status: todo
+- status: blocked(done-when hardcodes port 8787, held by the session's own headroom proxy; fix is merged, reviewed and container-proven — see B79)
 - complexity: normal
 - deps:
 - done-when: `docker compose up -d --build && until curl -sf http://127.0.0.1:8787/ >/dev/null; do sleep 2; done && curl -sf http://127.0.0.1:8787/api/health && docker compose down`
@@ -351,6 +351,21 @@ validator at `backend/app/config.py:45` rejects `""` instead of treating it as u
 position: a failing `run:` command means the work is not finished. Treat an empty string as absent
 for every optional setting, and add a test that constructs `Settings` with empty strings present and
 asserts it validates. `docker compose build` passing is not evidence — building is not running.
+
+**Blocked once, 2026-09-19 — the gate, not the work. Repair forward, do not rebuild.** Commit
+`be548b5` is **kept merged, not reset away**: the reviewer approved it, and the manager proved it at
+container level with the owner's real gitignored root `.env` — base `config.py` gives
+`magic-tower-api-1 Exited (1)` with the 3-error ValidationError, this commit gives `Healthy`, and
+the full run chain exits 0 against a free port serving real GUI HTML and `/api/health`. The suite is
+193 (178 at base), pinned in both directions: reverting `config.py` reddens 14 tests, and an
+over-broad fix that blanks any string reddens `test_present_malformed_graph_identifier_still_rejected`.
+What fails is the gate itself: `docker compose up -d --build` cannot bind `127.0.0.1:8787`, held by
+`headroom.cli proxy --port 8787` (pid 10270), which is part of the Claude Code session and cannot be
+killed without killing the session. The api container is `Healthy` *before* the `web` bind fails.
+Owner's call, recorded as B79: either free 8787 before the run, or parameterise the done-when and the
+compose publish as `${MAGIC_TOWER_PORT:-8787}`. The manager deliberately did **not** rewrite the gate
+it owns to make its own task pass. Remaining code work is B78 only (one dead `not value.strip() or`
+clause in `graph_identifiers_are_not_urls`, now unreachable), which is cleanup, not a blocker.
 
 ## T17 — Extend the dead-code gate to CSS and documentation
 - status: todo
