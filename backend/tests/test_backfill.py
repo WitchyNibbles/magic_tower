@@ -79,6 +79,12 @@ def _newsletter(**overrides: Any) -> dict[str, Any]:
                   sender="newsletter@vendor.example", **overrides)
 
 
+def _cc_only(**overrides: Any) -> dict[str, Any]:
+    """Mail from a person that the owner was only copied on; the live heuristic rejects it on rule 4."""
+    return _email(external_id="outlook:cc-only-1", title="FYI: the migration plan",
+                  to_recipients=["someone.else@contoso.com"], **overrides)
+
+
 def test_backfill_promotes_a_source_stored_before_promotion_existed() -> None:
     """AC8: a row the heuristic was never given a chance to judge gets one."""
     with Session(engine) as session:
@@ -87,7 +93,7 @@ def test_backfill_promotes_a_source_stored_before_promotion_existed() -> None:
 
         result = backfill_promoted_sources(session)
 
-        assert result == {"considered": 1, "new_work_items": 1, "judged_without_context": 1}
+        assert result == {"considered": 1, "new_work_items": 1, "judged_without_context": 1, "promoted_without_owner_check": 0}
         item = session.query(WorkItem).one()
         assert item.source_external_id == "outlook:legacy-1"
         assert item.status == WorkStatus.pending
@@ -109,7 +115,7 @@ def test_backfill_leaves_a_source_the_live_heuristic_declined_unpromoted() -> No
 
         result = backfill_promoted_sources(session)
 
-        assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0}
+        assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0, "promoted_without_owner_check": 0}
         items = session.query(WorkItem).all()
         assert [item.source_external_id for item in items] == ["outlook:direct-1"]
 
@@ -160,7 +166,7 @@ def test_backfill_does_not_resurrect_a_work_item_the_owner_hand_deleted() -> Non
 
         result = backfill_promoted_sources(session)
 
-        assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0}
+        assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0, "promoted_without_owner_check": 0}
         assert session.query(WorkItem).count() == 0, "the hand-deleted item must not come back"
 
 
@@ -187,7 +193,7 @@ def test_backfill_on_a_database_with_no_sources_reports_nothing_left_to_do() -> 
     with Session(engine) as session:
         result = backfill_promoted_sources(session)
 
-    assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0}
+    assert result == {"considered": 0, "new_work_items": 0, "judged_without_context": 0, "promoted_without_owner_check": 0}
 
 
 def test_backfill_uses_stored_signal_context_to_genuinely_judge_an_unjudged_source() -> None:
@@ -203,8 +209,48 @@ def test_backfill_uses_stored_signal_context_to_genuinely_judge_an_unjudged_sour
 
         result = backfill_promoted_sources(session)
 
-        assert result == {"considered": 1, "new_work_items": 0, "judged_without_context": 0}
+        assert result == {"considered": 1, "new_work_items": 0, "judged_without_context": 0, "promoted_without_owner_check": 0}
         assert session.query(WorkItem).count() == 0, "a bulk sender must still be declined when context is available"
+
+
+def test_backfill_reports_the_promotions_it_could_not_apply_the_cc_rule_to() -> None:
+    """The backfill knows no owner addresses, so rule 4 cannot fire; the envelope must say so.
+
+    Rule 4 ("skip mail the owner was only copied on") needs the owner's own
+    addresses, and the only place they exist is the live Graph profile a sync
+    fetches -- nothing stores them, so ``backfill_promoted_sources`` has none to
+    pass. This message is therefore promoted here although a live sync declines
+    it, which is a real recall gap. ``judged_without_context`` cannot report it:
+    the source has full stored context, so by that measure it was judged on its
+    merits. The envelope needs its own count, or the gap is silent.
+    """
+    with Session(engine) as session:
+        signals = [_cc_only()]
+        persist_signals(session, signals)
+
+        result = backfill_promoted_sources(session)
+
+        assert result == {"considered": 1, "new_work_items": 1,
+                          "judged_without_context": 0, "promoted_without_owner_check": 1}
+        assert [item.source_external_id for item in session.query(WorkItem).all()] == ["outlook:cc-only-1"]
+
+
+def test_backfill_does_not_flag_promotions_rule_4_could_not_have_changed() -> None:
+    """The count is the rows rule 4 might have rejected, not every row it was skipped on.
+
+    Rule 4 only ever rejects a signal that carries a To list and survived rules
+    1-3, so counting anything else as unchecked would bury the rows an operator
+    should actually look at. A bulk sender is rejected before rule 4 is reached,
+    and a message with no To list is one rule 4 declines to judge even when the
+    owner is known.
+    """
+    with Session(engine) as session:
+        persist_signals(session, [_newsletter(), _email(external_id="outlook:no-to-list", to_recipients=[])])
+
+        result = backfill_promoted_sources(session)
+
+        assert result == {"considered": 2, "new_work_items": 1,
+                          "judged_without_context": 0, "promoted_without_owner_check": 0}
 
 
 def test_backfill_marks_a_source_with_no_stored_context_as_judged_without_context() -> None:
@@ -215,7 +261,7 @@ def test_backfill_marks_a_source_with_no_stored_context_as_judged_without_contex
 
         result = backfill_promoted_sources(session)
 
-        assert result == {"considered": 1, "new_work_items": 1, "judged_without_context": 1}
+        assert result == {"considered": 1, "new_work_items": 1, "judged_without_context": 1, "promoted_without_owner_check": 0}
 
 
 def test_backfill_runs_from_an_explicit_endpoint_and_reports_the_full_envelope() -> None:
@@ -228,9 +274,9 @@ def test_backfill_runs_from_an_explicit_endpoint_and_reports_the_full_envelope()
         response = client.post("/api/sync/backfill", headers=BEARER)
 
         assert response.status_code == 200
-        assert response.json() == {"considered": 1, "new_work_items": 1, "judged_without_context": 1}
+        assert response.json() == {"considered": 1, "new_work_items": 1, "judged_without_context": 1, "promoted_without_owner_check": 0}
         assert client.post("/api/sync/backfill", headers=BEARER).json() == {
-            "considered": 0, "new_work_items": 0, "judged_without_context": 0,
+            "considered": 0, "new_work_items": 0, "judged_without_context": 0, "promoted_without_owner_check": 0,
         }
 
 
