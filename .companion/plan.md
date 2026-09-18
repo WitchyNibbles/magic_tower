@@ -91,7 +91,7 @@ task, stub each rule's input in turn and confirm the suite **reddens** for every
 test can falsify is not implemented, it is decoration.
 
 ## T06 — Backfill the Sources already stored
-- status: todo
+- status: blocked(both attempts' selection predicates are unsound in opposite directions; the fix needs a durable per-source judgement marker, which needs schema that T02's legacy-DB tests currently refuse)
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run pytest tests -q -k backfill`
@@ -100,6 +100,33 @@ Promote `Source` rows written before T05 once, so the queue populates without wa
 Re-running must be safe — run the backfill twice in the test and assert a stable count. Document
 where it runs (startup vs explicit endpoint); if startup, it must not slow boot on an empty DB.
 Probe note: test-shaped; falsify by hand (stub the body, confirm the test reddens).
+
+**Blocked twice, 2026-09-18 — both predicates were unsound, in opposite directions.** Attempt 1
+selected every `Source` with no `WorkItem`, which has no time bound, so running the endpoint after a
+normal sync re-promoted every newsletter the heuristic had just declined. Attempt 2 replaced it with
+a queue-level gate — return 0 if any stored `Source` already has a work item — which fixed that but
+silently disables the backfill forever after the first sync that promotes anything: the manager and
+the reviewer independently reproduced two pre-T05 sources plus one ordinary sync leaving
+`backfill → 0` with no recovery path and a `{"new_work_items": 0}` response indistinguishable from
+"nothing to do". Nothing documents or enforces a backfill-before-sync ordering, so sync-first is the
+default. A `Source` stores neither sender, headers nor recipients, so "unpromoted" can never by
+itself distinguish *never judged* from *judged and declined* — the fix must record the judgement.
+The design both reviewers converged on: a durable per-source marker (`source_promotions` table, or
+`sources.promotion_checked_at`) written by `promote_signals` for **every** signal it decides, either
+verdict; backfill selects sources with no marker and feeds them through `promote_signals` — reusing
+the one named heuristic rather than calling `create_work_item` directly, which is a second promotion
+path. This also fixes the declined-row resurrection behind a hand-deleted work item (B36). Do **not**
+use a timestamp predicate such as `Source.created_at < min(WorkItem.created_at)`: `persist_signals`
+commits sources before `promote_signals` writes items, so the first post-T05 sync's declined
+newsletter would classify as pre-T05. **Prerequisite: B39** — adding a column to a baseline table
+makes T02's `0001` drift check abort, because `test_migrations.py:135,164,178` build their legacy
+database from today's models; adding a *table* is not affected (`0001`'s skip check is scoped to
+`BASELINE_COLUMNS.keys()`), which is the cheaper route if B39 is not taken first.
+Two preserved branches, neither reviewed into `main`: `worktree-agent-aa02c3e50aa3ca413` (attempt 2,
+the queue-level gate — its test fixtures and the `…declined_unpromoted` discriminator are worth
+keeping) and `worktree-agent-a2af9b2b1c1e76c3e` (an interrupted session's `source_promotions` table
+via revision `0004`, **unreviewed**, but verified green by the manager: 98 passed, `test_migrations`
+7, `-k backfill` 11).
 
 ## T07 — Index and paginate the list endpoints
 - status: todo
