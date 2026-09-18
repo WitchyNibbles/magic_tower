@@ -3,8 +3,21 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Optional settings that a documented ``.env`` may list with an empty value to show
+# the key exists without committing a secret (``MICROSOFT_TENANT_ID=``). Pydantic
+# reads that as the literal string ``""``, not as an absent variable, so every one
+# of these has to be normalized to ``None`` before field validation sees it.
+_BLANKABLE_OPTIONAL_FIELDS = (
+    "microsoft_tenant_id",
+    "microsoft_client_id",
+    "microsoft_client_secret",
+    "microsoft_target_user_id",
+    "app_encryption_key",
+    "local_api_token",
+)
 
 
 class Settings(BaseSettings):
@@ -32,6 +45,25 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = 1_048_576
     token_store_path: Path = Path("/data/workboard-graph-tokens.json")
     oauth_state_store_path: Path = Path("/data/workboard-oauth-state.json")
+
+    @model_validator(mode="before")
+    @classmethod
+    def blank_optional_settings_are_absent(cls, data: object) -> object:
+        """Treat an empty or whitespace-only value as an unset optional setting.
+
+        Runs before every other validator so a blank ``.env`` entry never reaches
+        ``graph_identifiers_are_not_urls`` or the secret fields as the literal
+        string ``""`` -- it becomes the same "not configured" state an omitted
+        variable already produces.
+        """
+        if not isinstance(data, dict):
+            return data
+        cleaned = dict(data)
+        for field_name in _BLANKABLE_OPTIONAL_FIELDS:
+            value = cleaned.get(field_name)
+            if isinstance(value, str) and not value.strip():
+                cleaned[field_name] = None
+        return cleaned
 
     @field_validator("microsoft_redirect_uri")
     @classmethod
