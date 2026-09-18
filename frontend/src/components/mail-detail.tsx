@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
-export function MailDetail({ item, demo, onStatus, onToast, onHandoff }: {
+export function MailDetail({ item, demo, onStatus, onToast, onHandoff, onDismiss }: {
   item: WorkItem
   demo: boolean
   onStatus: (status: WorkStatus) => void
   onToast: (message: string) => void
   onHandoff: (item: WorkItem, client: 'codex' | 'claude-code') => void
+  onDismiss: (item: WorkItem) => void
 }) {
   const [agent, setAgent] = useState<'codex' | 'claude-code' | null>(null)
   const command = `scripts/pending-work context ${item.id}`
@@ -32,7 +33,8 @@ export function MailDetail({ item, demo, onStatus, onToast, onHandoff }: {
         <span className={cn('size-2 rounded-full', sourceTone[item.source_kind])} />
         <Badge>{sourceLabels[item.source_kind]}</Badge>
         {item.assigned_agent && <Badge className="bg-transparent text-muted-foreground">Assigned to {item.assigned_agent}</Badge>}
-        <label className="ml-auto text-xs text-muted-foreground">
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onDismiss(item)}>Dismiss</Button>
+        <label className="text-xs text-muted-foreground">
           Status
           <select
             value={item.status}
