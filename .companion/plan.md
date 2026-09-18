@@ -157,7 +157,7 @@ items, total, limit, offset — with a sane default limit and a cap. This change
 via that task.
 
 ## T08 — Promote and dismiss from the API
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T07
 - done-when: `cd backend && uv run pytest tests -q -k "promote_endpoint or dismiss_endpoint"`
