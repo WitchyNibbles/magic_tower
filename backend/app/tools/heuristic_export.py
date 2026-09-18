@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import SessionLocal
@@ -66,10 +66,13 @@ def main(argv: list[str] | None = None) -> int:
     database_url = db.get_bind().url
     try:
         rows = export_rows(db)
-    except OperationalError as error:
+    except DatabaseError as error:
         # An absent file, an unmigrated schema and a wrong URL all arrive here, and
         # all three are the owner pointing the tool at the wrong database or at one
-        # no sync has prepared. Name the two remedies instead of raising a traceback.
+        # no sync has prepared. Which exception says so depends on the driver --
+        # SQLite raises ``OperationalError`` for all three, Postgres raises
+        # ``ProgrammingError`` for the unmigrated schema -- and ``DatabaseError`` is
+        # their common base. Name the two remedies instead of raising a traceback.
         print(f"cannot read the database at {database_url}: {error.orig}\n"
               "Set DATABASE_URL to the database the sync wrote to (a local checkout uses "
               "sqlite:///./workboard.db), and bring it to head with `alembic upgrade head`.",
