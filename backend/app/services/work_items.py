@@ -1,13 +1,20 @@
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import AgentDispatch, DispatchStatus, Source, WorkEvidence, WorkItem, WorkStatus
+from ..models import AgentDispatch, DispatchStatus, Source, SourceKind, WorkEvidence, WorkItem, WorkStatus
 from ..schemas import (AgentDispatchRequest, AgentDispatchUpdate, EvidenceInput, SourceCreate, SourceUpdate,
                        WorkItemCreate, WorkItemUpdate)
+
+# The default and cap every paginated list endpoint applies. A page this size is
+# small enough that an unindexed sort would still have been usable during
+# development, which is exactly why the cap matters once the table is real: a
+# caller can ask for more per page, never for the whole table in one response.
+DEFAULT_PAGE_LIMIT = 50
+MAX_PAGE_LIMIT = 200
 
 
 def not_found(entity: str) -> HTTPException:
@@ -25,15 +32,19 @@ def get_work_item(db: Session, item_id: UUID) -> WorkItem:
     return item
 
 
-def list_work_items(db: Session, status_filter: WorkStatus | None, source_kind: str | None, assigned_agent: str | None) -> list[WorkItem]:
-    query = select(WorkItem).options(selectinload(WorkItem.evidence)).order_by(WorkItem.updated_at.desc())
+def list_work_items(db: Session, status_filter: WorkStatus | None, source_kind: str | None, assigned_agent: str | None,
+                    limit: int = DEFAULT_PAGE_LIMIT, offset: int = 0) -> tuple[list[WorkItem], int]:
+    conditions = []
     if status_filter:
-        query = query.where(WorkItem.status == status_filter)
+        conditions.append(WorkItem.status == status_filter)
     if source_kind:
-        query = query.where(WorkItem.source_kind == source_kind)
+        conditions.append(WorkItem.source_kind == source_kind)
     if assigned_agent:
-        query = query.where(WorkItem.assigned_agent == assigned_agent)
-    return list(db.scalars(query))
+        conditions.append(WorkItem.assigned_agent == assigned_agent)
+    total = db.scalar(select(func.count()).select_from(WorkItem).where(*conditions))
+    query = (select(WorkItem).options(selectinload(WorkItem.evidence)).where(*conditions)
+             .order_by(WorkItem.updated_at.desc()).limit(limit).offset(offset))
+    return list(db.scalars(query)), total
 
 
 def create_work_item(db: Session, payload: WorkItemCreate) -> WorkItem:
@@ -91,6 +102,18 @@ def get_source(db: Session, source_id: UUID) -> Source:
     if source is None:
         raise not_found("Source")
     return source
+
+
+def list_sources(db: Session, kind: SourceKind | None, external_id: str | None,
+                 limit: int = DEFAULT_PAGE_LIMIT, offset: int = 0) -> tuple[list[Source], int]:
+    conditions = []
+    if kind:
+        conditions.append(Source.kind == kind)
+    if external_id:
+        conditions.append(Source.external_id == external_id)
+    total = db.scalar(select(func.count()).select_from(Source).where(*conditions))
+    query = select(Source).where(*conditions).order_by(Source.observed_at.desc()).limit(limit).offset(offset)
+    return list(db.scalars(query)), total
 
 
 def create_source(db: Session, payload: SourceCreate) -> Source:

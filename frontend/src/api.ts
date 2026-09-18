@@ -37,6 +37,6 @@ export const syncNow = () => request<{ created?: number; updated?: number; detai
 export const createDispatch = (id: string, client: 'codex' | 'claude-code', instruction: string) => request(`/api/work-items/${id}/dispatch`, { method: 'POST', body: JSON.stringify({ client, instruction }) })
 
 export const getHealth = () => request<Health>('/api/health')
-export const getWorkItems = () => request<WorkItem[]>('/api/work-items')
+export const getWorkItems = () => request<{ items: WorkItem[] }>('/api/work-items').then(page => page.items)
 export const getWorkItem = (id: string) => request<WorkItem>(`/api/work-items/${id}`)
 export const updateWorkItem = (id: string, update: Partial<Pick<WorkItem, 'status' | 'assigned_agent'>>) => request<WorkItem>(`/api/work-items/${id}`, { method: 'PATCH', body: JSON.stringify(update) })

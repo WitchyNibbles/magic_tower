@@ -1,27 +1,35 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import DispatchStatus, Source, SourceKind, WorkStatus
+from ..models import DispatchStatus, SourceKind, WorkStatus
 from ..security import require_local_access, require_local_write_access
 from ..schemas import (AgentContextRead, AgentContextRequest, AgentDispatchForItem, AgentDispatchRead,
                        AgentDispatchRequest, AgentDispatchUpdate, AgentProposalCreate, AgentProposalRead,
-                       EvidenceInput, EvidenceRead, SourceCreate, SourceRead, SourceUpdate,
-                       WorkItemCreate, WorkItemRead, WorkItemUpdate)
-from ..services.work_items import (add_evidence, create_dispatch, create_source, create_work_item, delete_evidence,
-                                   delete_source, delete_work_item, get_source, get_work_item, list_dispatches,
-                                   list_work_items, update_dispatch, update_source, update_work_item)
+                       EvidenceInput, EvidenceRead, SourceCreate, SourcePage, SourceRead, SourceUpdate,
+                       WorkItemCreate, WorkItemPage, WorkItemRead, WorkItemUpdate)
+from ..services.work_items import (DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, add_evidence, create_dispatch, create_source,
+                                   create_work_item, delete_evidence, delete_source, delete_work_item, get_source,
+                                   get_work_item, list_dispatches, list_sources, list_work_items, update_dispatch,
+                                   update_source, update_work_item)
 
 router = APIRouter(prefix="/api", tags=["workboard"])
 
+# ``ge``/``le`` on the ``Query`` reject a negative or absurd page request with a
+# 422 rather than clamping it silently -- the same posture ``max_length`` already
+# takes on ``assigned_agent``/``external_id`` below.
+LimitQuery = Query(default=DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT)
+OffsetQuery = Query(default=0, ge=0)
 
-@router.get("/work-items", response_model=list[WorkItemRead], dependencies=[Depends(require_local_access)])
+
+@router.get("/work-items", response_model=WorkItemPage, dependencies=[Depends(require_local_access)])
 def list_items(status: WorkStatus | None = None, source_kind: SourceKind | None = None,
-               assigned_agent: str | None = Query(default=None, max_length=128), db: Session = Depends(get_db)):
-    return list_work_items(db, status, source_kind, assigned_agent)
+               assigned_agent: str | None = Query(default=None, max_length=128),
+               limit: int = LimitQuery, offset: int = OffsetQuery, db: Session = Depends(get_db)):
+    items, total = list_work_items(db, status, source_kind, assigned_agent, limit, offset)
+    return WorkItemPage(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("/work-items", response_model=WorkItemRead, status_code=status.HTTP_201_CREATED,
@@ -60,15 +68,11 @@ def remove_evidence(item_id: UUID, evidence_id: UUID, db: Session = Depends(get_
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/sources", response_model=list[SourceRead], dependencies=[Depends(require_local_access)])
-def list_sources(kind: SourceKind | None = None, external_id: str | None = Query(default=None, max_length=512),
-                 db: Session = Depends(get_db)):
-    query = select(Source).order_by(Source.observed_at.desc())
-    if kind:
-        query = query.where(Source.kind == kind)
-    if external_id:
-        query = query.where(Source.external_id == external_id)
-    return list(db.scalars(query))
+@router.get("/sources", response_model=SourcePage, dependencies=[Depends(require_local_access)])
+def list_sources_route(kind: SourceKind | None = None, external_id: str | None = Query(default=None, max_length=512),
+                       limit: int = LimitQuery, offset: int = OffsetQuery, db: Session = Depends(get_db)):
+    items, total = list_sources(db, kind, external_id, limit, offset)
+    return SourcePage(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("/sources", response_model=SourceRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_local_write_access)])

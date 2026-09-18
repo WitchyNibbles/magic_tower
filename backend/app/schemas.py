@@ -87,6 +87,21 @@ class SourceRead(SourceBase):
     updated_at: datetime
 
 
+class WorkItemPage(APIModel):
+    """The envelope every paginated list endpoint returns, never a bare array."""
+    items: list[WorkItemRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class SourcePage(APIModel):
+    items: list[SourceRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class AgentDispatchRequest(APIModel):
     work_item_id: UUID
     client: str = Field(pattern=r"^(codex|claude-code)$")
