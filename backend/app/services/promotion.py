@@ -20,7 +20,7 @@ from pydantic import HttpUrl, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import SourceKind, WorkItem
+from ..models import Source, SourceKind, SourcePromotion, WorkItem
 from ..schemas import EvidenceInput, WorkItemCreate
 from .graph import parse_observed_at
 from .work_items import create_work_item
@@ -139,19 +139,48 @@ def _work_item(signal: dict[str, Any]) -> WorkItemCreate:
     )
 
 
+def _record_considered(db: Session, external_id: str) -> None:
+    """Record that promotion judged this signal's stored ``Source``, whatever it decided.
+
+    Written for rejections as much as for promotions: a rejected ``Source`` is the
+    one case ``work_items`` cannot describe on its own, and without this row the
+    backfill in ``app/services/backfill.py`` would read it as a source promotion
+    had never seen and promote it after all.
+
+    Only a stored source can be recorded. ``promote_signals`` is also called with
+    signals whose ``Source`` row was never written -- by the unit tests in
+    ``tests/test_promotion.py``, and by any future caller that promotes without
+    persisting -- and those have nothing for the backfill to reconsider anyway.
+    """
+    source_id = db.scalar(select(Source.id).where(Source.external_id == external_id))
+    if source_id is not None and db.get(SourcePromotion, source_id) is None:
+        db.add(SourcePromotion(source_id=source_id))
+
+
 def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = ()) -> int:
     """Create a pending work item for every actionable signal; return how many are new.
 
     Idempotent through ``work_items.source_external_id``: a signal already promoted
     is skipped, so re-running a sync over the same inbox window adds nothing and the
     unique constraint is never reached.
+
+    Every signal whose source is stored is also recorded as judged (see
+    ``_record_considered``), so the backfill can later tell a source this function
+    rejected from one it was never shown. That record is committed here rather than
+    left to whatever ``create_work_item`` happens to commit: a batch that rejects
+    every signal never calls ``create_work_item`` at all, and without an explicit
+    commit here the judged-rows it added would be discarded when the caller's
+    session closes, silently reopening the door this table exists to close.
     """
     created = 0
     for signal in signals:
+        external_id = str(signal["external_id"])
+        _record_considered(db, external_id)
         if not should_promote(signal, owner_addresses):
             continue
-        if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == str(signal["external_id"]))) is not None:
+        if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == external_id)) is not None:
             continue
         create_work_item(db, _work_item(signal))
         created += 1
+    db.commit()
     return created

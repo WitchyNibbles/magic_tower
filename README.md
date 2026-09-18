@@ -108,6 +108,8 @@ Register a Microsoft Entra application for the intended work/school account. Add
 
 Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook/Teams metadata. It never sends messages or acts in Microsoft 365.
 
+If the database holds `sources` rows written before the promotion heuristic existed, call `POST /api/sync/backfill` once to offer them to it; it never runs on its own (not at startup, not from `POST /api/sync`), reaches no network, and is safe to call again -- a source it has already judged, promoted or not, is never re-judged. Its response reports `considered`, `new_work_items`, and `judged_without_context` separately, because a bare `new_work_items` count cannot tell "nothing left to backfill" apart from "backfilled some and the heuristic declined all of it".
+
 ## Measure the heuristic against real mail
 
 The promotion heuristic in `app/services/promotion.py` can only be trusted once it has been checked against real mail, but real mail must never enter this repository. This is a two-machine workflow: sign in and sync on the machine with Outlook access, then hand-label and evaluate.
