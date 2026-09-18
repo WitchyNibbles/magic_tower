@@ -265,7 +265,7 @@ deterministic grouping, no LLM). Tests assert that items group correctly, that a
 so instead of rendering blank, and that the group counts match the data.
 
 ## T13 — Wire pagination, promote and dismiss into the GUI
-- status: todo
+- status: blocked(promote() bumps remoteTotal without loadedCount, resurrecting "Load more" on a full queue and rendering a duplicate row)
 - complexity: normal
 - deps: T12
 - done-when: `cd frontend && npx vitest run -t "pagination|dismiss" --reporter=json --outputFile=/tmp/t13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t13.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
@@ -274,6 +274,34 @@ Consume T07's envelope (items/total/limit/offset) instead of assuming a bare arr
 (`frontend/src/api.ts:33`), with load-more or pager controls. Wire T08's promote and dismiss,
 including the CSRF header the write path requires. Tests assert the request carries the right
 offset and that a dismissed item leaves the list.
+
+**Blocked once, 2026-09-18 — repair forward, do not rebuild.** Commits `2ca211f`, `5375ff1`,
+`5b9b3f2`, `c1ff32a` are **kept merged, not reset away**: both of attempt 1's blocking findings are
+genuinely closed and the manager proved it at gate level, which is stronger than attempt 1 ever
+reached. Gut `promote()` → the done-when itself exits 1 (8 passed / 1 failed); reintroduce
+`setRemoteTotal(t => Math.max(0, t - 1))` in `dismiss` → gate exits 1 (8 / 1). Attempt 1's gate
+exited **0** with promote gutted, because its two promote tests sat *outside* the
+`pagination|dismiss` filter — the repair found that itself and renamed the block to
+`'Promote and dismiss'`.
+
+What remains is one mirrored bug: `promote()` does `setRemoteTotal(t => t + 1)` and never touches
+`loadedCount` (`App.tsx:125`), while `hasMore = !demo && loadedCount < remoteTotal`
+(`App.tsx:166`). On a fully loaded queue (total 2, loaded 2, no "Load more") promoting one MISSED
+source makes `2 < 3` true, so "Load more" reappears; clicking it fetches
+`/api/work-items?limit=50&offset=2`, and because the server sorts `updated_at desc` the promoted row
+now sits at offset 0, so offset 2 returns an already-loaded row — **manager reproduced: "Second
+item" rendered count 2, plus React's `Encountered two children with the same key, 'b'`**. This is
+the same class as the dismiss bug the repair was ordered to close, which is why it blocks rather
+than backlogs. The repair author flagged it itself and called it "cosmetic"; it is not, it
+duplicates a row.
+
+Exact work: (1) `setLoadedCount(c => c + 1)` alongside `setRemoteTotal(t => t + 1)` in `promote()`;
+(2) a test in the `Promote and dismiss` block — fully loaded queue, promote, assert "Load more"
+stays absent — named so it matches the `pagination|dismiss` gate. Falsify it by reverting (1) and
+confirming that one test reddens. Do **not** re-litigate what already holds: the envelope `total`
+consumption, the `!demo` clause (dropping it → 19 / 1), the CSRF assertions, the `'dismissed'`
+union/label/tone, or the describe-block naming. Advisories B65–B68 are backlogged, not this task's
+work.
 
 ## T14 — Prove it end to end and on CI
 - status: todo
