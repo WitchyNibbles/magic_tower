@@ -18,3 +18,4 @@ frontend/vite.config.d.ts
 # named differently on purpose so this pattern cannot also hide it.
 .magic-tower/
 labeled-sample.json
+.claude/
