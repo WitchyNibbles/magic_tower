@@ -313,7 +313,7 @@ disagree by construction. A test must fail without the fix: promote on a full qu
 Probe note: the probe reverts all six impl files at once and is VACUOUS — falsify per clause by hand.
 
 ## T14 — Prove it end to end and on CI
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T13, T09
 - done-when: `cd backend && uv run pytest tests -q -k sync_populates_api && test "$(gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --limit 1 --json headSha,conclusion -q '.[0].headSha+":"+.[0].conclusion')" = "$(git rev-parse HEAD):success"`
