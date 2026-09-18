@@ -338,3 +338,46 @@ definition `0001` stamps against), so adding a column to a baseline table is tes
 structurally refused. Prove it: a test that adds a column via a later revision and still stamps and
 upgrades a legacy database correctly. Owner asked for this as its own task rather than backlog
 (2026-09-18).
+
+## T16 — Make the documented run command actually start the app
+- status: todo
+- complexity: normal
+- deps:
+- done-when: `docker compose up -d --build && until curl -sf http://127.0.0.1:8787/ >/dev/null; do sleep 2; done && curl -sf http://127.0.0.1:8787/api/health && docker compose down`
+
+`docker compose up` exits 1 today: the api container dies because the root `.env` sets
+`MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `MICROSOFT_TARGET_USER_ID` to empty strings and the
+validator at `backend/app/config.py:45` rejects `""` instead of treating it as unset. Owner's
+position: a failing `run:` command means the work is not finished. Treat an empty string as absent
+for every optional setting, and add a test that constructs `Settings` with empty strings present and
+asserts it validates. `docker compose build` passing is not evidence — building is not running.
+
+## T17 — Extend the dead-code gate to CSS and documentation
+- status: todo
+- complexity: normal
+- deps:
+- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
+
+The gate counts Python (vulture) and TypeScript (knip) but sees no dead CSS and no dead docs — the
+shadcn rebuild replaced `styles.css` wholesale and nothing checked what it left behind. Owner:
+"should always be checked, css included, even dead documentation. It should be common sense."
+Move the gate into `scripts/deadcode.sh` printing a single total as its last line, and add: unused
+CSS selectors against the built bundle, and documentation referencing paths, commands or endpoints
+that no longer exist (README, `docs/`, task files). Record the new baseline in the next contract —
+the number will rise because coverage widened, which is not a regression; state that plainly.
+
+## T18 — Publish and hand off the real-mail validation
+- status: todo
+- complexity: normal
+- deps:
+- done-when: `git ls-remote --exit-code origin "refs/heads/$(git rev-parse --abbrev-ref HEAD)" >/dev/null && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$(git rev-parse --abbrev-ref HEAD))" && cd backend && MAGIC_TOWER_REQUIRE_SAMPLE=1 uv run python -m app.tools.heuristic_eval --sample /nonexistent.json; test $? -ne 0`
+
+AC11 passed this run by printing "no labeled sample; nothing to evaluate". Owner's position: that is
+not verification — publish it and hand it over instead. Two parts. (1) Add
+`MAGIC_TOWER_REQUIRE_SAMPLE=1`, under which a missing sample is a hard failure, so the second PC
+cannot silently "pass" either; the default stays lenient so CI and this machine keep working.
+(2) Write `docs/second-pc.md`: a pasteable sequence from `git clone` to a precision/recall number,
+with every prerequisite named (the five `MICROSOFT_*` settings, `APP_ENCRYPTION_KEY`, admin consent
+risk on `Chat.Read`), and confirm every command in it runs as written up to the point real
+credentials are required. Push the branch when done.
+

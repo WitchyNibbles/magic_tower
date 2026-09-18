@@ -45,3 +45,28 @@ fixture body to a bare `yield` produced 2 failures.
 **Evidence:** `.companion/progress.md`, T02 and T03 notes.
 **Suggestion:** when 0 files are reverted, report `INAPPLICABLE` rather than RED or VACUOUS, and
 tell the manager to falsify by hand.
+
+## run 2026-09-18T18-19-10
+
+### H5 — The vacuity probe reverts every impl file at once, so multi-file tasks always probe VACUOUS
+Reported by the manager on T06, T09 and T13. The probe reverts all non-test files in the diff
+together, so for any task whose test imports a symbol the impl defines, the suite reddens by
+`ImportError` rather than by the behaviour under test — a RED that proves nothing. T13's note is
+explicit: "reverts all 6 impl files at once, falsified per clause by hand instead."
+**Suggestion:** revert one impl file at a time and report per-file results, or report
+`INAPPLICABLE` when the revert causes a collection/import error rather than a test failure.
+
+### H6 — `companion build` reports `complete` when every remaining task is blocked
+Twice this run the loop hit a state where all runnable tasks were done and the rest were blocked
+behind one `blocked(...)`, then ran final verification and exited `verification-failed`. The
+outcome is technically right but reads as "the build failed" rather than "the build is waiting on
+a decision", which is the actual state.
+**Suggestion:** distinguish `blocked` from `verification-failed` in the final line, and name the
+blocking task id.
+
+### H7 — A filtered test command is accepted as a gate even when it matches nothing
+`npm run test -- -t <pattern>` exits 0 when no test matches, so a `done-when` of that shape can be
+satisfied with zero tests written. Confirmed by hand: a bogus pattern exits 0. pytest's `-k` exits
+5 in the same situation, so the hazard is runner-specific and easy to miss.
+**Suggestion:** at seal time, reject a `done-when`/`verify:` that filters by test name without
+asserting a count, or require `--passWithNoTests=false` equivalents per runner.
