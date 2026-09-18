@@ -84,7 +84,7 @@ def load_sample(path: Path) -> list[dict[str, Any]] | None:
     of valid rows -- invalid JSON, a non-array top level, or a row missing a field.
     """
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
     try:

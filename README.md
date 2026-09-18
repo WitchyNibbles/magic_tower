@@ -126,17 +126,20 @@ If you ran it from the checkout with uv ([above](#develop-the-api-with-uv)), tha
 cd backend
 DATABASE_URL=sqlite:///./workboard.db uv run python -m app.tools.heuristic_export \
     --output ~/.magic-tower/labeled-sample.json
+chmod 700 ~/.magic-tower
 ```
 
 If you ran it with `docker compose up`, the database is `/data/workboard.db` inside the `workboard-data` volume, which no host-side `DATABASE_URL` reaches. Export from the running container instead, copy the file out, and delete the container's copy -- `docker compose cp` cannot read the container's `/tmp` tmpfs, so the volume is the only way out and your mail would otherwise stay in it:
 
 ```sh
 docker compose exec api python -m app.tools.heuristic_export --output /data/labeled-sample.json
+mkdir -p -m 700 ~/.magic-tower
+chmod 700 ~/.magic-tower
 docker compose cp api:/data/labeled-sample.json ~/.magic-tower/labeled-sample.json
 docker compose exec api rm /data/labeled-sample.json
 ```
 
-Pointed at a database that does not exist or was never migrated, the export names the problem and exits 1 rather than raising a traceback. On success it writes the file `0600` under a `0700` directory: it is real mail, and a second PC is often a shared one.
+Pointed at a database that does not exist or was never migrated, the export names the problem and exits 1 rather than raising a traceback. The sample it writes is `0600` through an explicit `chmod` no umask can loosen, and `docker compose cp` copies that mode out to the host unchanged, so the file itself needs nothing further on either path. The directory is the half that does: `mkdir` applies its mode only when it actually creates the directory, so `~/.magic-tower` otherwise keeps whatever mode made it, and on the compose path nothing creates it at all -- there `docker compose cp` exits 1 with "invalid output path" when the destination directory is missing, which on a machine that has never run the export it is. Hence the explicit `mkdir` and `chmod 700` above: it is real mail, and a second PC is often a shared one.
 
 Each row carries the fields `should_promote` reads (sender, recipients, the headers the rules read, an excerpt) plus an empty `label` field. Open the file and set `label` to `true` or `false` on the rows you have judged by hand; leave the rest `null`. This file is real mail: `~/.magic-tower/` and any `labeled-sample.json` are gitignored everywhere in this repository, and the file never needs to leave the machine it was exported on.
 

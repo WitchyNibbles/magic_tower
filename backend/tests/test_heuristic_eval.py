@@ -13,6 +13,9 @@ repository.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,7 @@ from app.tools.heuristic_eval import evaluate, main
 from app.tools.heuristic_sample import load_sample
 
 OWNER = "owner@contoso.com"
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 def _row(**overrides: Any) -> dict[str, Any]:
@@ -234,6 +238,45 @@ def test_main_prints_precision_recall_and_misclassified_rows_for_a_healthy_sampl
 def test_main_uses_the_shared_sample_loader_not_a_reimplementation() -> None:
     """``main``'s exit-1 path is only meaningful if it is fed by the real loader."""
     assert heuristic_eval.load_sample is load_sample
+
+
+def test_load_sample_reads_the_file_as_utf8_whatever_the_ambient_encoding_is(tmp_path) -> None:
+    """Nothing but an explicit encoding decides how the sample is decoded.
+
+    Without one, the locale of whatever machine opens the file does -- and the
+    second PC's need not be UTF-8 (a Windows console or a bare ``LC_ALL=C`` service
+    account is not). An accented subject then raises ``UnicodeDecodeError`` and the
+    whole labeled sample is unreadable, on the one machine that has the real mail.
+
+    A running interpreter cannot change its own ambient encoding, so this reads the
+    sample in a subprocess whose locale makes that default ASCII: there, a call site
+    without an explicit encoding really does fail.
+    """
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_bytes(json.dumps([_row(subject="\u00c1 review")], ensure_ascii=False).encode("utf-8"))
+    reader = tmp_path / "read_one_subject.py"
+    reader.write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from app.tools.heuristic_sample import load_sample\n"
+        # ``ascii`` so the result survives this subprocess's ASCII stdout too, and
+        # the assertion below is about what was decoded, not how it was printed.
+        "print(ascii(load_sample(Path(sys.argv[1]))[0][\"subject\"]))\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(reader), str(sample)],
+        cwd=BACKEND_DIR,
+        env={**os.environ, "PYTHONPATH": str(BACKEND_DIR),
+             "LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"},
+        capture_output=True,
+        text=True,
+        timeout=25,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ascii("\u00c1 review")
 
 
 def test_the_committed_synthetic_example_is_a_valid_labeled_sample(capsys) -> None:

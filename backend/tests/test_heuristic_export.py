@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, engine
@@ -252,6 +253,32 @@ def test_main_names_the_remedy_when_the_database_has_no_tables_yet(tmp_path, mon
 
     assert exit_code == 1
     err = capsys.readouterr().err
+    assert "alembic upgrade head" in err
+    assert "Traceback" not in err
+
+
+def test_main_names_the_remedy_for_a_non_sqlite_database_error_too(tmp_path, monkeypatch, capsys) -> None:
+    """The remedy is owed to every database the tool can be pointed at, not only SQLite.
+
+    An unmigrated Postgres raises ``ProgrammingError`` ("relation ... does not
+    exist") where SQLite raises ``OperationalError``, and ``DATABASE_URL`` is the
+    owner's to set. Catching only the SQLite spelling hands them a traceback in the
+    one case the message was written for.
+    """
+    _bound_to(monkeypatch, tmp_path / "workboard.db")
+
+    def _unmigrated_postgres(db: Session) -> list[dict]:
+        raise ProgrammingError("SELECT sources.id FROM sources", {},
+                               Exception('relation "sources" does not exist'))
+
+    monkeypatch.setattr(heuristic_export, "export_rows", _unmigrated_postgres)
+    output_path = tmp_path / "labeled-sample.json"
+
+    exit_code = heuristic_export.main(["--output", str(output_path)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "DATABASE_URL" in err
     assert "alembic upgrade head" in err
     assert "Traceback" not in err
 
