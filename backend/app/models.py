@@ -37,15 +37,15 @@ class WorkItem(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     title: Mapped[str] = mapped_column(String(500))
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[WorkStatus] = mapped_column(Enum(WorkStatus), default=WorkStatus.pending)
+    status: Mapped[WorkStatus] = mapped_column(Enum(WorkStatus), default=WorkStatus.pending, index=True)
     priority: Mapped[WorkPriority] = mapped_column(Enum(WorkPriority), default=WorkPriority.medium)
-    source_kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind))
+    source_kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind), index=True)
     source_external_id: Mapped[str | None] = mapped_column(String(512), unique=True, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     assigned_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
     evidence: Mapped[list["WorkEvidence"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
     dispatches: Mapped[list["AgentDispatch"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
@@ -57,14 +57,14 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind))
+    kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind), index=True)
     external_id: Mapped[str] = mapped_column(String(512), unique=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     # Real mail and Teams bodies land here, so the column -- and only the column --
     # holds ciphertext; readers still see cleartext. Stays ``TEXT`` on disk.
     excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

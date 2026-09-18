@@ -117,7 +117,7 @@ def test_the_sources_api_still_serves_excerpts_in_cleartext():
         assert created.json()["excerpt"] == MARKER
         listed = client.get("/api/sources", headers=TOKEN_HEADERS)
         assert listed.status_code == 200
-        assert [source["excerpt"] for source in listed.json()] == [MARKER]
+        assert [source["excerpt"] for source in listed.json()["items"]] == [MARKER]
 
 
 def test_storing_an_excerpt_without_an_encryption_key_fails_closed(monkeypatch):
