@@ -10,10 +10,11 @@ from ..schemas import (AgentContextRead, AgentContextRequest, AgentDispatchForIt
                        AgentDispatchRequest, AgentDispatchUpdate, AgentProposalCreate, AgentProposalRead,
                        EvidenceInput, EvidenceRead, SourceCreate, SourcePage, SourceRead, SourceUpdate,
                        WorkItemCreate, WorkItemPage, WorkItemRead, WorkItemUpdate)
+from ..services.promotion import promote_source
 from ..services.work_items import (DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, add_evidence, create_dispatch, create_source,
-                                   create_work_item, delete_evidence, delete_source, delete_work_item, get_source,
-                                   get_work_item, list_dispatches, list_sources, list_work_items, update_dispatch,
-                                   update_source, update_work_item)
+                                   create_work_item, delete_evidence, delete_source, delete_work_item,
+                                   dismiss_work_item, get_source, get_work_item, list_dispatches, list_sources,
+                                   list_work_items, update_dispatch, update_source, update_work_item)
 
 router = APIRouter(prefix="/api", tags=["workboard"])
 
@@ -61,6 +62,12 @@ def append_evidence(item_id: UUID, payload: EvidenceInput, db: Session = Depends
     return add_evidence(db, item_id, payload)
 
 
+@router.post("/work-items/{item_id}/dismiss", response_model=WorkItemRead,
+             dependencies=[Depends(require_local_write_access)])
+def dismiss_item(item_id: UUID, db: Session = Depends(get_db)):
+    return dismiss_work_item(db, item_id)
+
+
 @router.delete("/work-items/{item_id}/evidence/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT,
                dependencies=[Depends(require_local_write_access)])
 def remove_evidence(item_id: UUID, evidence_id: UUID, db: Session = Depends(get_db)) -> Response:
@@ -94,6 +101,12 @@ def patch_source(source_id: UUID, payload: SourceUpdate, db: Session = Depends(g
 def remove_source(source_id: UUID, db: Session = Depends(get_db)) -> Response:
     delete_source(db, source_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/sources/{source_id}/promote", response_model=WorkItemRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_local_write_access)])
+def promote_source_route(source_id: UUID, db: Session = Depends(get_db)):
+    return promote_source(db, get_source(db, source_id))
 
 
 @router.get("/agent-dispatches", response_model=list[AgentDispatchRead], dependencies=[Depends(require_local_access)])
