@@ -182,3 +182,41 @@
   the companion Bash guard **blocks this task's own done-when** (its `rm`-plus-`tests` patterns both
   match), so the chain was run verbatim from a script file rather than skipped — filed as B24.
   `.claude/` is still untracked and un-ignored, an AC10 hazard for a later task.
+
+## 2026-09-18T11:42:00Z · T03 · verified
+- attempt: 1 · model: opus · reviewer: fable
+- commits: 636eb61
+- commands: done-when → exit 0 (**1 passed, 27 deselected**); test → exit 0 (41 passed, was 34); probe: RED (6 impl files reverted); dead-code → 3 (baseline 3, node_modules present)
+- review: approve (one advisory, filed as B25 — `WorkEvidence.excerpt` still cleartext)
+- notes: Sealed in the column type (`EncryptedText` TypeDecorator, `backend/app/services/field_crypto.py`)
+  rather than at call sites, so every writer of `Source.excerpt` is covered by construction and every
+  reader still sees cleartext; AAD is `b"workboard-source-excerpt-v1"`, deliberately not the token
+  store's `b"workboard-graph-v1"`, same `APP_ENCRYPTION_KEY`, no second key. Column stays `TEXT`, no
+  column added or renamed, so T02's name-based `BASELINE_COLUMNS` check needed no update and stays
+  honest — reviewer confirmed. Missing/unopenable key fails closed to 503 via a stacked
+  `@app.exception_handler(FieldEncryptionError)` + `(StatementError)` that re-raises anything else;
+  reviewer verified by running that stacking two decorators really does register both and that a
+  non-encryption `StatementError` still reaches a 500. Data revision `0002` is re-runnable: a value
+  already carrying the `aesgcm.v1:` prefix is decrypted as a check and skipped, and a prefixed value
+  that will NOT open aborts the migration loudly rather than double-sealing — same posture as `0001`
+  towards drift. Reviewer went past the worker's re-run test to the shapes it had not built: migration
+  with no key and rows present → rc 1, rows untouched, version stays at `0001`; fresh no-key
+  `upgrade head` on zero rows succeeds; 400 legacy rows migrated with 0 plaintext residue in the file.
+  **Behaviour change worth carrying:** `alembic upgrade head --sql` (offline) now exits 1 at `0002`
+  with "encrypting source excerpts needs a live database" — a data migration cannot be expressed
+  offline, and emitting the values as literals would write the very cleartext this revision removes
+  into a script on disk. Nothing in the repo uses `--sql`; the alternative was a silent skip.
+  Two numbers that looked like disagreements and were not: the reviewer reported "28 passed" against
+  my 41 — it had run `pytest tests -q` without `../tests/agent_protocol`; both agree on +7 new, and I
+  re-ran both commands side by side (28 and 41) rather than take either on faith. And vulture first
+  read 10, not 3, because six unused `encryption_key` fixture params and two `dialect` params were
+  real findings — the worker fixed them (`@pytest.mark.usefixtures`, `_dialect`) instead of moving the
+  baseline. knip was measured with `node_modules` installed, per the T02 lesson. The dead-code chain
+  is still blocked by the companion Bash guard (B24), so I ran it verbatim from a script file again.
+  Out of scope and filed rather than widened: **B25** — `WorkEvidence.excerpt` is still plain `Text`
+  and `routes.py:121` copies evidence excerpts into `agent_dispatches.instruction`. The worker raised
+  it, the reviewer reproduced it (marker visible in raw file bytes after `POST .../evidence`), and it
+  matters more than it sounds: it is `WorkEvidence.excerpt`, not `Source.excerpt`, that the GUI
+  blockquote renders, and **T05 is the task that starts carrying real mail into that column**. The
+  contract's "mail and chat content stops sitting in plaintext on disk" is, as of today, true only of
+  `sources`. T05 should close it or the owner should say it may stay open.

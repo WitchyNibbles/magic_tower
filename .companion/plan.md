@@ -43,7 +43,7 @@ Probe note: scaffolding-shaped; falsify by hand, and falsify **each clause** of 
 done-when separately — a RED on an `&&` chain only proves whichever clause short-circuited.
 
 ## T03 — Encrypt message content at rest
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T02
 - done-when: `cd backend && uv run pytest tests -q -k excerpt_is_encrypted_at_rest`
