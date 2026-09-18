@@ -68,7 +68,7 @@ registers without editing `sync()`. Prove it with a test that registers a fake k
 to end. Keep the Graph identity assertion for the Graph kind only. No new connector here.
 
 ## T05 — Promote actionable signals into work items
-- status: blocked(rules 1/2/4 have no coverage from the shape Graph returns: `_address`, `_addresses`, `toRecipients` in the `$select` and `_teams_sender_kind` can each be stubbed with all 87 tests green; fix is two rows plus one chat row in the `INBOX` fixture at `backend/tests/test_promotion.py:357-371` and an assertion that `new_work_items` stays 1)
+- status: todo
 - complexity: complex
 - deps: T04
 - done-when: `cd backend && uv run pytest tests -q -k promotion`
@@ -81,6 +81,14 @@ bulk mail, carry the excerpt across as `WorkEvidence`. Synthetic fixtures must i
 that must NOT promote and a direct message that must. `source_external_id` is unique
 (`backend/app/models.py:41`), so promoting twice must not raise or duplicate —
 `test_promotion_is_idempotent` covers it.
+
+**Blocked once, 2026-09-18 — the rules had no real coverage.** Attempt 1 shipped working promotion
+code whose tests never exercised rules 1/2/4: the manager stubbed `_address`, `_addresses`,
+`toRecipients` in the `$select`, and `_teams_sender_kind` each in turn, and all 87 tests stayed
+green. Fix as the manager specified: add two rows plus one chat row to the `INBOX` fixture at
+`backend/tests/test_promotion.py:357-371` and assert `new_work_items` stays 1. Before claiming this
+task, stub each rule's input in turn and confirm the suite **reddens** for every one — a rule no
+test can falsify is not implemented, it is decoration.
 
 ## T06 — Backfill the Sources already stored
 - status: todo
@@ -125,13 +133,24 @@ CSRF path (`backend/app/security.py:106-109`).
 - deps: T05
 - done-when: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
 
-A command that replays a labeled sample through the heuristic and reports precision and recall.
-The sample is the owner's real mail and **must never enter the repository** — read it from a
-gitignored local path, default `~/.magic-tower/labeled-sample.json`, and **exit 0 with a clear
-message when the file is absent** so CI and other machines pass. Ship a documented sample schema
-plus a small synthetic example committed in its place, and document how the owner exports and
-labels theirs. Report counts, precision, recall, and list the misclassified items so the rules can
-be tuned.
+**This machine has no Outlook/Teams access** (owner, 2026-09-18). The owner will clone the repo on
+a second PC that does, and label *and tune* there — so everything needed must be committed and must
+work from a fresh clone.
+
+Ship two commands, both committed:
+- an **export** that reads the local database after a sync and writes a sample file with the fields
+  a human needs to judge each signal (subject and excerpt included — the owner chose full content,
+  kept on that machine) plus an empty `label` field per row;
+- an **eval** that replays a labeled sample through the heuristic and reports counts, precision,
+  recall, and the misclassified rows by id so the rules can be tuned on the spot.
+
+Constraints: the sample is real mail and **must never enter the repository** — default it to a
+gitignored path (`~/.magic-tower/labeled-sample.json`), and `.gitignore` that path pattern inside
+the repo too. Eval must run from the JSON file **alone** — no database, no Graph credentials — so it
+works on either machine. It must **exit 0 with a clear message when the sample is absent**, so CI
+and this PC stay green. Commit a small synthetic example as the schema reference. Document the exact
+sequence for the second PC: set the five `MICROSOFT_*` settings plus `APP_ENCRYPTION_KEY`, sync,
+export, label, eval, tune, commit rule changes.
 
 ## T10 — Frontend test infrastructure and shadcn foundation
 - status: verified
