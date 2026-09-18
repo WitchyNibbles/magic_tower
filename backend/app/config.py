@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Distinct from Graph/OAuth secrets. Installed local agents use this only
     # as ``Authorization: Bearer ...`` when accessing the agent protocol.
     local_api_token: SecretStr | None = None
+    # Addresses whose mail the promotion heuristic treats as work whatever its rules
+    # decide, comma-separated. Tenant-specific by nature -- an internal robot one
+    # owner acts on is noise to the next -- so it is configuration, not a constant.
+    promotion_allowlisted_senders: str = ""
     local_session_ttl_seconds: int = 28_800
     max_request_body_bytes: int = 1_048_576
     token_store_path: Path = Path("/data/workboard-graph-tokens.json")
@@ -46,6 +50,10 @@ class Settings(BaseSettings):
         if value is not None and (not value.strip() or any(char in value for char in "/\\?&#")):
             raise ValueError("Microsoft identifiers must be plain tenant, client, or object IDs")
         return value
+
+    def allowlisted_senders(self) -> tuple[str, ...]:
+        """The configured allowlist as addresses, with blanks from a trailing comma dropped."""
+        return tuple(address.strip() for address in self.promotion_allowlisted_senders.split(",") if address.strip())
 
     def graph_configuration_errors(self) -> list[str]:
         required = {

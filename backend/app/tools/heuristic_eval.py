@@ -21,6 +21,9 @@ each printed and exited differently so none can be mistaken for another:
 * present, valid, and labeled -- prints counts, precision, recall, and the
   misclassified rows by id, and exits 0.
 
+``--allow-sender`` is the same allowlist ``PROMOTION_ALLOWLISTED_SENDERS`` gives a
+live sync, passed here so a score matches what the sync would decide.
+
 ``--owner-address`` is optional and repeatable; without it, rule 4 of
 ``should_promote`` (mail the owner was only copied on) is never exercised, the
 same way a live sync with no profile skips it -- a missing address costs recall,
@@ -38,7 +41,8 @@ from ..services.promotion import should_promote
 from .heuristic_sample import DEFAULT_SAMPLE_PATH, SampleSchemaError, load_sample, signal_from_row
 
 
-def evaluate(rows: list[dict[str, Any]], owner_addresses: tuple[str, ...] = ()) -> dict[str, Any]:
+def evaluate(rows: list[dict[str, Any]], owner_addresses: tuple[str, ...] = (),
+             allowlisted_senders: tuple[str, ...] = ()) -> dict[str, Any]:
     """Confusion-matrix counts, precision, recall, and misclassified ids over the labeled rows.
 
     Rows whose ``label`` is still ``null`` are counted but not scored. Precision
@@ -49,7 +53,7 @@ def evaluate(rows: list[dict[str, Any]], owner_addresses: tuple[str, ...] = ()) 
     true_positives = false_positives = true_negatives = false_negatives = 0
     misclassified: list[str] = []
     for row in labeled:
-        predicted = should_promote(signal_from_row(row), owner_addresses)
+        predicted = should_promote(signal_from_row(row), owner_addresses, allowlisted_senders)
         actual = bool(row["label"])
         if predicted and actual:
             true_positives += 1
@@ -98,6 +102,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                          help="path to the labeled sample JSON file (default: %(default)s)")
     parser.add_argument("--owner-address", action="append", default=[], dest="owner_addresses",
                          help="an address the owner is known by; repeatable")
+    parser.add_argument("--allow-sender", action="append", default=[], dest="allowlisted_senders",
+                         help="an address whose mail is always work, whatever the rules say; repeatable")
     return parser.parse_args(argv)
 
 
@@ -112,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no labeled sample at {args.sample}; nothing to evaluate "
               "(run heuristic_export after a sync, then label it)")
         return 0
-    result = evaluate(rows, tuple(args.owner_addresses))
+    result = evaluate(rows, tuple(args.owner_addresses), tuple(args.allowlisted_senders))
     if result["labeled_rows"] == 0:
         print(f"sample at {args.sample} has {result['total_rows']} row(s) but none are labeled yet; "
               "nothing to evaluate")

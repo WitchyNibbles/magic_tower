@@ -59,7 +59,7 @@ def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, 
     signals = fetch_signals(graph, limit)
     created = persist_signals(db, signals) if db is not None else 0
     # Every signal is kept as a ``Source``; only the actionable ones reach the queue.
-    promoted = promote_signals(db, signals, _owner_addresses(profile)) if db is not None else 0
+    promoted = promote_signals(db, signals, _owner_addresses(profile), settings.allowlisted_senders()) if db is not None else 0
     return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals), "new_sources": created, "new_work_items": promoted}
 
 
