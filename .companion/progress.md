@@ -434,3 +434,63 @@
   attempt 1 stay open; B36 is now partly confirmed as live — after a sync, hand-deleting the
   promoted item makes attempt 2's gate open again and backfill promotes the declined newsletter too,
   which the reviewer reproduced.
+
+## 2026-09-18T11:32:08Z · T09 · blocked(the documented `docker compose` export path dies on a fresh second PC — `docker compose cp` into a not-yet-created `~/.magic-tower` exits 1, the same pasted-command-fails class the first review already blocked on)
+- attempt: 2 · model: opus · reviewer: fable (opus authored the repair, so the reviewer must differ)
+- commits: 8f72654, cc2a177 — **kept merged, not reset away**
+- commands: done-when → exit 0; test → exit 0 (125 passed, 110 at repair base, 97 at task base); probe: RED but vacuous (attempt 1) / weak (attempt 2); dead-code → 3 (2 Python `cls` false positives + 1 TS, baseline 4)
+- review: revise — `docker compose cp api:/data/labeled-sample.json ~/.magic-tower/labeled-sample.json` (README:133) fails `invalid output path: directory "/home/<you>/.magic-tower" does not exist` on any machine that has never run the export, which is the fresh-clone state by definition
+- notes: **Kept merged, unlike T06, and deliberately.** Both reviewers endorsed the design — the two
+  commands, `SourceSignalContext`, revision `0004`, the `persist_signals` carry-across, the header
+  allowlist and the tests are all sound and independently verified. What is left is one README line
+  on one of two documented run paths. Resetting would throw away work two reviews approved to fix a
+  docs gap, so the next session repairs forward from `cc2a177`, it does not start over.
+  **The exact remaining work, in order:** (1) add `mkdir -p -m 700 ~/.magic-tower` before the
+  `docker compose cp` line at README:133 — the export tool's own `mkdir(mode=0o700)` runs *inside
+  the container* on that path, so the host directory is never created and README:137's "writes the
+  file 0600 under a 0700 directory" is also false there; (2) make `test_documented_commands.py`
+  actually guard the compose path — it cannot see this today, which is why a docs-shaped test passed
+  over a broken pasted command; (3) advisory: `heuristic_sample.py:86` `path.read_text()` has no
+  `encoding`, so a non-UTF-8 locale (Windows cp1252 — plausible on the second PC) turns a subject
+  containing `Á` into a `UnicodeDecodeError` traceback; (4) advisory: `heuristic_export.py:73`
+  catches only `OperationalError`, so a Postgres URL at an unmigrated database still raises a raw
+  `ProgrammingError` — low weight, the project is SQLite-only today.
+  **I reproduced the blocking finding myself with a negative control** rather than taking the
+  reviewer's word: `docker cp` into a missing host directory exits 1, into an existing one exits 0.
+  I also reproduced the *first* review's blocking finding before ordering the repair, and confirmed
+  the repair fixed it — the previously-crashing export command now prints two actionable lines and
+  exits 1 instead of a 40-line traceback, and the documented uv sequence (`alembic upgrade head`
+  0001→0004, then the export) runs clean on a fresh database and writes `-rw-------`.
+  **The probe proved nothing both rounds and I did not treat it as evidence.** Attempt 1's RED is a
+  collection error: reverting the 10 impl files deletes the module the new tests import. The real
+  evidence is hand-falsification — attempt 1: seven stubs (precision arithmetic, recall arithmetic,
+  malformed-sample exit 1, absent-sample exit 0, unlabeled-rows gate, the `persist_signals` context
+  assignment, the decrypted excerpt in the exported row), each reddening *named* tests, negative
+  control GREEN at 97. Attempt 2: five stubs (DB-error handling, file mode, header allowlist
+  kept-everything, README `DATABASE_URL`, README `--owner-address`), each reddening named tests,
+  negative control GREEN at 112. Every stub restored byte-exact, md5-verified. Note my first harness
+  read `tail`'s exit code through a pipeline and mislabelled all seven attempt-1 stubs "GREEN" — the
+  pytest FAILED lines were what actually settled it. Read the output, not the verdict.
+  **The done-when is nearly vacuous on this machine** and must not be trusted alone: no
+  `~/.magic-tower/labeled-sample.json` exists here, so it only ever exercises the absent-sample path.
+  I verified the other three states by hand through the CLI — empty array → exit 0 "none are labeled
+  yet"; malformed dict → exit 1 to stderr naming the problem; the committed synthetic example →
+  exit 0, precision 100.0%, recall 100.0%, "misclassified rows: none".
+  **Scope expanded beyond the two commands, and both reviewers judged it justified**: T09 also added
+  the `source_signal_context` table, revision `0004`, and a `persist_signals` carry-across of
+  sender/sender_kind/to_recipients/headers. Without it a sample rebuilt from the database can only
+  reach the heuristic's default rule, because `Source` stores none of those fields. Two consequences
+  worth carrying: it **closes the data gap T06's block called permanent** ("a `Source` stores neither
+  sender, headers nor recipients"), which may change T06's options; and the opus reviewer verified
+  the worker's T02 claim empirically — a new *table* is invisible to `0001`'s `BASELINE_COLUMNS`
+  skip check while a new *column* is not, so this did not trip the drift refusal.
+  **Revision `0004` now collides with the preserved T06 branch** `worktree-agent-a2af9b2b1c1e76c3e`,
+  whose `source_promotions` migration is also `0004`/`down_revision '0003'`. Main is a single clean
+  head today; recorded on T06 in plan.md so the rebase renumbers to `0005`.
+  **An interrupted earlier session's T09 attempt is preserved, unreviewed and unused**, at commit
+  `1042136` on `worktree-agent-ad658f58f9a4e25e8` — I committed it so it would survive cleanup and
+  did **not** hand it to either worker, so both attempts are independent work. Its worktree is still
+  on disk: `git worktree remove` was denied by the permission classifier this session.
+  The repair worker's worktree **started at `05bc7f3` ("Initial Magic Tower release"), not the named
+  base** — it reset to `8f72654` and reported both SHAs, which is the only reason the numbers it
+  reported mean anything. Keep naming the base and keep demanding the observed SHA back.
