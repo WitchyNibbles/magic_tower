@@ -74,3 +74,40 @@
 - commands: done-when → exit 0; test → exit 0 (31 passed, was 26); probe: RED (9 impl files reverted); dead-code → 3 (baseline 4)
 - review: revise: `0001_initial_schema.py:37-43` keys skip-and-stamp on table names only, so a pre-Alembic DB whose `work_items` lacks `priority` is stamped `0001` and left unserviceable
 - notes: attempt 1 (opus, 30c7160, tag `t02-attempt1-rejected`) was rejected by the manager before review — `backend/alembic/` tripped setuptools flat-layout auto-discovery, so every `uv run`/`uv sync` under `backend/` exited 1; its green commands came from a uv build cache populated before the directory existed. The repair fixed that with an explicit `[tool.setuptools] packages = ["app"]` and, notably, a *guard* for it: `backend/tests/test_packaging.py` builds a wheel against a tree carrying a deliberate stray top-level dir. Manager verified on a **fresh clone** this time (the check that caught attempt 1): done-when exit 0, 31 passed. Falsified independently, each on its own: `script_location` commented out → upgrade exit 255; bare `# note: ALTER TABLE` comment appended to `main.py` → grep clause exit 1; `priority` deleted from `0001` → drift test FAILED; `[tool.setuptools] packages` swapped for `packages.find include=["*"]` (a tree that still builds) → packaging test FAILED `{'app','stray'} == {'app'}`; `create_all` startup hook re-added → `test_application_startup_writes_no_schema_of_its_own` FAILED, which the done-when grep cannot catch. The worker's doubt that `test_a_database_holding_only_some_baseline_tables_is_refused` was never observed red is resolved — manager removed the `RuntimeError` branch and it reddened on its stderr assertion, so it distinguishes deliberate refusal from an incidental `OperationalError`. **The blocking defect, reproduced by the manager by hand:** create_all DB → `ALTER TABLE work_items DROP COLUMN priority` → `alembic upgrade head` exits 0, writes `alembic_version='0001'`, `priority` still absent. Before this diff the startup `ALTER TABLE` repaired that volume automatically. Population is narrow — `git log -S` confirms `priority` and the `ALTER TABLE` both arrived in `05bc7f3 Initial Magic Tower release`, so only a pre-initial-release dev volume can be affected — but the regression turns a self-healing path into a silent one, and README/Dockerfile document the false claim. Filed as B10/B11, with the stamp-only alternative as B12. **Commit left merged deliberately:** it is green on a fresh clone and satisfies AC4's verify command, so the next session should repair forward (make `_baseline_already_present()` column-aware) rather than rebuild the scaffold; T03 stays gated because its dep is not `verified`.
+
+## 2026-09-18T00:25:00Z · T10 · attempt 1 rejected — repair dispatched
+- attempt: 1 · model: sonnet · reviewer: opus
+- commits: bfcc54d (reset out of the branch; preserved as tag `t10-attempt1-rejected`)
+- commands: done-when → exit 0; test → exit 0 (31 passed); probe: RED but weak (reverting the 9
+  impl files deletes the `test` script itself, so npm failed with `Missing script: "test"` — that
+  RED proves only that no test script existed at base, nothing about the test's substance)
+- review: revise — two blocking findings, both reproduced by the manager by hand
+- finding 1: `@import "tailwindcss";` at `frontend/src/styles.css:1` pulls in Tailwind v4 preflight,
+  whose `@layer base` carries `h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}`. App CSS is
+  unlayered so it wins only for properties it declares, and **no rule in `styles.css` declares
+  `font-weight` on any heading** — so every heading in the GUI renders at 400 instead of bold. The
+  same preflight strips `.sync form input` (the LOCAL_API_TOKEN unlock field, whose only rule is
+  `{width:100%;margin-top:12px}`) of its border, padding and background.
+- finding 2: build is no longer reproducible. Tailwind v4 auto source detection scans the build
+  context and cannot see the root `.gitignore` (there is no `frontend/.gitignore`, no
+  `.dockerignore`, and `Dockerfile:5` is `COPY . .`), so it scans a stale `dist/` when one is
+  present. Manager measured both, same commit and lockfile: `dist/` in context → 14,437-byte
+  `index-AfK56yVL.css`; clean `git archive` context → 11,594-byte `index-BAvVTd-x.css`. This is
+  backlog B9 (filed as cosmetic by the T01 reviewer) turned load-bearing, and it undoes T01's point.
+- notes: everything else checked out and should be preserved in the repair — the App extraction is
+  byte-identical bar `export default` (reviewer diffed it mechanically), pinning is clean with no
+  `"latest"` and lockfile floors matching exactly, peer ranges all satisfied against vite 8 /
+  ts 7 / react 19, dead-code held at 3, fresh-clone `npm ci` + test + build all exit 0, and `"DOM"`
+  in `tsconfig.node.json` is genuinely required (removing it fails `tsc -b` with TS2304
+  `DOMHighResTimeStamp` via `vitest/config` → tinybench). The test is real: manager gutted the
+  offline-fallback branch and it reddened. Reviewer confirmed the worker was boxed in on touching
+  `styles.css` — dropping the `@import` entirely makes knip report `tailwindcss` an unused
+  devDependency, pushing the gate 3 → 4; the fix is to import `tailwindcss/theme.css` +
+  `tailwindcss/utilities.css` (utilities without preflight), not to drop Tailwind.
+
+## 2026-09-18T00:45:00Z · T10 · verified
+- attempt: 2 · model: opus · reviewer: opus
+- commits: ab5ec9b
+- commands: done-when → exit 0; test → exit 0 (31 passed); probe: RED but vacuous-by-construction (see notes); dead-code → 3 (baseline 3)
+- review: approve (3 advisories, all T11-absorb — filed as B13/B14/B15)
+- notes: attempt 1 (sonnet, bfcc54d, tag `t10-attempt1-rejected`) was rejected on two blocking findings; the repair delta is exactly 3 files, with `App.tsx` and `package-lock.json` byte-identical to attempt 1, so the verified parts were reused rather than rebuilt. **The probe is structurally useless for this task and will be for T11–T13 too:** reverting the impl files deletes the `test` script itself, so it fails with `Missing script: "test"` — RED that proves only that no test existed at base. Both times the real proof was hand falsification. Fix 1, preflight: `@import "tailwindcss"` → `tailwindcss/theme.css` + `tailwindcss/utilities.css`; manager verified on the built CSS (7,455 B, was 11,594 B) that zero `@layer` blocks, no `h1..h6{font-weight:inherit}`, no universal `border:0 solid` and no preflight markers survive while `.brand h1`/`.detail h3`/`.sync form input`/`.sync button` all do. Reviewer confirmed the split is public API in tailwindcss@4.3.3's `exports` map, that variants/`@media`/theme tokens still compile, and — the thing I most doubted — that v4's `.border` utility is self-sufficient (`@property --tw-border-style` with `initial-value:solid`), so shadcn no longer depends on preflight the way it did in v3. Re-adding preflight later as `layer(base)` is additive and cannot regress today's CSS. Fix 2, reproducibility: `frontend/.dockerignore`; manager built the image twice from the same commit — `dist/` present → 7,455 B, clean `git archive` context → 7,455 B, identical, where before the fix the same test gave 14,437 B vs 11,594 B. Closes B9, which the T01 reviewer had filed as cosmetic and which T10 turned load-bearing. Fix 3 was the tightened assertion, and it is not cosmetic: breaking only `setSelected(demoItems[0])` (list populated, detail pane empty) fails `toHaveLength(2)` and **passes** the old `.not.toHaveLength(0)` — manager ran both against the identical mutation. Also verified: fresh-clone `npm ci` + done-when + build all exit 0 with identical CSS hash; `"DOM"` in `tsconfig.node.json` is required (TS2304 `DOMHighResTimeStamp` via tinybench without it); no `"latest"`, lockfile floors match carets exactly. **For T11:** it inherits an unlayered utility layer (better than the umbrella, where layered utilities lose to *every* unlayered app rule including bare `button{}`), and must handle B13 before copying components in or the first shadcn button will render invisible.

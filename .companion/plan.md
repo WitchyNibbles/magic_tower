@@ -122,7 +122,7 @@ labels theirs. Report counts, precision, recall, and list the misclassified item
 be tuned.
 
 ## T10 — Frontend test infrastructure and shadcn foundation
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T01
 - done-when: `cd frontend && npm run test -- --run`
