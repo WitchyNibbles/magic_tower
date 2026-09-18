@@ -253,7 +253,7 @@ CSS. Keep the existing behaviour that works — session/token handling (`fronten
 the demo-data fallback on 401/503 (`main.tsx:6-10,17`), and the dispatch clipboard copy.
 
 ## T12 — Triage view with grouping
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T11, T08
 - done-when: `cd frontend && npx vitest run -t "triage" --reporter=json --outputFile=/tmp/t12.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t12.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
