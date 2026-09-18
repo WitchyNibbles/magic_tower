@@ -2,16 +2,20 @@ import { SearchIcon } from 'lucide-react'
 import type { WorkItem } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { groupForTriage } from '@/lib/triage'
 import { cn } from '@/lib/utils'
-import { sourceLabels, sourceTone, statusLabels, statusTone } from '@/lib/work-items'
+import { sourceTone, statusLabels, statusTone } from '@/lib/work-items'
 
-export function MailList({ items, selectedId, query, onQuery, onSelect }: {
+export function MailList({ items, total, selectedId, query, onQuery, onSelect }: {
   items: WorkItem[]
+  total: number
   selectedId: string | null
   query: string
   onQuery: (value: string) => void
   onSelect: (item: WorkItem) => void
 }) {
+  const groups = groupForTriage(items)
+
   return (
     <section aria-label="Work queue" className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border p-3">
@@ -22,28 +26,44 @@ export function MailList({ items, selectedId, query, onQuery, onSelect }: {
         <span className="text-xs text-muted-foreground">{items.length} items</span>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
-        {items.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={selectedId === item.id}
-            onClick={() => onSelect(item)}
-            className={cn(
-              'flex w-full flex-col gap-1.5 rounded-lg border border-transparent p-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
-              selectedId === item.id && 'border-border bg-accent',
-            )}
-          >
-            <span className="flex items-center gap-2">
-              <span className={cn('size-2 shrink-0 rounded-full', sourceTone[item.source_kind])} />
-              <span className="truncate text-sm font-semibold">{item.title}</span>
-              <Badge className={cn('ml-auto', statusTone[item.status])}>{statusLabels[item.status]}</Badge>
-            </span>
-            <span className="line-clamp-2 text-xs text-muted-foreground">{item.summary || 'No summary yet'}</span>
-            <span className="text-[0.68rem] tracking-wide text-muted-foreground/80">{sourceLabels[item.source_kind]}</span>
-          </button>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-2">
+        {groups.map(group => (
+          <div key={group.key} role="group" aria-label={group.label} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 px-3">
+              <h3 className="truncate text-[0.68rem] font-semibold tracking-[0.16em] text-primary">{group.label}</h3>
+              <Badge
+                className="ml-auto bg-transparent px-0 text-muted-foreground"
+                aria-label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`}
+              >
+                {group.items.length}
+              </Badge>
+            </div>
+            {group.items.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={selectedId === item.id}
+                onClick={() => onSelect(item)}
+                className={cn(
+                  'flex w-full flex-col gap-1.5 rounded-lg border border-transparent p-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
+                  selectedId === item.id && 'border-border bg-accent',
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <span className={cn('size-2 shrink-0 rounded-full', sourceTone[item.source_kind])} />
+                  <span className="truncate text-sm font-semibold">{item.title}</span>
+                  <Badge className={cn('ml-auto', statusTone[item.status])}>{statusLabels[item.status]}</Badge>
+                </span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">{item.summary || 'No summary yet'}</span>
+              </button>
+            ))}
+          </div>
         ))}
-        {!items.length && <p className="p-8 text-center text-sm text-muted-foreground">No tasks match these filters.</p>}
+        {!items.length && (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            {total ? 'No tasks match these filters.' : 'Nothing to triage yet.'}
+          </p>
+        )}
       </div>
     </section>
   )

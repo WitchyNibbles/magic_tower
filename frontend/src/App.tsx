@@ -111,7 +111,7 @@ export default function App() {
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
-          <MailList items={visible} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose} />
+          <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose} />
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize="48" minSize="30">
