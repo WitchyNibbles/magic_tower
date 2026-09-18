@@ -91,7 +91,7 @@ task, stub each rule's input in turn and confirm the suite **reddens** for every
 test can falsify is not implemented, it is decoration.
 
 ## T06 — Backfill the Sources already stored
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run pytest tests -q -k backfill`
