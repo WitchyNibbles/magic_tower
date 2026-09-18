@@ -57,7 +57,7 @@ the raw bytes of the database file. Ship the data migration as an Alembic revisi
 rows written before this change.
 
 ## T04 — Dispatch sync per source kind
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T03
 - done-when: `cd backend && uv run pytest tests -q -k per_source_dispatch`
