@@ -143,7 +143,7 @@ via revision `0004`, **unreviewed**, but verified green by the manager: 98 passe
 7, `-k backfill` 11).
 
 ## T07 — Index and paginate the list endpoints
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T06
 - done-when: `cd backend && uv run pytest tests -q -k "pagination or indexes"`
@@ -167,6 +167,14 @@ Endpoints to correct the heuristic by hand: promote a `Source` the rules missed,
 transition over a hard delete, and make a dismissed item stay dismissed across re-syncs and the
 T06 backfill (otherwise the next run promotes it again). Both are cookie-writable, so they need the
 CSRF path (`backend/app/security.py:106-109`).
+
+**Carried from T07 (manager, 2026-09-18): close the AC9 gap here.**
+`GET /api/work-items?assigned_agent=` filters on `WorkItem.assigned_agent`, which T07 left
+unindexed — its enumeration named status/source_kind/updated_at only, so AC9's wording ("the
+columns they filter and sort on are indexed") is literally unmet on that one column. Verified on a
+migrated database: the count query plans as `SCAN work_items`. T07's revision `0006` has shipped by
+now, so this needs `index=True` on `backend/app/models.py:44` plus its own revision, not an edit to
+`0006`. Index any column this task's own filters add, too. Closes backlog B47.
 
 ## T09 — Measure the heuristic against real mail
 - status: todo
