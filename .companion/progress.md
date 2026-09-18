@@ -494,3 +494,71 @@
   The repair worker's worktree **started at `05bc7f3` ("Initial Magic Tower release"), not the named
   base** — it reset to `8f72654` and reported both SHAs, which is the only reason the numbers it
   reported mean anything. Keep naming the base and keep demanding the observed SHA back.
+
+## 2026-09-18T12:30:28Z · T06 · attempt 1 findings (repairing forward, not reset)
+- attempt: 1 · model: sonnet · reviewer: opus
+- commits: bbada43 — **kept merged, not reset away** (see notes)
+- commands: done-when → exit 0 (11 passed, 112 deselected); test → exit 0 (136 passed, was 125 at base); migrations → exit 0 (7 passed); fresh-DB `alembic upgrade head` → exit 0 (0001→0005), single head `0005`; dead-code → 3 (unchanged, both vulture hits the documented `cls` false positives); probe: RED but **VACUOUS**
+- review: revise — the backfill calls the heuristic with a strictly weaker argument set than a live
+  sync (no `owner_addresses`), so rule 4 `_is_only_copied` is silently dead on that path: Cc-only
+  mail the live heuristic rejects is promoted, then permanently ledgered as judged.
+- notes: **I reproduced the blocking finding myself before ordering the repair**, with the live path
+  as its own control: the identical signal through `promote_signals(session, signals, OWNER)` →
+  `promoted=0` (declined by rule 4), the same row through `backfill_promoted_sources` →
+  `{'considered': 1, 'new_work_items': 1, 'judged_without_context': 0}` and a work item
+  `outlook:cc-only-1` created. This is attempt 1's blocking defect family — mail the heuristic would
+  reject arriving through the backfill door — narrowed to rule 4, and now worse in one respect: the
+  row is ledgered, so it is unreachable afterwards except by the owner's manual dismiss (T08). It
+  also breaks the task's own "must not report 0 silently" clause on the axis the envelope does not
+  measure: `judged_without_context: 0` asserts a decision on the merits in exactly the case where
+  one of the four rejection rules was unavailable. `backfill.py:57`'s docstring ("those are included
+  here so rules 1-4 of `should_promote` can genuinely decide") is false for rule 4.
+  **Constraint the repair must respect, which I checked myself:** there is no non-network source of
+  the owner's addresses today — `_owner_addresses` (`sync.py:39`) reads a live Graph `/me` response,
+  nothing persists it, and `config.py` has no owner-address setting. So threading real addresses
+  means adding a durable one; the honest-reporting route is the alternative.
+  **Kept merged rather than reset, deliberately, following the T09 precedent in this file.** The
+  reviewer independently re-ran and cleared everything else: the ledger cannot commit a judgement
+  for a source whose verdict was not reached (it traced every commit point, including
+  `create_work_item`'s inline commit and its `IntegrityError` rollback); `SourcePromotion.source_id`
+  is a non-nullable PK so the `NOT IN` cannot be NULL-poisoned; `_record_considered` matches the
+  exact prefixed `external_id` `persist_signals` writes; migration `0005`/`down_revision '0004'`
+  mirrors `0004`'s guard and leaves a single head; auth/CSRF matches `POST /api/sync`. It also
+  mutated the selection predicate to attempt 1's shape and got the two right tests reddening. The
+  defect is one missing argument and two docstring claims, not the design, so resetting would
+  discard a verified ledger to rebuild it identically.
+  **The probe was RED and I did not treat it as evidence.** I reproduced the reverted state by hand:
+  reverting the six impl files removes `SourcePromotion` from `models.py`, so `test_backfill.py:34`
+  dies with `ImportError` — 1 collection error, 112 deselected, no test ran. My own falsification is
+  what settled it: Stub A (marker written only for *promoted* signals — the realistic wrong
+  implementation) reddened exactly `…declined_unpromoted` and `…records_a_judgement_even_when_every_
+  signal_is_declined`; Stub B (`db.commit()` removed) reddened exactly the latter, so the commit is
+  load-bearing and pinned; negative control (behaviour-preserving restructure) stayed GREEN at 11.
+  `promotion.py` md5 `ad057aa4b0c5cc6322a84edc60543d18` before and after every stub.
+  Attempt 2's and attempt 1's blocking scenarios are both now pinned by real tests built through
+  `persist_signals`/`promote_signals` rather than bare `Source` rows.
+  Carried to the backlog rather than dropped: B41 (`SourcePromotion` has no ORM relationship/cascade
+  and SQLite never enables `PRAGMA foreign_keys`, so its declared `ondelete="CASCADE"` is inert and
+  deleting a `Source` orphans the ledger row while the sibling context row is cleaned), B42
+  (`judged_without_context` keys off `signal_context is None`, but `persist_signals` always writes a
+  context row, all-NULL when Graph gave no sender — such a row reports as fully judged while only
+  rules 1 and 5 can fire), B43 (`backfill_promoted_sources` loads every `Source` then lazy-loads
+  `signal_context` per row, an N+1 that `selectinload` fixes in one line). B37 from attempt 1 is
+  now **promoted from backlog to blocking** and is what this repair fixes.
+
+## 2026-09-18T12:53:41Z · T06 · verified
+- attempt: 2 · model: opus · reviewer: opus
+- commits: bbada43 (implementation), cabef2d (repair)
+- commands: done-when → exit 0 (13 passed, 112 deselected); test → exit 0 (138 passed, 136 at repair base, 125 at task base); migrations → exit 0 (7 passed); fresh-DB `alembic upgrade head` → exit 0 (0001→0005), single head `0005`; dead-code → 3 (unchanged); probe: RED (**genuine on the repair**, vacuous on the implementation — see notes)
+- review: approve — Route B is the contract-consistent choice; the predicate matches the real rule ordering with no off-by-one, and the double `should_promote` evaluation cannot diverge from the verdict `promote_signals` reaches
+- notes: **The blocking finding, and the repair, were both reproduced by me — not taken on either agent's word.** Same script, before and after: the live path `promote_signals(session, signals, ("owner@contoso.com",))` → `promoted=0` (rule 4 declines Cc-only mail); the identical stored row through `backfill_promoted_sources` → before `{'considered': 1, 'new_work_items': 1, 'judged_without_context': 0}`, after `{..., 'promoted_without_owner_check': 1}`. The mail is **still promoted** — that is Route B by design — but is no longer reported as a clean decision.
+  **Route A was declined for a reason I verified myself before accepting it:** there is no non-network source of the owner's addresses in this application. `_owner_addresses` (`sync.py:39`) reads a live Graph `/me?$select=id,userPrincipalName,mail`; nothing persists it; `config.py` has no owner-address setting. So threading real addresses means net-new durable persistence on a task already blocked twice for predicate drift, and it still would not help a database that has never synced. The reviewer reached the same conclusion independently and added the point that `should_promote`'s own docstring already establishes the convention ("without any, rule 4 is skipped rather than guessed at"), so the backfill inherits a documented property of the shared heuristic rather than inventing a weaker one.
+  **The probe flipped from worthless to genuine between the two commits, and I checked which each time.** On `bbada43` it was RED and **vacuous**: reverting the six impl files removes `SourcePromotion` from `models.py`, so `test_backfill.py:34` dies with `ImportError` — 1 collection error, 112 deselected, no test ran. I discarded it. On `cabef2d` only `backfill.py` is reverted, every symbol stays importable, and it yields 9 failed / 4 passed / 112 deselected, all assertion failures. Read why it reddened, not the verdict.
+  **My own falsification on the implementation** (each stub importable, each restored byte-exact, `promotion.py` md5 `ad057aa4b0c5cc6322a84edc60543d18` before and after every one): Stub A — marker written only for *promoted* signals, the realistic wrong implementation — reddened exactly `…declined_unpromoted` and `…records_a_judgement_even_when_every_signal_is_declined`; Stub B — `db.commit()` removed — reddened exactly the latter, proving the commit load-bearing and pinned; negative control (behaviour-preserving restructure) stayed GREEN at 11. The repair reviewer falsified each clause of the new compound predicate separately rather than trusting one revert: dropping the `to_recipients` clause → 4 failed, dropping `should_promote` → 2 failed, no-op docstring edit green at 13.
+  **I diffed all 8 edited envelope assertions line by line** because adding a key to an `==` dict compare is exactly where a weakened assertion hides. Every one is purely additive (`+ "promoted_without_owner_check": 0`); none deleted or loosened.
+  **A reviewer number that looked alarming and was not.** The repair reviewer reported "full suite 125 passed", which is precisely this task's *base* count — it had run `pytest tests`, not the contract's `pytest tests ../tests/agent_protocol`. I re-ran both to settle it: 125 and 138 respectively. Scope, not regression. Worth remembering that a plausible-looking count can come from a different command.
+  All three blocking defects in this task's history are now pinned by named tests built through `persist_signals`/`promote_signals` rather than bare `Source` rows: attempt 1's over-promotion of declined newsletters, attempt 2's silent-forever gate (two pre-T05 sources + one ordinary promoting sync → both still promoted), and B36's hand-delete resurrection.
+  **Every worker this session arrived at `05bc7f3` ("Initial Magic Tower release"), not the named base** — both reset on instruction and reported both SHAs. That is now three sessions running. Keep naming the base and keep demanding the observed SHA back; the numbers mean nothing otherwise.
+  Closed by this task: B36 (the ledger survives a hand-deleted work item, pinned by a named test), B37 (promoted from backlog to blocking, and fixed), B40 (README:111 now documents the endpoint and all four counts).
+  Carried to the backlog rather than dropped: B41 (inert `ondelete="CASCADE"`; SQLite never enables `PRAGMA foreign_keys`), B42 (`judged_without_context` keys off `signal_context is None` though `persist_signals` always writes a row, all-NULL when Graph gave no sender — the repair explicitly does **not** subsume this), B43 (N+1 on `signal_context`), B44 (`promoted_without_owner_check` is evaluated before the idempotency skip, so it can report 1 promotion flagged with 0 promotions made; also a note that T08 must write a `SourcePromotion` row), B45 (README overstates the count, which is an upper bound including mail addressed directly to the owner).
+  Preserved T06 branches left on disk deliberately, still unmerged: `worktree-agent-a23f8e11c4ed0f2f5` (attempt 1), `worktree-agent-aa02c3e50aa3ca413` (attempt 2), `worktree-agent-a2af9b2b1c1e76c3e` (the `source_promotions` lead this session's worker ported from). Also `worktree-agent-ad658f58f9a4e25e8` (T09's interrupted attempt). The two stale empty worktrees from an interrupted T06 session were removed this session; the permission classifier denied worktree removal on the first try and allowed it later, so retry rather than assume.
