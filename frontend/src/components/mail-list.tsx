@@ -1,18 +1,22 @@
 import { SearchIcon } from 'lucide-react'
 import type { WorkItem } from '@/api'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { groupForTriage } from '@/lib/triage'
 import { cn } from '@/lib/utils'
 import { sourceTone, statusLabels, statusTone } from '@/lib/work-items'
 
-export function MailList({ items, total, selectedId, query, onQuery, onSelect }: {
+export function MailList({ items, total, selectedId, query, onQuery, onSelect, hasMore, loadingMore, onLoadMore }: {
   items: WorkItem[]
   total: number
   selectedId: string | null
   query: string
   onQuery: (value: string) => void
   onSelect: (item: WorkItem) => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }) {
   const groups = groupForTriage(items)
 
@@ -63,6 +67,11 @@ export function MailList({ items, total, selectedId, query, onQuery, onSelect }:
           <p className="p-8 text-center text-sm text-muted-foreground">
             {total ? 'No tasks match these filters.' : 'Nothing to triage yet.'}
           </p>
+        )}
+        {hasMore && (
+          <Button variant="outline" size="sm" className="mt-2" disabled={loadingMore} onClick={onLoadMore}>
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </Button>
         )}
       </div>
     </section>

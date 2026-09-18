@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
-import { ApiError, beginMicrosoftConnect, createDispatch, getHealth, getWorkItem, getWorkItems, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type SourceKind, type WorkItem, type WorkStatus } from './api'
+import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type WorkItem, type WorkStatus } from './api'
 import { CommandPalette } from '@/components/command-palette'
 import { MailDetail } from '@/components/mail-detail'
 import { MailList } from '@/components/mail-list'
@@ -10,6 +10,8 @@ import { UnlockPanel } from '@/components/unlock-panel'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { demoItems } from '@/lib/work-items'
+
+const PAGE_LIMIT = 50
 
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])
@@ -23,17 +25,44 @@ export default function App() {
   const [palette, setPalette] = useState(false)
   const [toast, setToast] = useState('')
   const [locked, setLocked] = useState(false)
+  const [remoteTotal, setRemoteTotal] = useState(0)
+  const [loadedCount, setLoadedCount] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [missed, setMissed] = useState<Source[]>([])
+
+  const loadMissed = async (loadedItems: WorkItem[]) => {
+    try {
+      const page = await getSources({ limit: 200 })
+      const promoted = new Set(loadedItems.map(i => i.source_external_id).filter((id): id is string => Boolean(id)))
+      setMissed((page.items ?? []).filter(candidate => !promoted.has(candidate.external_id)))
+    } catch { setMissed([]) }
+  }
 
   const loadWork = async () => {
     try {
       await getHealth()
       await restoreLocalSession()
-      const work = await getWorkItems()
-      setState('ready'); setLocked(false); setDemo(false); setItems(work); setSelected(work[0] ?? null)
+      const page = await getWorkItems()
+      const work = page.items.filter(i => i.status !== 'dismissed')
+      setState('ready'); setLocked(false); setDemo(false)
+      setItems(work); setSelected(work[0] ?? null)
+      setRemoteTotal(page.total); setLoadedCount(page.items.length)
+      void loadMissed(work)
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 503)) { setState('offline'); setLocked(true); return }
       setState('offline'); setDemo(true); setItems(demoItems); setSelected(demoItems[0])
+      setRemoteTotal(demoItems.length); setLoadedCount(demoItems.length); setMissed([])
     }
+  }
+
+  const loadMore = async () => {
+    setLoadingMore(true)
+    try {
+      const page = await getWorkItems({ limit: PAGE_LIMIT, offset: loadedCount })
+      const additions = page.items.filter(i => i.status !== 'dismissed')
+      setItems(all => [...all, ...additions]); setRemoteTotal(page.total); setLoadedCount(count => count + page.items.length)
+    } catch { setToast('Could not load more items.') }
+    finally { setLoadingMore(false) }
   }
 
   useEffect(() => { void loadWork() }, [])
@@ -77,6 +106,25 @@ export default function App() {
       setSelected(old); setItems(all => all.map(i => i.id === old.id ? old : i)); setToast('Could not save that change.')
     }
   }
+  const dismiss = async (item: WorkItem) => {
+    setItems(all => all.filter(i => i.id !== item.id))
+    setSelected(current => current?.id === item.id ? null : current)
+    setRemoteTotal(t => Math.max(0, t - 1))
+    if (demo) { setToast('Dismissed the sample item.'); return }
+    try { await dismissWorkItem(item.id); setToast('Dismissed. It will stay out of the queue.') }
+    catch {
+      setItems(all => [item, ...all]); setSelected(item); setRemoteTotal(t => t + 1)
+      setToast('Could not dismiss that item.')
+    }
+  }
+  const promote = async (candidate: Source) => {
+    try {
+      const created = await promoteSource(candidate.id)
+      setMissed(all => all.filter(s => s.id !== candidate.id))
+      setItems(all => [created, ...all]); setSelected(created); setRemoteTotal(t => t + 1)
+      setToast('Promoted to your work queue.')
+    } catch { setToast('Could not promote that source.') }
+  }
 
   const visible = useMemo(
     () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${i.summary ?? ''}`.toLowerCase().includes(query.toLowerCase())),
@@ -107,17 +155,18 @@ export default function App() {
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel defaultSize="19" minSize="14">
-          <MailNav items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} />
+          <MailNav items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} missed={missed} onPromote={promote} />
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
-          <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose} />
+          <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
+            hasMore={!demo && loadedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize="48" minSize="30">
           <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
             {selected
-              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onToast={setToast} onHandoff={handoff} />
+              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onToast={setToast} onHandoff={handoff} onDismiss={dismiss} />
               : locked
                 ? <UnlockPanel onUnlock={unlock} />
                 : <div className="m-auto max-w-sm p-8 text-center">

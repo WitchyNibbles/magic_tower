@@ -1,5 +1,5 @@
 import { InboxIcon, LinkIcon, RefreshCwIcon, SparklesIcon } from 'lucide-react'
-import type { SourceKind, WorkItem, WorkStatus } from '@/api'
+import type { Source, SourceKind, WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -7,7 +7,7 @@ import { sourceLabels, statusLabels, statuses } from '@/lib/work-items'
 
 const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'teams_message', 'manual']
 
-export function MailNav({ items, filter, onFilter, source, onSource, onSync, onConnect, onDemo }: {
+export function MailNav({ items, filter, onFilter, source, onSource, onSync, onConnect, onDemo, missed, onPromote }: {
   items: WorkItem[]
   filter: WorkStatus | 'all'
   onFilter: (value: WorkStatus | 'all') => void
@@ -16,6 +16,8 @@ export function MailNav({ items, filter, onFilter, source, onSource, onSync, onC
   onSync: () => void
   onConnect: () => void
   onDemo: () => void
+  missed: Source[]
+  onPromote: (source: Source) => void
 }) {
   const count = (status: WorkStatus | 'all') => (status === 'all' ? items.length : items.filter(i => i.status === status).length)
 
@@ -54,6 +56,18 @@ export function MailNav({ items, filter, onFilter, source, onSource, onSync, onC
           </Button>
         ))}
       </div>
+
+      {missed.length > 0 && (
+        <div role="group" aria-label="Missed sources" className="flex flex-col gap-1 border-t border-border pt-4">
+          <p className="px-3 pb-1 text-xs font-semibold tracking-[0.16em] text-primary">MISSED</p>
+          {missed.map(candidate => (
+            <div key={candidate.id} className="flex items-center gap-2 px-3">
+              <span className="flex-1 truncate text-xs text-muted-foreground">{candidate.subject || '(no subject)'}</span>
+              <Button size="sm" variant="ghost" onClick={() => onPromote(candidate)}>Promote</Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
         <Button variant="outline" size="sm" onClick={onSync}><RefreshCwIcon />Sync now</Button>

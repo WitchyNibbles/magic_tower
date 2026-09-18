@@ -1,7 +1,9 @@
 import type { SourceKind, WorkItem, WorkStatus } from '@/api'
 
+// Filterable/editable statuses — 'dismissed' is deliberately excluded: it is reached only
+// through the dismiss action (B51), never picked from a filter or a status dropdown.
 export const statuses: WorkStatus[] = ['pending', 'in_progress', 'blocked', 'done']
-export const statusLabels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done' }
+export const statusLabels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done', dismissed: 'Dismissed' }
 export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', teams_message: 'Teams', manual: 'Manual' }
 
 export const statusTone: Record<WorkStatus, string> = {
@@ -9,6 +11,7 @@ export const statusTone: Record<WorkStatus, string> = {
   in_progress: 'bg-sky-500/15 text-sky-200',
   blocked: 'bg-destructive/15 text-destructive',
   done: 'bg-emerald-500/15 text-emerald-200',
+  dismissed: 'bg-muted text-muted-foreground',
 }
 
 export const sourceTone: Record<SourceKind, string> = {
