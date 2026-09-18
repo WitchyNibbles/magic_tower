@@ -265,7 +265,7 @@ deterministic grouping, no LLM). Tests assert that items group correctly, that a
 so instead of rendering blank, and that the group counts match the data.
 
 ## T13 — Wire pagination, promote and dismiss into the GUI
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T12
 - done-when: `cd frontend && npx vitest run -t "pagination|dismiss" --reporter=json --outputFile=/tmp/t13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t13.json')); sys.exit(0 if d.get('numPassedTests',0)>=3 and d.get('numFailedTests',0)==0 else 1)"`
