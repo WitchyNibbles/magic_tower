@@ -28,17 +28,41 @@ live sync, passed here so a score matches what the sync would decide.
 ``should_promote`` (mail the owner was only copied on) is never exercised, the
 same way a live sync with no profile skips it -- a missing address costs recall,
 never a crash.
+
+Setting ``MAGIC_TOWER_REQUIRE_SAMPLE=1`` turns the two silent-pass states above
+into hard failures (a message on stderr naming the sample path, exit 1), because
+a second PC's own eval run is meant to prove the heuristic was actually checked,
+not merely that the command ran:
+
+* absent stays a hard failure under strict mode -- a second PC that never ran
+  ``heuristic_export`` cannot look the same as one that did;
+* present-but-unlabeled is *also* a hard failure under strict mode, for the
+  same reason: an exported-but-never-labeled sample is exactly as silent as a
+  missing one is, and the owner's complaint this flag exists to fix is a second
+  PC that "passes" without anyone having looked at a single row;
+* present-but-invalid already exits 1 in both modes, so strict mode changes
+  nothing there;
+* present, valid, and labeled always exits 0 and prints the report, in both
+  modes -- strict mode only raises the floor, it never lowers the bar for an
+  already-real result.
+
+Unset, empty, or ``"0"`` keeps today's lenient behaviour (exit 0), so CI and a
+machine that has never synced real mail both stay green by default; strict mode
+is opt-in and the default must never change.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from ..services.promotion import should_promote
 from .heuristic_sample import DEFAULT_SAMPLE_PATH, SampleSchemaError, load_sample, signal_from_row
+
+REQUIRE_SAMPLE_ENV_VAR = "MAGIC_TOWER_REQUIRE_SAMPLE"
 
 
 def evaluate(rows: list[dict[str, Any]], owner_addresses: tuple[str, ...] = (),
@@ -80,6 +104,18 @@ def evaluate(rows: list[dict[str, Any]], owner_addresses: tuple[str, ...] = (),
     }
 
 
+def _require_sample() -> bool:
+    """Whether ``MAGIC_TOWER_REQUIRE_SAMPLE`` opts this run into strict mode.
+
+    Unset, empty, or ``"0"`` is lenient (today's default); any other value is
+    strict. There is no bare ``bool(os.environ.get(...))`` here on purpose --
+    that would make ``MAGIC_TOWER_REQUIRE_SAMPLE=0`` strict too, which would
+    make CI's unset-by-default assumption one environment variable away from
+    breaking.
+    """
+    return os.environ.get(REQUIRE_SAMPLE_ENV_VAR, "") not in ("", "0")
+
+
 def _rate(value: float | None, empty_reason: str) -> str:
     return f"{value:.1%}" if value is not None else f"n/a ({empty_reason})"
 
@@ -109,17 +145,26 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    strict = _require_sample()
     try:
         rows = load_sample(args.sample)
     except SampleSchemaError as error:
         print(f"labeled sample at {args.sample} is not usable: {error}", file=sys.stderr)
         return 1
     if rows is None:
+        if strict:
+            print(f"{REQUIRE_SAMPLE_ENV_VAR}=1 requires a labeled sample, but none exists at {args.sample}",
+                  file=sys.stderr)
+            return 1
         print(f"no labeled sample at {args.sample}; nothing to evaluate "
               "(run heuristic_export after a sync, then label it)")
         return 0
     result = evaluate(rows, tuple(args.owner_addresses), tuple(args.allowlisted_senders))
     if result["labeled_rows"] == 0:
+        if strict:
+            print(f"{REQUIRE_SAMPLE_ENV_VAR}=1 requires a labeled sample, but {args.sample} has "
+                  f"{result['total_rows']} row(s) and none are labeled", file=sys.stderr)
+            return 1
         print(f"sample at {args.sample} has {result['total_rows']} row(s) but none are labeled yet; "
               "nothing to evaluate")
         return 0

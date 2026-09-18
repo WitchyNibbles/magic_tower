@@ -279,6 +279,75 @@ def test_load_sample_reads_the_file_as_utf8_whatever_the_ambient_encoding_is(tmp
     assert result.stdout.strip() == ascii("\u00c1 review")
 
 
+# --- MAGIC_TOWER_REQUIRE_SAMPLE strict mode ---------------------------------
+
+
+def test_main_exits_zero_when_the_sample_is_absent_and_strict_mode_is_unset(tmp_path, monkeypatch, capsys) -> None:
+    """Default behaviour is unchanged: AC11's lenient path must keep passing."""
+    monkeypatch.delenv("MAGIC_TOWER_REQUIRE_SAMPLE", raising=False)
+    missing = tmp_path / "labeled-sample.json"
+
+    exit_code = main(["--sample", str(missing)])
+
+    assert exit_code == 0
+
+
+def test_main_exits_nonzero_when_the_sample_is_absent_and_strict_mode_is_set(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MAGIC_TOWER_REQUIRE_SAMPLE", "1")
+    missing = tmp_path / "labeled-sample.json"
+
+    exit_code = main(["--sample", str(missing)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert str(missing) in err
+    assert "MAGIC_TOWER_REQUIRE_SAMPLE" in err
+
+
+def test_main_exits_nonzero_when_no_row_is_labeled_and_strict_mode_is_set(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MAGIC_TOWER_REQUIRE_SAMPLE", "1")
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps([_row(label=None), _newsletter(label=None)]))
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert str(sample) in err
+    assert "MAGIC_TOWER_REQUIRE_SAMPLE" in err
+
+
+def test_main_treats_a_blank_require_sample_value_as_lenient(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MAGIC_TOWER_REQUIRE_SAMPLE", "")
+    missing = tmp_path / "labeled-sample.json"
+
+    exit_code = main(["--sample", str(missing)])
+
+    assert exit_code == 0
+
+
+def test_main_treats_a_zero_require_sample_value_as_lenient(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MAGIC_TOWER_REQUIRE_SAMPLE", "0")
+    missing = tmp_path / "labeled-sample.json"
+
+    exit_code = main(["--sample", str(missing)])
+
+    assert exit_code == 0
+
+
+def test_main_still_reports_a_healthy_labeled_sample_when_strict_mode_is_set(tmp_path, monkeypatch, capsys) -> None:
+    """Strict mode changes the silent-pass cases, not the already-scored one."""
+    monkeypatch.setenv("MAGIC_TOWER_REQUIRE_SAMPLE", "1")
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps([_row(), _newsletter()]))
+
+    exit_code = main(["--sample", str(sample), "--owner-address", OWNER])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "true positives: 1" in out
+
+
 def test_the_committed_synthetic_example_is_a_valid_labeled_sample(capsys) -> None:
     """The schema reference this task commits must stay a real, loadable sample.
 
