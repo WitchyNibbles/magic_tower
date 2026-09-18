@@ -1,28 +1,143 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
 import { ApiError, beginMicrosoftConnect, createDispatch, getHealth, getWorkItem, getWorkItems, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type SourceKind, type WorkItem, type WorkStatus } from './api'
-
-const demoItems: WorkItem[] = [
-  { id: 'demo-email', title: 'Send the revised project estimate', summary: 'The client asked for an updated estimate before Friday.', status: 'pending', source_kind: 'outlook_email', source_external_id: 'demo-001', source_url: null, assigned_agent: null, due_at: null, created_at: '', updated_at: '', evidence: [{ source_kind: 'outlook_email', external_id: 'demo-001', excerpt: 'Could you send the revised estimate before Friday?', observed_at: '' }] },
-  { id: 'demo-teams', title: 'Confirm the rollout owner', summary: 'A decision is needed in the launch channel.', status: 'blocked', source_kind: 'teams_message', source_external_id: 'demo-002', source_url: null, assigned_agent: 'Codex', due_at: null, created_at: '', updated_at: '', evidence: [{ source_kind: 'teams_message', external_id: 'demo-002', excerpt: 'We still need an owner for the rollout checklist.', observed_at: '' }] },
-  { id: 'demo-manual', title: 'Review next week’s priorities', summary: 'Prepare the work plan for the team check-in.', status: 'in_progress', source_kind: 'manual', source_external_id: null, source_url: null, assigned_agent: null, due_at: null, created_at: '', updated_at: '', evidence: [] },
-]
-const labels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done' }
-const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', teams_message: 'Teams', manual: 'Manual' }
-const statuses: WorkStatus[] = ['pending', 'in_progress', 'blocked', 'done']
+import { CommandPalette } from '@/components/command-palette'
+import { MailDetail } from '@/components/mail-detail'
+import { MailList } from '@/components/mail-list'
+import { MailNav } from '@/components/mail-nav'
+import { SettingsDialog } from '@/components/settings-dialog'
+import { UnlockPanel } from '@/components/unlock-panel'
+import { Button } from '@/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { demoItems } from '@/lib/work-items'
 
 export default function App() {
-  const [items, setItems] = useState<WorkItem[]>([]); const [selected, setSelected] = useState<WorkItem | null>(null); const [filter, setFilter] = useState<WorkStatus | 'all'>('all'); const [source, setSource] = useState<SourceKind | 'all'>('all'); const [query, setQuery] = useState(''); const [state, setState] = useState<'checking' | 'ready' | 'offline'>('checking'); const [demo, setDemo] = useState(false); const [settings, setSettings] = useState(false); const [toast, setToast] = useState(''); const [locked, setLocked] = useState(false); const [localToken, setLocalToken] = useState('')
-  const loadWork = async () => { try { await getHealth(); await restoreLocalSession(); const work = await getWorkItems(); setState('ready'); setLocked(false); setDemo(false); setItems(work); setSelected(work[0] ?? null) } catch (error) { if (error instanceof ApiError && (error.status === 401 || error.status === 503)) { setState('offline'); setLocked(true); return } setState('offline'); setDemo(true); setItems(demoItems); setSelected(demoItems[0]) } }
+  const [items, setItems] = useState<WorkItem[]>([])
+  const [selected, setSelected] = useState<WorkItem | null>(null)
+  const [filter, setFilter] = useState<WorkStatus | 'all'>('all')
+  const [source, setSource] = useState<SourceKind | 'all'>('all')
+  const [query, setQuery] = useState('')
+  const [state, setState] = useState<'checking' | 'ready' | 'offline'>('checking')
+  const [demo, setDemo] = useState(false)
+  const [settings, setSettings] = useState(false)
+  const [palette, setPalette] = useState(false)
+  const [toast, setToast] = useState('')
+  const [locked, setLocked] = useState(false)
+
+  const loadWork = async () => {
+    try {
+      await getHealth()
+      await restoreLocalSession()
+      const work = await getWorkItems()
+      setState('ready'); setLocked(false); setDemo(false); setItems(work); setSelected(work[0] ?? null)
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 503)) { setState('offline'); setLocked(true); return }
+      setState('offline'); setDemo(true); setItems(demoItems); setSelected(demoItems[0])
+    }
+  }
+
   useEffect(() => { void loadWork() }, [])
-  const unlock = async (event: FormEvent) => { event.preventDefault(); try { await startLocalSession(localToken); setLocalToken(''); await loadWork() } catch { setToast('That local token could not unlock Magic Tower.') } }
-  const connectMicrosoft = async () => { try { await beginMicrosoftConnect() } catch { setToast('Microsoft connection could not start.') } }
-  const runSync = async () => { try { const result = await syncNow(); await loadWork(); setToast(result.detail || 'Microsoft messages synced.') } catch { setToast('Sync could not be completed.') } }
-  const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => { try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') } }
-  const visible = useMemo(() => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${i.summary ?? ''}`.toLowerCase().includes(query.toLowerCase())), [items, filter, source, query])
-  const showDemo = () => { setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items — connect the API for your work queue.') }
-  const choose = async (item: WorkItem) => { setSelected(item); if (!demo) try { setSelected(await getWorkItem(item.id)) } catch { /* list summary remains usable */ } }
-  const changeStatus = async (status: WorkStatus) => { if (!selected) return; const old = selected; const next = { ...old, status }; setSelected(next); setItems(all => all.map(i => i.id === next.id ? next : i)); if (!demo) try { const saved = await updateWorkItem(old.id, { status }); setSelected(saved); setItems(all => all.map(i => i.id === saved.id ? saved : i)) } catch { setSelected(old); setItems(all => all.map(i => i.id === old.id ? old : i)); setToast('Could not save that change.') } }
-  return <main><header className="topbar"><div className="brand"><img src="/magic-tower-logo.png" alt="Magic Tower" /><div><h1>Magic Tower</h1><p>A private task grimoire</p></div></div><div><b className={`connection ${state}`}>{state === 'ready' ? '● Synced locally' : state === 'checking' ? 'Reading the stars' : '● Offline'}</b><button className="icon" onClick={() => setSettings(true)} aria-label="Settings">⚙</button></div></header>{toast && <div className="toast">{toast}<button onClick={() => setToast('')} aria-label="Dismiss notification">×</button></div>}<section className="intro"><div><p className="eyebrow">KEEP THE THREADS IN SIGHT</p><h2>Gather every signal.<br />Choose the next spell.</h2><p>Review tasks found in Outlook and Teams. Nothing is sent to an agent until you choose.</p></div><div className="sync">{locked ? <form onSubmit={unlock}><b>Unlock Magic Tower</b><small>Enter LOCAL_API_TOKEN for this browser session only.</small><input type="password" value={localToken} onChange={e => setLocalToken(e.target.value)} autoComplete="off" required /><button type="submit">Unlock</button></form> : <><b>✦ Scrying pool ready</b><small>{state === 'ready' ? `${items.length} work items in your queue` : 'Microsoft Graph is not connected'}</small><div className="sync-actions"><button onClick={runSync}>Sync now</button><button onClick={connectMicrosoft}>Connect Microsoft</button><button onClick={showDemo}>View sample</button></div></>}</div></section><nav className="summary">{(['all', ...statuses] as const).map(s => <button key={s} className={filter === s ? 'active' : ''} onClick={() => setFilter(s)}><strong>{s === 'all' ? items.length : items.filter(i => i.status === s).length}</strong>{s === 'all' ? 'All work' : labels[s]}</button>)}</nav><section className="workspace"><aside className="queue"><div className="tools"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="⌕  Search tasks" /><select value={source} onChange={e => setSource(e.target.value as SourceKind | 'all')}><option value="all">All sources</option><option value="outlook_email">Outlook</option><option value="teams_message">Teams</option><option value="manual">Manual</option></select></div><p className="queue-title">Tower queue <small>{visible.length} items</small></p>{visible.map(i => <button className={`work ${selected?.id === i.id ? 'selected' : ''}`} onClick={() => choose(i)} key={i.id}><i className={i.source_kind} /><span><b>{i.title}</b><small>{i.summary || 'No summary yet'}</small><em>{sourceLabels[i.source_kind]}</em></span><mark className={i.status}>{labels[i.status]}</mark></button>)}{!visible.length && <p className="empty">No tasks match these filters.</p>}</aside><article className="detail">{selected ? <Detail item={selected} demo={demo} status={changeStatus} toast={setToast} handoff={handoff} /> : <div className="empty-detail"><h3>{locked ? 'Unlock Magic Tower to view your queue.' : 'Your tower is quiet.'}</h3><p>{locked ? 'The local token is never saved in this browser.' : 'Connect Microsoft Graph or explore the sample queue.'}</p><button onClick={showDemo}>Explore sample tasks</button></div>}</article></section>{settings && <Settings ready={state === 'ready'} close={() => setSettings(false)} />}</main>
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setPalette(open => !open) }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const unlock = async (token: string) => {
+    try { await startLocalSession(token); await loadWork() } catch { setToast('That local token could not unlock Magic Tower.') }
+  }
+  const connectMicrosoft = async () => {
+    try { await beginMicrosoftConnect() } catch { setToast('Microsoft connection could not start.') }
+  }
+  const runSync = async () => {
+    try { const result = await syncNow(); await loadWork(); setToast(result.detail || 'Microsoft messages synced.') } catch { setToast('Sync could not be completed.') }
+  }
+  const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
+    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
+  }
+  const showDemo = () => {
+    setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items — connect the API for your work queue.')
+  }
+  const choose = async (item: WorkItem) => {
+    setSelected(item)
+    if (!demo) try { setSelected(await getWorkItem(item.id)) } catch { /* list summary remains usable */ }
+  }
+  const changeStatus = async (status: WorkStatus) => {
+    if (!selected) return
+    const old = selected
+    const next = { ...old, status }
+    setSelected(next); setItems(all => all.map(i => i.id === next.id ? next : i))
+    if (!demo) try {
+      const saved = await updateWorkItem(old.id, { status })
+      setSelected(saved); setItems(all => all.map(i => i.id === saved.id ? saved : i))
+    } catch {
+      setSelected(old); setItems(all => all.map(i => i.id === old.id ? old : i)); setToast('Could not save that change.')
+    }
+  }
+
+  const visible = useMemo(
+    () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${i.summary ?? ''}`.toLowerCase().includes(query.toLowerCase())),
+    [items, filter, source, query],
+  )
+
+  return (
+    <div className="flex h-screen flex-col">
+      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <img src="/magic-tower-logo.png" alt="Magic Tower" className="size-8 object-contain" />
+          <div>
+            <h1 className="font-serif text-base leading-tight">Magic Tower</h1>
+            <p className="text-[0.68rem] text-muted-foreground">A private task grimoire</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPalette(true)}>
+            <SearchIcon />Search
+            <kbd className="ml-2 rounded-sm bg-secondary px-1.5 py-0.5 text-[0.65rem] text-muted-foreground">⌘K</kbd>
+          </Button>
+          <span className={state === 'ready' ? 'text-xs text-emerald-300' : 'text-xs text-muted-foreground'}>
+            {state === 'ready' ? '● Synced locally' : state === 'checking' ? 'Reading the stars' : '● Offline'}
+          </span>
+          <Button variant="ghost" size="icon" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon /></Button>
+        </div>
+      </header>
+
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        <ResizablePanel defaultSize="19" minSize="14">
+          <MailNav items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} />
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
+          <MailList items={visible} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose} />
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize="48" minSize="30">
+          <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
+            {selected
+              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onToast={setToast} onHandoff={handoff} />
+              : locked
+                ? <UnlockPanel onUnlock={unlock} />
+                : <div className="m-auto max-w-sm p-8 text-center">
+                    <h2 className="font-serif text-xl">Your tower is quiet.</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">Connect Microsoft Graph or explore the sample queue.</p>
+                    <Button className="mt-4" onClick={showDemo}>Explore sample tasks</Button>
+                  </div>}
+          </section>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+
+      {toast && (
+        <div className="fixed top-4 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-xl">
+          {toast}
+          <Button variant="ghost" size="icon" className="size-5 text-primary-foreground hover:bg-primary-foreground/10" onClick={() => setToast('')} aria-label="Dismiss notification"><XIcon /></Button>
+        </div>
+      )}
+
+      <CommandPalette open={palette} onOpenChange={setPalette} items={items} onSelect={choose} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} onSettings={() => setSettings(true)} />
+      <SettingsDialog ready={state === 'ready'} open={settings} onOpenChange={setSettings} />
+    </div>
+  )
 }
-function Detail({ item, demo, status, toast, handoff }: { item: WorkItem; demo: boolean; status: (v: WorkStatus) => void; toast: (v: string) => void; handoff: (item: WorkItem, client: 'codex' | 'claude-code') => void }) { const [agent, setAgent] = useState<'codex' | 'claude-code' | null>(null); const command = `scripts/pending-work context ${item.id}`; const copy = async () => { await navigator.clipboard?.writeText(command); toast('Safe context command copied. Paste it into your agent terminal.') }; const chooseAgent = (client: 'codex' | 'claude-code') => { setAgent(client); if (!demo) handoff(item, client) }; return <><div className="detail-top"><b className={`badge ${item.source_kind}`}>{sourceLabels[item.source_kind]}</b><small>Updated just now</small></div><h3>{item.title}</h3><p className="detail-summary">{item.summary || 'No summary was added to this task.'}</p><div className="status"><label>Status<select value={item.status} onChange={e => status(e.target.value as WorkStatus)}>{statuses.map(s => <option key={s} value={s}>{labels[s]}</option>)}</select></label>{item.assigned_agent && <span>Assigned to {item.assigned_agent}</span>}</div><section><h4>Why this is here <small>Source evidence</small></h4>{item.evidence?.length ? item.evidence.map((e, n) => <blockquote key={n}>{e.excerpt}<footer>{sourceLabels[e.source_kind]} conversation</footer></blockquote>) : <p className="quiet">This task was added manually, so no message evidence is available.</p>}</section><section className="handoff"><p className="eyebrow">AGENT HANDOFF</p><h4>Invite an agent to take this on</h4><p>Magic Tower records a bounded handoff and copies only the task ID. It never puts mailbox text in a shell command.</p><button onClick={() => chooseAgent('codex')}>Use Codex</button><button className="secondary" onClick={() => chooseAgent('claude-code')}>Use Claude Code</button>{agent && <div className="command"><code>{command}</code><button onClick={copy}>Copy command</button>{demo && <small>Sample item only — nothing will be dispatched.</small>}</div>}</section></> }
-function Settings({ ready, close }: { ready: boolean; close: () => void }) { return <div className="backdrop" onMouseDown={close}><section className="modal" onMouseDown={e => e.stopPropagation()}><button className="close" onClick={close} aria-label="Close settings">×</button><p className="eyebrow">SETTINGS</p><h3>Your connections</h3><div><b>Microsoft Graph</b><p>{ready ? 'Connected to your local Magic Tower API.' : 'Not connected. Your mail and Teams stay private until you explicitly authorize access.'}</p><mark>{ready ? 'Ready' : 'Not connected'}</mark></div><div><b>Agent handoff</b><p>Codex and Claude Code commands are always shown for review; Magic Tower never launches them.</p></div><button onClick={close}>Done</button></section></div> }
