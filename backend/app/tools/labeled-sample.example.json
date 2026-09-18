@@ -1,0 +1,41 @@
+[
+  {
+    "id": "outlook:example-direct-1",
+    "source_kind": "outlook_email",
+    "subject": "EXAMPLE: can you review the deployment plan?",
+    "excerpt": "EXAMPLE: this is a synthetic row for schema reference only, not real mail.",
+    "sender": "colleague@example.test",
+    "sender_kind": "user",
+    "to_recipients": ["owner@example.test"],
+    "headers": {},
+    "url": "https://outlook.office.com/mail/example-direct-1",
+    "observed_at": "2026-01-01T09:00:00+00:00",
+    "label": true
+  },
+  {
+    "id": "outlook:example-newsletter-1",
+    "source_kind": "outlook_email",
+    "subject": "EXAMPLE: your weekly product digest",
+    "excerpt": "EXAMPLE: this is a synthetic row for schema reference only, not real mail.",
+    "sender": "newsletter@example.test",
+    "sender_kind": "user",
+    "to_recipients": ["owner@example.test"],
+    "headers": {},
+    "url": "https://outlook.office.com/mail/example-newsletter-1",
+    "observed_at": "2026-01-01T09:05:00+00:00",
+    "label": false
+  },
+  {
+    "id": "teams:example-unlabeled-1",
+    "source_kind": "teams_message",
+    "subject": "Teams conversation",
+    "excerpt": "EXAMPLE: freshly exported, not yet labeled by hand.",
+    "sender": null,
+    "sender_kind": "user",
+    "to_recipients": [],
+    "headers": {},
+    "url": "https://teams.microsoft.com/l/message/example-1",
+    "observed_at": "2026-01-01T09:10:00+00:00",
+    "label": null
+  }
+]

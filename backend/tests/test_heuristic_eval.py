@@ -1,0 +1,252 @@
+"""Scoring ``should_promote`` against a labeled sample, and the four sample states.
+
+``evaluate`` must call the real heuristic, not a copy of its rules: a test that
+stubbed ``should_promote`` and still passed would prove nothing (the same trap
+T05's promotion rules fell into before they had real coverage), so one test below
+asserts the identity of the imported function rather than only its behaviour.
+
+Every row here is synthetic, in the same spirit as ``tests/test_promotion.py``:
+the labeled sample of the owner's real mail this tool measures never enters the
+repository.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from app.services.promotion import should_promote as real_should_promote
+from app.tools import heuristic_eval
+from app.tools.heuristic_eval import evaluate, main
+from app.tools.heuristic_sample import load_sample
+
+OWNER = "owner@contoso.com"
+
+
+def _row(**overrides: Any) -> dict[str, Any]:
+    """A direct colleague email correctly labeled ``True`` (should be promoted), by default."""
+    return {
+        "id": "outlook:direct-1", "source_kind": "outlook_email",
+        "subject": "Can you review the migration plan?", "excerpt": "please take a look",
+        "sender": "colleague@contoso.com", "sender_kind": "user",
+        "to_recipients": [OWNER], "headers": {},
+        "url": "https://outlook.office.com/mail/direct-1", "observed_at": "2026-09-18T08:30:00Z",
+        "label": True,
+        **overrides,
+    }
+
+
+def _newsletter(**overrides: Any) -> dict[str, Any]:
+    """Correctly labeled ``False``: the sender rule alone should skip it."""
+    defaults = {"id": "outlook:newsletter-1", "sender": "newsletter@vendor.example", "label": False}
+    return _row(**{**defaults, **overrides})
+
+
+def _bot(**overrides: Any) -> dict[str, Any]:
+    """Correctly labeled ``False``: a Teams application post."""
+    defaults = {"id": "teams:bot-1", "source_kind": "teams_message", "sender": None,
+                "sender_kind": "application", "to_recipients": [], "label": False}
+    return _row(**{**defaults, **overrides})
+
+
+# --- evaluate() arithmetic -------------------------------------------------
+
+
+def test_evaluate_imports_the_real_heuristic_not_a_reimplementation() -> None:
+    assert heuristic_eval.should_promote is real_should_promote
+
+
+def test_evaluate_scores_a_mixed_confusion_matrix_by_id() -> None:
+    rows = [
+        _row(),  # a real TP: sender is a person, addressed to the owner, label True
+        _newsletter(),  # a real TN: automated sender, label False
+        _bot(),  # a real TN: application sender_kind, label False
+        # Mislabeled True on an automated sender: heuristic correctly predicts
+        # False, so this is a false negative -- the sample says "promote" and the
+        # heuristic disagrees.
+        _row(id="outlook:mislabeled-fn", sender="marketing@vendor.example", label=True),
+        # Mislabeled False on a message that is genuinely addressed to the owner
+        # from a person: heuristic correctly predicts True, so this is a false
+        # positive -- the sample says "skip" and the heuristic disagrees.
+        _row(id="outlook:mislabeled-fp", label=False),
+    ]
+
+    result = evaluate(rows, owner_addresses=(OWNER,))
+
+    assert result["total_rows"] == 5
+    assert result["labeled_rows"] == 5
+    assert result["true_positives"] == 1
+    assert result["false_positives"] == 1
+    assert result["true_negatives"] == 2
+    assert result["false_negatives"] == 1
+    assert result["precision"] == pytest.approx(0.5)
+    assert result["recall"] == pytest.approx(0.5)
+    assert set(result["misclassified"]) == {"outlook:mislabeled-fn", "outlook:mislabeled-fp"}
+
+
+def test_evaluate_ignores_unlabeled_rows() -> None:
+    result = evaluate([_row(), _row(id="outlook:unlabeled", label=None)], owner_addresses=(OWNER,))
+
+    assert result["total_rows"] == 2
+    assert result["labeled_rows"] == 1
+    assert result["true_positives"] == 1
+
+
+def test_evaluate_reports_no_precision_when_nothing_is_predicted_promote() -> None:
+    """Every row here is an automated sender the heuristic will always skip."""
+    rows = [_newsletter(), _newsletter(id="outlook:newsletter-2")]
+
+    result = evaluate(rows, owner_addresses=(OWNER,))
+
+    assert result["true_positives"] == 0
+    assert result["false_positives"] == 0
+    assert result["precision"] is None
+    assert result["recall"] is None
+
+
+def test_evaluate_reports_no_recall_when_no_row_is_labeled_promote() -> None:
+    """A predicted false positive with no actual positive anywhere in the sample."""
+    rows = [_row(label=False), _newsletter()]
+
+    result = evaluate(rows, owner_addresses=(OWNER,))
+
+    assert result["false_positives"] == 1
+    assert result["false_negatives"] == 0
+    assert result["recall"] is None
+    assert result["precision"] == pytest.approx(0.0)
+
+
+def test_evaluate_without_owner_addresses_never_exercises_the_cc_only_rule() -> None:
+    """Mirrors ``should_promote``: a missing profile costs recall, never a crash."""
+    only_copied = _row(to_recipients=["someone-else@contoso.com"], label=False)
+
+    result = evaluate([only_copied], owner_addresses=())
+
+    # With no owner address known, rule 4 cannot fire, so this is predicted True
+    # against a label of False: a false positive, not a true negative.
+    assert result["false_positives"] == 1
+    assert result["true_negatives"] == 0
+
+
+# --- main(): the four sample states -----------------------------------------
+
+
+def test_main_exits_zero_with_a_message_when_the_sample_is_absent(tmp_path, capsys) -> None:
+    missing = tmp_path / "labeled-sample.json"
+
+    exit_code = main(["--sample", str(missing)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert str(missing) in out
+    assert "nothing to evaluate" in out
+
+
+def test_main_exits_zero_with_a_message_when_the_sample_is_an_empty_array(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text("[]")
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "0 row(s)" in out
+    assert "nothing to evaluate" in out
+
+
+def test_main_exits_zero_with_a_message_when_no_row_is_labeled_yet(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps([_row(label=None), _newsletter(label=None)]))
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "2 row(s)" in out
+    assert "none are labeled yet" in out
+
+
+def test_main_exits_nonzero_when_the_sample_is_not_valid_json(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text("{not json")
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "not valid JSON" in err
+
+
+def test_main_exits_nonzero_when_the_sample_is_not_a_json_array(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps({"not": "a list"}))
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "JSON array" in err
+
+
+def test_main_exits_nonzero_when_a_row_is_missing_a_required_field(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    broken_row = _row()
+    del broken_row["sender"]
+    sample.write_text(json.dumps([broken_row]))
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "missing field" in err
+    assert "sender" in err
+
+
+def test_main_exits_nonzero_when_a_label_is_not_true_false_or_null(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps([_row(label="yes")]))
+
+    exit_code = main(["--sample", str(sample)])
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "label" in err
+
+
+def test_main_prints_precision_recall_and_misclassified_rows_for_a_healthy_sample(tmp_path, capsys) -> None:
+    sample = tmp_path / "labeled-sample.json"
+    sample.write_text(json.dumps([_row(), _newsletter(), _row(id="outlook:missed", sender="marketing@x.example", label=True)]))
+
+    exit_code = main(["--sample", str(sample), "--owner-address", OWNER])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "true positives: 1" in out
+    assert "false negatives: 1" in out
+    assert "precision: 100.0%" in out
+    assert "recall: 50.0%" in out
+    assert "outlook:missed" in out
+
+
+def test_main_uses_the_shared_sample_loader_not_a_reimplementation() -> None:
+    """``main``'s exit-1 path is only meaningful if it is fed by the real loader."""
+    assert heuristic_eval.load_sample is load_sample
+
+
+def test_the_committed_synthetic_example_is_a_valid_labeled_sample(capsys) -> None:
+    """The schema reference this task commits must stay a real, loadable sample.
+
+    Obviously synthetic (``example.test`` addresses, ``EXAMPLE:`` subjects) --
+    this is the file the second PC's owner is pointed at for the row shape, never
+    real mail.
+    """
+    example_path = Path(__file__).resolve().parents[1] / "app" / "tools" / "labeled-sample.example.json"
+
+    exit_code = main(["--sample", str(example_path), "--owner-address", "owner@example.test"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "labeled rows: 2 of 3" in out
