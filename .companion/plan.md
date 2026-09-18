@@ -91,7 +91,7 @@ task, stub each rule's input in turn and confirm the suite **reddens** for every
 test can falsify is not implemented, it is decoration.
 
 ## T06 — Backfill the Sources already stored
-- status: blocked(both attempts' selection predicates are unsound in opposite directions; the fix needs a durable per-source judgement marker, which needs schema that T02's legacy-DB tests currently refuse)
+- status: todo
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run pytest tests -q -k backfill`
@@ -99,6 +99,17 @@ test can falsify is not implemented, it is decoration.
 Promote `Source` rows written before T05 once, so the queue populates without waiting for a sync.
 Re-running must be safe — run the backfill twice in the test and assert a stable count. Document
 where it runs (startup vs explicit endpoint); if startup, it must not slow boot on an empty DB.
+**Blocked twice; owner decision 2026-09-18 — record judgements in a new table.** A `Source` stores
+no sender, headers or recipients, so "unpromoted" cannot distinguish *never judged* from *judged and
+declined*, and no predicate over existing state can. Attempt 2's queue-level gate silently disabled
+itself after the first promoting sync: two pre-T05 sources + one ordinary sync → backfill reports
+`{"new_work_items": 0}`, indistinguishable from "nothing to do", and those rows are unreachable
+forever. Fix: a migration adds a **judgements table** recording that `promote_signals` decided on a
+source and what the verdict was; the backfill then promotes exactly the never-judged rows. A new
+table is deliberately chosen over a column on `Source` — the manager verified empirically that
+`0001`'s skip check is scoped to `BASELINE_COLUMNS.keys() & get_table_names()`, so an added table is
+invisible to it while an added column is refused. Do not change T02 for this.
+Must not report 0 silently: if anything cannot be judged, say so distinctly from "nothing to do".
 Probe note: test-shaped; falsify by hand (stub the body, confirm the test reddens).
 
 **Blocked twice, 2026-09-18 — both predicates were unsound, in opposite directions.** Attempt 1
@@ -158,7 +169,7 @@ T06 backfill (otherwise the next run promotes it again). Both are cookie-writabl
 CSRF path (`backend/app/security.py:106-109`).
 
 ## T09 — Measure the heuristic against real mail
-- status: blocked(the documented `docker compose` export path dies on a fresh second PC — `docker compose cp` into a not-yet-created `~/.magic-tower` exits 1)
+- status: todo
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
@@ -198,6 +209,19 @@ subject; (4) `heuristic_export.py:73` catches only `OperationalError`, so an unm
 still raises a raw `ProgrammingError`.
 Note for T06: this task's carry-across **closes the data gap T06's block called permanent** —
 `source_signal_context` now stores sender, sender_kind, to_recipients and the heuristic's headers.
+
+**Repair forward from `cc2a177` — do not start over.** Both reviewers endorsed the design (the two
+commands, `SourceSignalContext`, revision `0004`, the `persist_signals` carry-across, the header
+allowlist and the tests); the block is one README line on one of two documented paths. Exact work,
+in order: (1) add `mkdir -p -m 700 ~/.magic-tower` before the `docker compose cp` at `README:133` —
+the export tool's `mkdir(mode=0o700)` runs *inside the container*, so the host directory is never
+created and `README:137`'s "0600 file under a 0700 directory" claim is false on that path;
+(2) make `backend/tests/test_documented_commands.py` actually guard the compose path — it cannot see
+it today, which is how a docs test passed over a broken pasted command; (3) `heuristic_sample.py:86`
+`path.read_text()` has no `encoding`, so a non-UTF-8 locale (Windows cp1252 is plausible on the
+second PC) turns a subject containing `Á` into a `UnicodeDecodeError`; (4) `heuristic_export.py:73`
+catches only `OperationalError`, so a non-SQLite URL at an unmigrated database raises a raw
+`ProgrammingError` — low weight, SQLite-only today.
 
 ## T10 — Frontend test infrastructure and shadcn foundation
 - status: verified
@@ -253,3 +277,19 @@ One backend test running a fixture sync through the whole path, asserting `GET /
 returns promoted items with evidence. Extend `.github/workflows/ci.yml` to run the frontend tests
 too — today it runs only pytest and the Docker build. Then push so CI runs on this exact commit;
 a stale earlier run does not count.
+
+## T15 — Build the migration tests from the frozen baseline
+- status: todo
+- complexity: normal
+- deps: T02
+- done-when: `cd backend && uv run pytest tests -q -k "alembic_stamp or migrations"`
+
+`backend/tests/test_migrations.py:135,164,178` build their "legacy" database from **today's** models,
+so `0001`'s frozen `BASELINE_COLUMNS` drift check refuses it the moment any migration adds a column
+to a baseline table — the tests fail for a reason that has nothing to do with the behaviour under
+test. This already shaped a design decision: T06 was pushed toward a new table partly because a
+column was thought impossible. Rebuild those fixtures from the frozen baseline schema (the same
+definition `0001` stamps against), so adding a column to a baseline table is testable rather than
+structurally refused. Prove it: a test that adds a column via a later revision and still stamps and
+upgrades a legacy database correctly. Owner asked for this as its own task rather than backlog
+(2026-09-18).
