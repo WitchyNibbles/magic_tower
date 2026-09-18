@@ -137,7 +137,9 @@ describe('Pagination', () => {
   })
 })
 
-describe('Dismiss', () => {
+// The two manual triage corrections live in one block so that both stay inside the
+// `pagination|dismiss` gate, which vitest matches against the full describe + it name.
+describe('Promote and dismiss', () => {
   it('dismiss removes the item from the visible list', async () => {
     const fetchMock = vi.fn()
     const { firstPage } = pagedQueue(fetchMock)
@@ -188,9 +190,7 @@ describe('Dismiss', () => {
     fireEvent.click(await within(queue).findByRole('button', { name: 'Load more' }))
     await within(queue).findByText('Third item')
   })
-})
 
-describe('Promote', () => {
   it('promote posts the missed source to its promote endpoint and shows the new item in the queue', async () => {
     const fetchMock = vi.fn()
     pagedQueue(fetchMock)
