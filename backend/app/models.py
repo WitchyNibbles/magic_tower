@@ -14,6 +14,13 @@ class WorkStatus(str, enum.Enum):
     in_progress = "in_progress"
     blocked = "blocked"
     done = "done"
+    # A hand correction (T08): the heuristic promoted this in error, but the row
+    # -- and its evidence -- stays, unlike ``DELETE /api/work-items/{id}``. Kept
+    # distinct from a hard delete on purpose: ``promote_signals`` and the T06
+    # backfill both key their idempotency off the row existing at all, so this
+    # status only has to sit there, not be read anywhere, to stop either from
+    # promoting the same source again.
+    dismissed = "dismissed"
 
 
 class WorkPriority(str, enum.Enum):
@@ -42,7 +49,9 @@ class WorkItem(Base):
     source_kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind), index=True)
     source_external_id: Mapped[str | None] = mapped_column(String(512), unique=True, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    assigned_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Indexed: ``GET /api/work-items?assigned_agent=`` filters on it (AC9's carried
+    # gap -- ``0006`` indexed status/source_kind/updated_at but missed this column).
+    assigned_agent: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)

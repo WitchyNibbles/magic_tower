@@ -75,6 +75,22 @@ def delete_work_item(db: Session, item_id: UUID) -> None:
     db.commit()
 
 
+def dismiss_work_item(db: Session, item_id: UUID) -> WorkItem:
+    """Hand-correct a wrongly-promoted item without deleting it (T08, AC10).
+
+    A status transition, not ``delete_work_item``: ``promote_signals`` and the T06
+    backfill (``app/services/backfill.py``) both treat "no ``WorkItem`` row for this
+    ``source_external_id``" as "never promoted", so a hard delete would let either
+    one recreate this item on the very next re-sync. Leaving the row in place --
+    under a status neither of those two paths ever offers for repromotion -- is
+    what makes a dismissal stick.
+    """
+    item = get_work_item(db, item_id)
+    item.status = WorkStatus.dismissed
+    db.commit()
+    return get_work_item(db, item.id)
+
+
 def add_evidence(db: Session, item_id: UUID, payload: EvidenceInput) -> WorkEvidence:
     item = get_work_item(db, item_id)
     evidence = WorkEvidence(

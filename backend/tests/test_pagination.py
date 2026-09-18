@@ -191,6 +191,27 @@ def test_indexes_exist_on_a_real_migrated_database_not_only_in_model_metadata(tm
     assert source_indexes["ix_sources_observed_at"] == ["observed_at"]
 
 
+def test_indexes_include_assigned_agent_on_a_real_migrated_database(tmp_path):
+    """AC9's carried gap (backlog B47): ``0006`` indexed every filtered column except this one.
+
+    ``GET /api/work-items?assigned_agent=`` filters on it, so it belongs beside the
+    columns ``0006`` already covers -- on a real migrated database, not only in
+    ``app.models``.
+    """
+    database_path = tmp_path / "indexed-assigned-agent.db"
+
+    result = _run_with_database(database_path, "-m", "alembic", "upgrade", "head")
+    assert result.returncode == 0, result.stderr
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        work_item_indexes = {index["name"]: index["column_names"] for index in inspect(engine).get_indexes("work_items")}
+    finally:
+        engine.dispose()
+
+    assert work_item_indexes["ix_work_items_assigned_agent"] == ["assigned_agent"]
+
+
 def test_indexes_match_between_a_fresh_create_all_database_and_a_migrated_one():
     """``conftest`` builds test schema with ``create_all``; the migration chain must agree."""
     from app.database import engine as test_engine
@@ -201,3 +222,12 @@ def test_indexes_match_between_a_fresh_create_all_database_and_a_migrated_one():
 
     assert {"ix_work_items_status", "ix_work_items_source_kind", "ix_work_items_updated_at"} <= work_item_names
     assert {"ix_sources_kind", "ix_sources_observed_at"} <= source_names
+
+
+def test_indexes_include_assigned_agent_in_a_fresh_create_all_database_too():
+    """The ``create_all`` path (this suite's own fixture) must carry the same index."""
+    from app.database import engine as test_engine
+
+    work_item_names = {index["name"] for index in inspect(test_engine).get_indexes("work_items")}
+
+    assert "ix_work_items_assigned_agent" in work_item_names

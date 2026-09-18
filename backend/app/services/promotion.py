@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from ..models import Source, SourceKind, SourcePromotion, WorkItem
 from ..schemas import EvidenceInput, WorkItemCreate
 from .graph import parse_observed_at
-from .work_items import create_work_item
+from .work_items import conflict, create_work_item
 
 # Matched against the local part with separators removed, so ``no-reply@``,
 # ``no_reply@`` and ``noreply-github@`` are all the same address shape.
@@ -155,6 +155,43 @@ def _record_considered(db: Session, external_id: str) -> None:
     source_id = db.scalar(select(Source.id).where(Source.external_id == external_id))
     if source_id is not None and db.get(SourcePromotion, source_id) is None:
         db.add(SourcePromotion(source_id=source_id))
+
+
+def promote_source(db: Session, source: Source) -> WorkItem:
+    """Promote a ``Source`` by hand, overriding whatever ``should_promote`` decided (T08, AC10).
+
+    This is the owner's correction for the heuristic's false negatives: a source
+    ``promote_signals`` rejected, or one it has not judged at all yet. Neither
+    :func:`should_promote` nor ``owner_addresses`` are consulted -- the owner
+    looking at the message is the decision here, not the heuristic.
+
+    Writes the same ``SourcePromotion`` ledger row :func:`_record_considered`
+    would have written on a live judgement (B44). Without it, this source would
+    still read as "never judged" to ``app.services.backfill.backfill_promoted_sources``,
+    which would offer it to the heuristic again and report a promotion this
+    endpoint already made.
+
+    Refuses with 409 rather than a duplicate when a work item for this source
+    already exists -- promoted, dismissed, or otherwise -- the same conflict
+    ``create_work_item`` would hit against the ``source_external_id`` unique
+    constraint, raised earlier so nothing is written first.
+    """
+    if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == source.external_id)) is not None:
+        raise conflict("A work item for this source already exists")
+    if db.get(SourcePromotion, source.id) is None:
+        db.add(SourcePromotion(source_id=source.id))
+    return create_work_item(db, WorkItemCreate(
+        title=(str(source.subject or "").strip() or FALLBACK_TITLE)[:TITLE_LIMIT],
+        source_kind=source.kind,
+        source_external_id=source.external_id,
+        source_url=_source_url(source.url) if source.url else None,
+        evidence=[EvidenceInput(
+            source_kind=source.kind,
+            external_id=source.external_id,
+            excerpt=str(source.excerpt or "")[:EXCERPT_LIMIT] or None,
+            observed_at=source.observed_at,
+        )],
+    ))
 
 
 def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = ()) -> int:
