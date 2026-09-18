@@ -10,6 +10,9 @@ from ..config import Settings
 from ..integrations.graph import GraphClient
 from .crypto import EncryptedTokenStore, TokenStoreError
 from .graph import fetch_signals, persist_signals
+from .sync_registry import UnknownSourceKindError, get_sync_handler, register_sync_handler
+
+GRAPH_SOURCE_KIND = "graph"
 
 
 class SyncError(RuntimeError):
@@ -32,7 +35,9 @@ def status(settings: Settings) -> dict[str, Any]:
     return {"configured": configured, "connected": connected, "mode": "read-only", "last_sync_at": None}
 
 
-def sync(settings: Settings, db: Session | None = None, client: GraphClient | None = None, limit: int = 50) -> dict[str, Any]:
+def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, client: GraphClient | None = None, **_: Any) -> dict[str, Any]:
+    """The only handler that knows about Microsoft Graph; the identity assertion
+    below is Graph-specific and must not apply to any other registered kind."""
     if settings.graph_configuration_errors():
         raise SyncError("Microsoft Graph is not configured")
     try:
@@ -48,3 +53,19 @@ def sync(settings: Settings, db: Session | None = None, client: GraphClient | No
     signals = fetch_signals(graph, limit)
     created = persist_signals(db, signals) if db is not None else 0
     return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals), "new_sources": created}
+
+
+register_sync_handler(GRAPH_SOURCE_KIND, _sync_graph)
+
+
+def sync(settings: Settings, db: Session | None = None, client: GraphClient | None = None, limit: int = 50, kind: str = GRAPH_SOURCE_KIND) -> dict[str, Any]:
+    """Dispatch to whatever handler is registered for ``kind``.
+
+    Adding a new source kind (Jira, Freshservice, ...) means registering a
+    handler for it elsewhere -- nothing here has to change.
+    """
+    try:
+        handler = get_sync_handler(kind)
+    except UnknownSourceKindError as error:
+        raise SyncError(str(error)) from error
+    return handler(settings, db=db, limit=limit, client=client)
