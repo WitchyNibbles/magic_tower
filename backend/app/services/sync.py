@@ -10,6 +10,7 @@ from ..config import Settings
 from ..integrations.graph import GraphClient
 from .crypto import EncryptedTokenStore, TokenStoreError
 from .graph import fetch_signals, persist_signals
+from .promotion import promote_signals
 from .sync_registry import UnknownSourceKindError, get_sync_handler, register_sync_handler
 
 GRAPH_SOURCE_KIND = "graph"
@@ -35,6 +36,11 @@ def status(settings: Settings) -> dict[str, Any]:
     return {"configured": configured, "connected": connected, "mode": "read-only", "last_sync_at": None}
 
 
+def _owner_addresses(profile: dict[str, Any]) -> tuple[str, ...]:
+    """Both addresses Graph knows the signed-in user by; alias-domain tenants differ in the two."""
+    return tuple(address for address in (profile.get("userPrincipalName"), profile.get("mail")) if isinstance(address, str))
+
+
 def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, client: GraphClient | None = None, **_: Any) -> dict[str, Any]:
     """The only handler that knows about Microsoft Graph; the identity assertion
     below is Graph-specific and must not apply to any other registered kind."""
@@ -52,7 +58,9 @@ def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, 
         raise SyncError("connected Microsoft user does not match MICROSOFT_TARGET_USER_ID")
     signals = fetch_signals(graph, limit)
     created = persist_signals(db, signals) if db is not None else 0
-    return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals), "new_sources": created}
+    # Every signal is kept as a ``Source``; only the actionable ones reach the queue.
+    promoted = promote_signals(db, signals, _owner_addresses(profile)) if db is not None else 0
+    return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals), "new_sources": created, "new_work_items": promoted}
 
 
 register_sync_handler(GRAPH_SOURCE_KIND, _sync_graph)

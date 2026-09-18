@@ -78,7 +78,9 @@ class WorkEvidence(Base):
     work_item_id: Mapped[UUID] = mapped_column(ForeignKey("work_items.id", ondelete="CASCADE"))
     source_kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind))
     external_id: Mapped[str] = mapped_column(String(512))
-    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Promotion carries the source excerpt across into this column, so it holds the
+    # same real mail and Teams bodies and is sealed the same way. Stays ``TEXT``.
+    excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     work_item: Mapped[WorkItem] = relationship(back_populates="evidence")

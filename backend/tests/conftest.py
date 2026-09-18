@@ -16,6 +16,15 @@ atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/workboard-tests.db"
 os.environ["LOCAL_API_TOKEN"] = "test-local-agent-token"
 
+# Message content lives in encrypted columns (``Source.excerpt``,
+# ``WorkEvidence.excerpt``) and every write of one fails closed without a key, so
+# the suite has to be configured the way a deployment is. A key generated per
+# pytest process keeps this out of the repository and out of any other run; the
+# tests that assert the keyless 503 delete the variable again through monkeypatch.
+from app.services.crypto import generate_encryption_key
+
+os.environ["APP_ENCRYPTION_KEY"] = generate_encryption_key()
+
 import pytest
 
 from app.config import get_settings
