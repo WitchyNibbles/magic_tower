@@ -26,9 +26,16 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [locked, setLocked] = useState(false)
   const [remoteTotal, setRemoteTotal] = useState(0)
-  const [loadedCount, setLoadedCount] = useState(0)
+  // Rows the server has handed us but that never entered `items` because they were already
+  // dismissed on arrival. `items.length` alone under-counts what's been fetched once a row
+  // leaves the array, so this correction travels with it instead of a separately tracked
+  // "loaded" counter — the fetched count can only move in the same call that moves `items`,
+  // so promoting (which only ever grows `items`) cannot leave it behind the way it left
+  // `loadedCount` behind before.
+  const [dismissedCount, setDismissedCount] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const [missed, setMissed] = useState<Source[]>([])
+  const fetchedCount = items.length + dismissedCount
 
   const loadMissed = async (loadedItems: WorkItem[]) => {
     try {
@@ -46,21 +53,22 @@ export default function App() {
       const work = page.items.filter(i => i.status !== 'dismissed')
       setState('ready'); setLocked(false); setDemo(false)
       setItems(work); setSelected(work[0] ?? null)
-      setRemoteTotal(page.total); setLoadedCount(page.items.length)
+      setRemoteTotal(page.total); setDismissedCount(page.items.length - work.length)
       void loadMissed(work)
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 503)) { setState('offline'); setLocked(true); return }
       setState('offline'); setDemo(true); setItems(demoItems); setSelected(demoItems[0])
-      setRemoteTotal(demoItems.length); setLoadedCount(demoItems.length); setMissed([])
+      setRemoteTotal(demoItems.length); setDismissedCount(0); setMissed([])
     }
   }
 
   const loadMore = async () => {
     setLoadingMore(true)
     try {
-      const page = await getWorkItems({ limit: PAGE_LIMIT, offset: loadedCount })
+      const page = await getWorkItems({ limit: PAGE_LIMIT, offset: fetchedCount })
       const additions = page.items.filter(i => i.status !== 'dismissed')
-      setItems(all => [...all, ...additions]); setRemoteTotal(page.total); setLoadedCount(count => count + page.items.length)
+      setItems(all => [...all, ...additions]); setRemoteTotal(page.total)
+      setDismissedCount(count => count + (page.items.length - additions.length))
     } catch { setToast('Could not load more items.') }
     finally { setLoadingMore(false) }
   }
@@ -109,12 +117,15 @@ export default function App() {
   const dismiss = async (item: WorkItem) => {
     // Dismissing moves a row to the 'dismissed' status rather than deleting it, so the server's
     // unfiltered total is unchanged — decrementing it here would strand the still-unfetched pages.
+    // The row still counts toward what's been fetched, so that moves from `items` into
+    // `dismissedCount` rather than disappearing from the fetched count entirely.
     setItems(all => all.filter(i => i.id !== item.id))
+    setDismissedCount(count => count + 1)
     setSelected(current => current?.id === item.id ? null : current)
     if (demo) { setToast('Dismissed the sample item.'); return }
     try { await dismissWorkItem(item.id); setToast('Dismissed. It will stay out of the queue.') }
     catch {
-      setItems(all => [item, ...all]); setSelected(item)
+      setItems(all => [item, ...all]); setDismissedCount(count => count - 1); setSelected(item)
       setToast('Could not dismiss that item.')
     }
   }
@@ -161,7 +172,7 @@ export default function App() {
         <ResizableHandle />
         <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
           <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
-            hasMore={!demo && loadedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
+            hasMore={!demo && fetchedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize="48" minSize="30">

@@ -54,6 +54,25 @@ const pagedQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
   return { firstPage, secondPage }
 }
 
+// Two items, both delivered on the first page (limit covers the whole total), so "Load more"
+// is already absent before anything is promoted — the baseline the resurrection bug breaks.
+const fullQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
+  const loaded = [item('a', 'First item'), item('b', 'Second item')]
+  fetchMock.mockImplementation(async (path: string) => {
+    const url = new URL(path, 'http://localhost')
+    if (url.pathname === '/api/work-items') {
+      return { ok: true, status: 200, json: async () => ({ items: loaded, total: loaded.length, limit: 50, offset: Number(offsetOf(path)) }) }
+    }
+    if (url.pathname === '/api/sources') {
+      return { ok: true, status: 200, json: async () => ({ items: [missedSource], total: 1, limit: 200, offset: 0 }) }
+    }
+    if (url.pathname.endsWith('/promote')) return { ok: true, status: 200, json: async () => promotedItem }
+    if (url.pathname === '/api/session') return { ok: true, status: 200, json: async () => ({ csrf_token: 'csrf-test' }) }
+    return { ok: true, status: 200, json: async () => ({ status: 'ok', service: 'workboard' }) }
+  })
+  return { loaded }
+}
+
 // Five items over pages of two, so a third page sits behind the second and each Load more
 // has to trust the envelope's `total` rather than the size of the page it just received.
 const deepQueue = (fetchMock: ReturnType<typeof vi.fn>) => {
@@ -220,5 +239,27 @@ describe('Promote and dismiss', () => {
     const panel = await screen.findByRole('group', { name: 'Missed sources' })
     await within(panel).findByText(missedSource.subject as string)
     expect(within(panel).queryByText(promotedSource.subject as string)).toBeNull()
+  })
+
+  // The mirrored resurrection bug: promote() bumped remoteTotal without ever bumping the count
+  // of rows already fetched, so a fully loaded queue thought a page was still missing, offered
+  // "Load more", and refetching landed a row that was already on screen under a different id.
+  it('promote on a fully loaded queue does not resurrect Load more or duplicate a row', async () => {
+    const fetchMock = vi.fn()
+    const { loaded } = fullQueue(fetchMock)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const panel = await screen.findByRole('group', { name: 'Missed sources' })
+    const queue = await screen.findByRole('region', { name: 'Work queue' })
+    await within(queue).findByText(loaded[0].title)
+    expect(within(queue).queryByRole('button', { name: 'Load more' })).toBeNull()
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Promote' }))
+    await within(queue).findByText(promotedItem.title)
+
+    expect(within(queue).queryByRole('button', { name: 'Load more' })).toBeNull()
+    expect(within(queue).getAllByText(loaded[1].title)).toHaveLength(1)
   })
 })
