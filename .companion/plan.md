@@ -17,7 +17,7 @@ Probe note: config-only, no revertible impl file — falsify by hand (remove the
 `npm ci` fails).
 
 ## T02 — Introduce Alembic
-- status: todo
+- status: blocked(0001 skips-and-stamps on table names only, so a column-drifted legacy DB is marked migrated and left broken — see B10)
 - complexity: complex
 - deps:
 - done-when: `cd backend && rm -f /tmp/t02.db && DATABASE_URL=sqlite:////tmp/t02.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
