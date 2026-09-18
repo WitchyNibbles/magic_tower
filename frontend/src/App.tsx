@@ -107,13 +107,14 @@ export default function App() {
     }
   }
   const dismiss = async (item: WorkItem) => {
+    // Dismissing moves a row to the 'dismissed' status rather than deleting it, so the server's
+    // unfiltered total is unchanged — decrementing it here would strand the still-unfetched pages.
     setItems(all => all.filter(i => i.id !== item.id))
     setSelected(current => current?.id === item.id ? null : current)
-    setRemoteTotal(t => Math.max(0, t - 1))
     if (demo) { setToast('Dismissed the sample item.'); return }
     try { await dismissWorkItem(item.id); setToast('Dismissed. It will stay out of the queue.') }
     catch {
-      setItems(all => [item, ...all]); setSelected(item); setRemoteTotal(t => t + 1)
+      setItems(all => [item, ...all]); setSelected(item)
       setToast('Could not dismiss that item.')
     }
   }
