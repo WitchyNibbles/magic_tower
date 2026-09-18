@@ -68,7 +68,7 @@ registers without editing `sync()`. Prove it with a test that registers a fake k
 to end. Keep the Graph identity assertion for the Graph kind only. No new connector here.
 
 ## T05 — Promote actionable signals into work items
-- status: todo
+- status: blocked(rules 1/2/4 have no coverage from the shape Graph returns: `_address`, `_addresses`, `toRecipients` in the `$select` and `_teams_sender_kind` can each be stubbed with all 87 tests green; fix is two rows plus one chat row in the `INBOX` fixture at `backend/tests/test_promotion.py:357-371` and an assertion that `new_work_items` stays 1)
 - complexity: complex
 - deps: T04
 - done-when: `cd backend && uv run pytest tests -q -k promotion`

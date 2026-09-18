@@ -258,3 +258,68 @@
   Also still open and not mine: `.claude/` remains untracked and un-ignored (B8), so AC3 and any
   `done-when` ending in `test -z "$(git status --porcelain)"` fail spuriously while a worktree is
   live. I removed the worktree before the final checks, as the T01 manager had to.
+
+## 2026-09-18T14:05:00Z · T05 · attempt 1 findings (reset to base, repairing)
+- attempt: 1 · model: opus · reviewer: fable (author was opus; reviewer must not be the author's model)
+- commits: 331b586 (kept on `worktree-agent-a2214a10cdb7ebae2`, not merged into main)
+- commands: done-when → exit 0 (14 passed, 31 deselected); test → exit 0 (58 passed, was 44); dead-code → 3 (baseline 4); AC5 → exit 0; AC4 chain applies through 0003
+- review: revise — rule 3's bulk-header clause ships green when deleted; no fixture reaches it
+- notes: Attempt 1 was good work that failed on one falsifiable gap, so the reset is not a
+  judgement on the rest. The scripted probe printed RED but reverted 6 files including the new
+  `promotion.py`, so it only proved that deleting a module breaks collection — same vacuous shape as
+  T04. I falsified by hand in seven scenarios instead; 13 of 14 selected tests are load-bearing.
+  The hole the reviewer found, which I then confirmed myself and found to be wider than reported:
+  `_is_bulk_mail` has **three** clauses and only one is pinned. Deleting the
+  `List-Unsubscribe/List-Id/List-Post/X-Campaign-Id` clause → 14 passed. Deleting the
+  `Precedence: bulk|list|junk` clause → 14 passed. Only the `Auto-Submitted` clause reddens anything.
+  The reason is that the one newsletter fixture sends from `newsletter@vendor.example`, so rule 2
+  (automated-sender local part) rejects it before rule 3 is ever consulted — and the sync-path
+  fixture uses the same sender. Worse, the test *named*
+  `test_promotion_skips_bulk_mail_whose_only_marker_is_a_precedence_header` asserts
+  `auto-submitted: auto-generated` and never sets `precedence` at all; its name describes a case the
+  suite does not cover. This is load-bearing for AC7's "ignores noise": the worker's own docstring
+  justifies keeping rule 2's marker list short ("leaves `info@`, `news@`, `updates@` alone") on the
+  grounds that rule 3's headers catch those — and that is precisely the half no test holds.
+  Two more unpinned bodies found by the reviewer and confirmed: `_source_url` can `return None`
+  outright with 14 still green. Filed for the repair, not blocking on their own.
+
+## 2026-09-18T15:40:00Z · T05 · blocked(Graph→signal normalization feeding rules 1, 2 and 4 is unpinned: `_address`, `_addresses`, `toRecipients` in the `$select`, and `_teams_sender_kind` can each be stubbed with all 87 tests green)
+- attempt: 2 · model: fable · reviewer: opus (attempt 1: opus, reviewer fable — a reviewer must never be the author's model)
+- commits: 0dd793a (merged, green, left in the tree); 331b586 (attempt 1, reset away, branch deleted)
+- commands: done-when → exit 0 (43 passed, 31 deselected); test → exit 0 (87 passed, was 44); probe: RED but VACUOUS both attempts — falsified by hand instead; dead-code → 3 (baseline 4); AC4/AC5/AC6 → exit 0
+- review: revise: `_address` (`backend/app/services/graph.py:23-27`) can return `None` for every Graph row with the full suite green, so rule 2 never fires in production and every newsletter lands in the queue
+- notes: **The block is not a verdict on the code, which is good and is merged.** It is that AC7's
+  "ignores noise" is still not provable. Attempt 2 fixed exactly what it was sent back for: I deleted
+  each clause of `_is_bulk_mail` myself and got 6 failed (List-*/X-Campaign-Id), 3 failed
+  (Precedence), 2 failed (Auto-Submitted), and the test names now state what they assert
+  (`..._skips_a_human_looking_sender_whose_only_marker_is_a_list_header[List-Id]`). The 43 tests are
+  honest — the reviewer checked for padding and found none, and the parametrization is one distinct
+  rejected input per case.
+  What neither attempt pinned is one layer lower: the *decision function* is tested exhaustively with
+  hand-built dicts, but the *wiring* that turns a Graph row into such a dict is tested by nothing. I
+  reproduced all four myself against the full 87-test suite, each edit asserted to have applied:
+  `_address` → `return None` → 87 passed. `_addresses` → `return []` → 87 passed. Delete
+  `toRecipients` from the `$select` (`backend/app/integrations/graph.py:46`) → 87 passed.
+  `_teams_sender_kind` → `return "user"` → 87 passed. So two of the task's three named rules ("skip
+  automated/newsletter senders", "promote signals addressed directly to the user") have zero coverage
+  from the shape Graph actually returns, and rule 1 has none either. It is the same failure class as
+  attempt 1 — a fixture that never reaches the code it is supposed to pin — one level down, which is
+  why I did not treat it as advisory.
+  **The fix is small and known**, which is the argument for one more session rather than a redesign:
+  the e2e `INBOX` fixture (`backend/tests/test_promotion.py:357-371`) needs a `newsletter@` row
+  carrying no bulk headers, a cc-only row whose `toRecipients` is someone else, and a chat row with
+  `from.application`; then assert `new_work_items` stays 1. Both reviewers converged on that.
+  Two numbers that looked like disagreements and were not: the attempt-2 reviewer reported "74
+  passed" against my 87 — it ran `pytest tests` without `../tests/agent_protocol` (87 − 13). And my
+  own first `_source_url` probe printed "43 passed" while proving nothing: I had written a regex
+  against `-> str | None` when the signature is `-> HttpUrl | None`, so the file never changed. Every
+  probe above re-ran with an assertion that the edit actually applied. A probe that cannot fail is
+  worse than no probe, because it reads like evidence.
+  Carried out of scope rather than dropped: B31 (`_source_url` positive case unpinned — both
+  reviewers rated it advisory and it is *not* what this is blocked on), B32 (`Collection[str]` accepts
+  a bare `str` and iterates it per character), B33 (Teams: the owner's own posts and system events
+  promote), B34 (`internetMessageHeaders` under `$select` on the list endpoint is unverified against a
+  live tenant — if Graph ignores it, rule 3 never fires in production and rule 2 is the only defence).
+  B25's first half is closed by this work: `WorkEvidence.excerpt` is `EncryptedText` under its own AAD
+  with re-runnable revision `0003`; the reviewer checked the AAD separation, the mixed-table case and
+  `downgrade`. B25's second half (`agent_dispatches.instruction`) stays open, as does B26.
