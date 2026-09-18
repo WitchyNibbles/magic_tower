@@ -99,6 +99,25 @@ class SourceSignalContext(Base):
     source: Mapped[Source] = relationship(back_populates="signal_context")
 
 
+class SourcePromotion(Base):
+    """One row per ``Source`` the promotion heuristic has already judged, either verdict.
+
+    ``work_items`` alone cannot tell a ``Source`` promotion rejected from one it was
+    never shown -- both leave no matching work item. The backfill in
+    ``app/services/backfill.py`` selects on the absence of a row here, because that
+    absence is the one fact that means "promotion has never decided about this
+    source". ``promote_signals`` writes a row the first time it judges a source,
+    whether or not the signal is promoted; it never records a verdict, only that
+    one was reached, because the verdict is already recoverable from
+    ``work_items.source_external_id`` when it matters.
+    """
+
+    __tablename__ = "source_promotions"
+
+    source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    considered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class WorkEvidence(Base):
     """Provenance retained for agent-generated interpretation of a work item."""
 
