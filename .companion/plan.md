@@ -177,7 +177,7 @@ now, so this needs `index=True` on `backend/app/models.py:44` plus its own revis
 `0006`. Index any column this task's own filters add, too. Closes backlog B47.
 
 ## T09 — Measure the heuristic against real mail
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
