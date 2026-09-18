@@ -353,3 +353,84 @@
   (`agent_dispatches.instruction`) and B26 also still open.
   Worker note worth keeping: its worktree started at `05bc7f3` (`main`), not the run branch — the
   known failure mode. It reset to base before working and every number above is from `1f1d6cd`.
+
+## 2026-09-18T18:20:00Z · T06 · attempt 1 findings (repair dispatched)
+- attempt: 1 · model: sonnet · reviewer: opus
+- commits: a12fe1f (reset away, preserved on `worktree-agent-a23f8e11c4ed0f2f5`)
+- commands: done-when → exit 0 (6 passed, 74 deselected); test → exit 0 (93 passed); probe: RED; dead-code → 3 (baseline 4)
+- review: revise — backfill promotes every un-promoted `Source`, including ones the live heuristic
+  already rejected, so calling the endpoint after a normal sync injects newsletter/no-reply noise.
+- notes: All the mechanical gates were honest and I re-ran each one myself. The probe was RED
+  behaviourally, not by ImportError: I stubbed the body to `return 0` with the symbol left
+  importable and got 4 assertion failures, 2 passes (empty-table and auth-401, which legitimately
+  should not be sensitive), restored byte-exact, and ran a negative control (behaviour-preserving
+  rewrite) that stayed GREEN. So the tests do pin behaviour — they just pin the wrong scope.
+  The defect is the selection predicate, not the plumbing. `backfill_promoted_sources` selects
+  "every `Source` with no matching `WorkItem`", which has no time bound, while its own docstring
+  claims "rows written before this module existed". I reproduced the gap end to end myself:
+  a `noreply@vendor.com` signal carrying `List-Unsubscribe` → live `promote_signals` creates 0 work
+  items, `persist_signals` stores the `Source`, then `backfill_promoted_sources` creates 1 work item
+  titled "Weekly newsletter". The endpoint is permanently mounted and re-callable, so this is not a
+  one-time migration hazard. Six fixtures are all bare `Source(kind, external_id, subject)` rows —
+  exactly the shape where the correct and the buggy implementation agree — so nothing could catch it.
+  Verified non-findings, so the repair does not churn them: the anti-join id spaces really do match
+  (`persist_signals` and `_work_item` both write `str(signal["external_id"])` with the same
+  `outlook:`/`teams:` prefix), and the `source_external_id.is_not(None)` guard is load-bearing —
+  without it one manual work item with a NULL external id makes `NOT IN` evaluate to NULL and
+  backfill returns 0 forever. Endpoint auth/CSRF and envelope match `POST /api/sync`.
+  The worker's own doubt is real but separate and is *not* what this is blocked on: `Source` never
+  stored `sender`/`sender_kind`/`headers`/`to_recipients`, so rules 1-4 cannot fire on a genuinely
+  pre-T05 row. Confirmed against `models.py` — the columns do not exist. That is a permanent data
+  gap, not a code defect, and the contract's answer to it is the owner's manual dismiss (T08).
+  Carried to the backlog rather than dropped: B36 (`DELETE /api/work-items/{item_id}` already exists
+  at `routes.py:43`, so backfill resurrects any hand-deleted item — live on this branch today, not a
+  future T08 concern), B37 (`owner_addresses` is inert on the backfill path and no caller passes it),
+  B38 (the empty-table test's docstring claims it pins the cheap `LIMIT 1` path, but deleting that
+  early return leaves it green, so "must not slow boot on an empty DB" is unpinned).
+
+## 2026-09-18T21:05:00Z · T06 · blocked(queue-level gate silently disables the backfill after the first promoting sync, so the pre-T05 sources the task exists for are never promoted)
+- attempt: 2 · model: opus · reviewer: fable (opus authored the repair, so the reviewer must differ)
+- commits: dd306f9 (reset away, preserved on `worktree-agent-aa02c3e50aa3ca413`)
+- commands: done-when → exit 0 (6 passed, 74 deselected, main tree); test → exit 0 (93 passed, was 87 at base); probe: RED but vacuous; dead-code → 3 (baseline 3)
+- review: revise — the queue-level gate satisfies AC8 only under an unenforced "backfill before any sync" ordering and silently disables itself otherwise
+- notes: Every mechanical gate was honest and I re-ran each myself, but the probe's RED is worthless
+  here and I did not treat it as evidence: reverting `promotion.py` deletes the symbol `sync.py`
+  imports, so it reddens by ImportError. The real falsification is by hand and it does hold — Stub B
+  (attempt 1's per-source anti-join predicate swapped back in) reddened **exactly one** test,
+  `test_backfill_leaves_a_source_the_live_heuristic_declined_unpromoted` with `assert 1 == 0`, and a
+  behaviour-preserving negative control stayed GREEN at 6 passed; restored byte-exact both times
+  (md5 `28d156a0…`). So attempt 1's blocking finding is genuinely fixed and that discriminator is a
+  real test built through `persist_signals`/`promote_signals`, not bare `Source` rows. **The new
+  blocking defect, which I reproduced by hand before the review and the reviewer then reproduced
+  independently:** store two pre-T05 sources with an empty queue, run one ordinary sync that
+  promotes one signal, then call the backfill → `created: 0`, queue holds only the fresh item, the
+  two pre-T05 rows are unreachable forever and the endpoint answers `{"new_work_items": 0}`, which
+  is indistinguishable from "nothing to do". Nothing in the code, the README (`:109` documents
+  `/api/sync` only) or the frontend (`api.ts:36`) establishes a backfill-before-sync ordering, so
+  sync-first is the default, not a contrived path. This is the T02 failure shape the owner already
+  blocked once — a loud path turned silent. Root cause is structural and both attempts hit different
+  faces of it: a `Source` stores neither sender, headers nor recipients, so "unpromoted" cannot
+  distinguish *never judged* from *judged and declined*, and no predicate over existing state can.
+  The fix both reviewers converged on is in plan.md: a durable per-source judgement marker written
+  by `promote_signals` for every signal it decides. **The worker rejected that fix on a claim that
+  is half false** — it said a `promotion_checked_at` column *and* a new table both break T02's stamp
+  test. The column half is true (`test_migrations.py:135,164,178` build their legacy DB from today's
+  models, so `0001`'s frozen `BASELINE_COLUMNS` drift check refuses); the table half is false,
+  because `0001`'s skip check is scoped to `BASELINE_COLUMNS.keys() & get_table_names()` and an
+  added table is invisible to it. I verified that empirically rather than on either agent's word.
+  **Commit reset away, unlike T02's block:** the defect here *is* the predicate and the tests that
+  pin it, and the recommended design deletes `backfill_queue_from_sources` and its direct
+  `create_work_item` call, so repairing forward would mean repairing against a design the review
+  discards. Nothing is lost — it is on its branch, and its fixtures are worth cherry-picking.
+  **An interrupted earlier session left a real head start.** A repair worker dispatched before this
+  one never reported (its session ended mid-flight) and I did not merge or trust its work, but the
+  reviewer found its worktree and I verified it myself: it implements the `source_promotions` marker
+  via revision `0004` and is green at 98 passed, `test_migrations` 7, `-k backfill` 11. I committed
+  it unreviewed as `4db5567` on `worktree-agent-a2af9b2b1c1e76c3e` so it survives worktree cleanup.
+  It is a lead, not an endorsement — nobody has reviewed that diff.
+  Carried to the backlog rather than dropped: B39 (T02's three legacy-DB tests build the pre-Alembic
+  database from live models, so they block *every* future column, not just T06's — with the
+  reviewer's concrete fix) and B40 (no operator-facing docs for the backfill endpoint). B36–B38 from
+  attempt 1 stay open; B36 is now partly confirmed as live — after a sync, hand-deleting the
+  promoted item makes attempt 2's gate open again and backfill promotes the declined newsletter too,
+  which the reviewer reproduced.
