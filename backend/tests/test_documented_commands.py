@@ -13,6 +13,13 @@ come back. (The sequence used to live in the README; T18 moved the ordered,
 pasteable walkthrough to ``docs/second-pc.md`` so there is one copy, not two that
 can drift apart, and these tests moved with it.)
 
+Two more invariants joined them for the same reason. The eval command has to keep
+``MAGIC_TOWER_REQUIRE_SAMPLE=1``, the one thing that stops a second PC from "passing"
+by printing "nothing to evaluate" and exiting 0; and every runner the document pastes
+has to be named in its own Prerequisites section, which once listed Docker alone while
+the steps below it pasted ``git``, ``python3`` and ``uv`` -- all three "command not
+found" on a machine that installed exactly what it was told to.
+
 The two directory tests run the documented lines instead of matching their text.
 What the document promises about ``~/.magic-tower`` is an outcome -- it is there,
 and it is owner-only -- and any spelling that delivers that outcome is correct.
@@ -21,6 +28,7 @@ and it is owner-only -- and any spelling that delivers that outcome is correct.
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -108,6 +116,36 @@ def _expand(path: str, home: Path) -> Path:
     return Path(path.replace("~", str(home), 1))
 
 
+# The tools docs/second-pc.md's own commands invoke that a fresh second PC may not
+# have. Deliberately a fixed, small set and not a shell parser: a command whose first
+# word is none of these needs no prerequisite worth naming, because ``cd``, ``cp``,
+# ``mkdir`` and ``chmod`` are on every machine that can run the rest of this document.
+RUNNERS = ("docker", "git", "python3", "uv")
+
+
+def _runner_of(command: str) -> str | None:
+    """The tool ``command`` needs installed, or ``None`` if it needs nothing special.
+
+    Leading ``VAR=value`` assignments are skipped, so
+    ``MAGIC_TOWER_REQUIRE_SAMPLE=1 uv run ...`` is a ``uv`` command -- and a line that
+    is nothing but assignments, as every line of the ``.env`` fence is, invokes nothing.
+    """
+    for word in command.split():
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", word):
+            continue
+        return word if word in RUNNERS else None
+    return None
+
+
+def _prerequisites() -> str:
+    """The body of the document's Prerequisites section."""
+    section = re.search(
+        r"\n## Prerequisites\n(.*?)(?=\n## )", SECOND_PC_DOC.read_text(), re.DOTALL
+    )
+    assert section, "docs/second-pc.md no longer has a Prerequisites section"
+    return section.group(1)
+
+
 def test_the_documented_compose_copy_has_a_directory_to_copy_into(tmp_path) -> None:
     """``docker compose cp`` exits 1 with "invalid output path" when the host
     directory it writes into does not exist yet -- exactly the state of
@@ -166,3 +204,42 @@ def test_every_documented_eval_command_passes_the_owners_addresses() -> None:
     assert commands, "docs/second-pc.md no longer documents how to score the heuristic"
     for command in commands:
         assert "--owner-address" in command, command
+
+
+def test_every_documented_eval_command_requires_the_sample() -> None:
+    """``heuristic_eval`` exits 0 when the sample is missing or was never labeled, which
+    is what keeps CI and a machine that has never synced real mail green. On the second
+    PC that default is the whole failure this document exists to close: a reader who
+    pastes the eval line without ``MAGIC_TOWER_REQUIRE_SAMPLE=1`` gets "nothing to
+    evaluate" and a zero exit, and cannot tell that apart from a heuristic that scored.
+    """
+    commands = _documented_commands("app.tools.heuristic_eval")
+
+    assert commands, "docs/second-pc.md no longer documents how to score the heuristic"
+    for command in commands:
+        assert "MAGIC_TOWER_REQUIRE_SAMPLE=1" in command, command
+
+
+def test_every_documented_command_names_its_runner_as_a_prerequisite() -> None:
+    """A second PC that installed exactly what Prerequisites names has to be able to run
+    every line the document then tells it to paste. The section once named Docker alone,
+    while step 1 pastes ``git``, step 2 pastes ``python3`` and step 7 pastes ``uv`` --
+    "command not found" on a Docker-only machine, and all of them reached *before* the
+    one line the document warns needs a real Microsoft credential, so the reader stalls
+    where they were promised nothing could go wrong.
+    """
+    prerequisites = _prerequisites()
+
+    runners = {
+        runner
+        for block in _fenced_blocks()
+        for command in block
+        if (runner := _runner_of(command))
+    }
+
+    assert runners, "docs/second-pc.md no longer documents any command to run"
+    for runner in sorted(runners):
+        assert re.search(rf"\b{re.escape(runner)}\b", prerequisites, re.IGNORECASE), (
+            f"docs/second-pc.md pastes a {runner} command "
+            f"but its Prerequisites section never names {runner}"
+        )

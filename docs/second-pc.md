@@ -8,9 +8,10 @@ the machine that develops and runs CI never sees real mail, and the machine that
 signs in to Outlook is not this repository's remote. This document is the exact,
 ordered, pasteable sequence for **the machine with Outlook access** -- call it
 the second PC -- from a fresh `git clone` through a printed precision/recall
-number. Every command below was run, on this machine, up to the exact line
-named in [What actually needs real credentials](#what-actually-needs-real-credentials);
-everything before that line is proven, not merely written down.
+number. [What actually needs real credentials](#what-actually-needs-real-credentials)
+says exactly which of these commands were run on the machine this document was
+written on, which one could not be, and why -- so what is proven here stays
+separable from what is merely written down.
 
 This file owns the full ordered walkthrough. The README's "Configure the Graph
 familiar" and "Measure the heuristic against real mail" sections stay as
@@ -45,9 +46,20 @@ Before touching a keyboard on the second PC, have on hand:
   export steps below. It is a Magic Tower-only credential, never a Microsoft
   secret.
 - Docker and Docker Compose. Sign-in, sync, and the export step below all go
-  through the running API container; only [step 7](#7-evaluate) (scoring the
+  through the running API container.
+- `git`, for the clone in [step 1](#1-clone).
+- `python3`, which [step 2](#2-configure-env) uses to generate the two local
+  secrets.
+- [`uv`](https://docs.astral.sh/uv/). Only [step 7](#7-evaluate) (scoring the
   labeled sample) runs standalone with `uv`, since it reads nothing but the
-  JSON file the export step wrote.
+  JSON file the export step wrote; the README's
+  [Develop the API with uv](../README.md#develop-the-api-with-uv) section covers
+  installing it and what the backend project expects.
+
+Docker on its own is not enough. `git`, `python3` and `uv` are all pasted before
+[step 4](#4-sign-in-and-sync) -- the only step that needs a Microsoft credential
+-- so a machine missing any of them stops well before the one failure this
+document warns about.
 
 ## 1. Clone
 
@@ -90,6 +102,16 @@ docker compose up -d
 `docker compose ps` should show `api` healthy. Open
 [http://localhost:8787](http://localhost:8787) and enter the `LOCAL_API_TOKEN`
 from `.env` to start a local session.
+
+**Check that nothing else is listening on `127.0.0.1:8787` first.** The `web`
+service publishes that exact address, and it is the only published port in
+`docker-compose.yml`, so if anything already holds it `docker compose up -d`
+stops with `ports are not available: exposing port TCP 127.0.0.1:8787` and exits
+non-zero. That failure is easy to misread: `api` is started and healthy by then,
+so `docker compose ps` still shows something alive while nothing answers on
+8787. `ss -ltnp | grep 8787` names whatever holds it. This is not hypothetical
+-- it is the one documented command that could not be completed on the machine
+this document was written on ([see below](#what-actually-needs-real-credentials)).
 
 ## 4. Sign in and sync
 
@@ -154,24 +176,53 @@ stay green.
 
 ## What actually needs real credentials
 
-Steps 1 through 3 above, and the export/label/eval mechanics in steps 5
-through 7, run with no Microsoft account at all -- they were run exactly as
-written, on this machine, against a `docker compose` stack with a generated
-`APP_ENCRYPTION_KEY` and `LOCAL_API_TOKEN` and blank `MICROSOFT_*` values, and
-the API answers every request cleanly rather than crashing:
+**Step 4 is the one line in this document that a real Entra app registration and
+a real Outlook sign-in are required for.** Nothing else in the sequence needs a
+Microsoft account: everything below was exercised with blank `MICROSOFT_*`
+values and a generated `APP_ENCRYPTION_KEY` and `LOCAL_API_TOKEN`, and the API
+answers every request cleanly rather than crashing.
 
-- `GET /api/auth/microsoft/start` with no local session or bearer token:
-  `401 {"detail":"A local browser session or bearer token is required"}`.
-- The same request with a bearer token but blank `MICROSOFT_*` values:
-  `503 {"detail":"Graph configuration is incomplete: MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TARGET_USER_ID"}`.
-- `heuristic_export` against a database with no synced sources exits 0 and
-  writes an empty array, exactly as it would on a real second PC that has not
-  synced yet.
-- `heuristic_eval`, both with and without `MAGIC_TOWER_REQUIRE_SAMPLE=1`,
-  behaves exactly as documented in step 7 against that empty export and
-  against the committed synthetic example.
+What "was exercised" covers is worth splitting in three, because one documented
+command was not among them.
 
-**Step 4 is the one line in this document that a real Entra app registration
-and a real Outlook sign-in are required for.** Everything before it, and every
-mechanical step after it, is proven on a machine with no Outlook or Teams
-access at all.
+**Run exactly as written, on a machine with no Outlook or Teams access:**
+
+- Step 2's two `python3 -c` lines, and `docker compose build` in step 3: exit 0.
+  (Step 1 is a plain `git clone` and was not re-run -- this was written from a
+  checkout that already existed.)
+- Step 5 in full. The export writes `[]` and exits 0 against a database no sync
+  has filled -- exactly a real second PC that has not synced yet -- and the
+  `mkdir`, `chmod`, `docker compose cp` and `rm` lines leave `~/.magic-tower`
+  at `drwx------` with the file inside it.
+- Step 7, both ways. Against that empty export, `MAGIC_TOWER_REQUIRE_SAMPLE=1`
+  exits non-zero with `... has 0 row(s) and none are labeled`, while the same
+  command without the flag exits 0 with "nothing to evaluate" -- the difference
+  the flag exists for. Against the committed synthetic
+  `backend/app/tools/labeled-sample.example.json`, the strict run prints the
+  confusion matrix, precision and recall and exits 0.
+
+**Not completed as written -- `docker compose up -d` in step 3:**
+
+- On the machine this document was written on, an unrelated long-running process
+  already held `127.0.0.1:8787`, the address the `web` service publishes. The
+  documented command failed with `ports are not available: exposing port TCP
+  127.0.0.1:8787` and exited 1; `api` started and went healthy, no `web`
+  container was ever created. That port could not be freed on that machine, so
+  this line, and the "open http://localhost:8787" that follows it, are **not**
+  proven here.
+- What was proven instead: the same stack, brought up through a `docker compose
+  -f docker-compose.yml -f <override>` file that republishes `web` on a free
+  port, starts both services with `api` healthy and serves the GUI. Only the
+  published port number differed from the documented command. A second PC where
+  8787 is actually free should therefore find step 3 works as written -- but
+  that last sentence is inference, not observation, which is why
+  [step 3](#3-raise-the-tower) tells you to check the port first.
+- Through that overridden stack, on the GUI port:
+  - `GET /api/auth/microsoft/start` with no local session or bearer token:
+    `401 {"detail":"A local browser session or bearer token is required"}`.
+  - The same request with a bearer token but blank `MICROSOFT_*` values:
+    `503 {"detail":"Graph configuration is incomplete: MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TARGET_USER_ID"}`.
+
+**Not run at all -- step 4:** the Microsoft sign-in itself, and the sync it
+enables. Those need the real Entra registration and Outlook account that the
+machine this was written on does not have.
