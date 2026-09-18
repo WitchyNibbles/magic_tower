@@ -132,7 +132,7 @@ and one real test of the existing app. In the same task add Tailwind and the sha
 later tasks can copy components in. Pin every version — no `"latest"` — and keep `npm ci` green.
 
 ## T11 — Three-pane Mail layout with command palette
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T10
 - done-when: `cd frontend && npm run test -- --run -t "layout"`
