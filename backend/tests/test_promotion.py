@@ -354,11 +354,14 @@ def _selected(url: str, row: dict[str, Any]) -> dict[str, Any]:
 
 
 PROFILE = {"id": "expected-oid", "userPrincipalName": PRINCIPAL, "mail": MAILBOX}
+COLLEAGUE = "colleague@contoso.com"
+# Each row below is rejected by exactly one rule, reading one field of the shape
+# Graph actually returns -- so a normalization that drops that field promotes it.
 INBOX = [
     {
         "id": "direct", "subject": "Please approve the change", "bodyPreview": MARKER,
         "webLink": "https://outlook.office.com/mail/direct", "receivedDateTime": "2026-09-18T08:30:00Z",
-        "from": {"emailAddress": {"address": "colleague@contoso.com"}},
+        "from": {"emailAddress": {"address": COLLEAGUE}},
         "toRecipients": [{"emailAddress": {"address": MAILBOX}}],
         "internetMessageHeaders": [],
     },
@@ -368,11 +371,47 @@ INBOX = [
         "toRecipients": [{"emailAddress": {"address": MAILBOX}}],
         "internetMessageHeaders": [{"name": "List-Unsubscribe", "value": "<https://vendor.example/u>"}],
     },
+    {
+        # Addressed to the owner and carrying no bulk header, so the sender rule is
+        # the only one that can reject it: it fires only if the address survives the
+        # ``from`` wrapper Graph nests it in.
+        "id": "newsletter", "subject": "Your weekly product digest", "bodyPreview": "this week in product",
+        "from": {"emailAddress": {"address": "newsletter@vendor.example"}},
+        "toRecipients": [{"emailAddress": {"address": MAILBOX}}],
+        "internetMessageHeaders": [],
+    },
+    {
+        # From a person, with no bulk header, addressed to somebody else: only the
+        # To list rejects it, and only if the sync asks Graph for it and unwraps it.
+        "id": "cc-only", "subject": "FYI: the migration ran", "bodyPreview": "no action needed",
+        "from": {"emailAddress": {"address": COLLEAGUE}},
+        "toRecipients": [{"emailAddress": {"address": "someone-else@contoso.com"}}],
+        "internetMessageHeaders": [],
+    },
+]
+
+CHATS = [{"id": "chat-1", "topic": "Build notifications"}]
+# A Teams identity carries no address and no To list, so rules 2, 3 and 4 have
+# nothing to read: ``from.application`` is the only thing keeping a bot out.
+CHAT_MESSAGES = [
+    {
+        "id": "bot-post", "body": {"contentType": "html", "content": "Build 412 failed"},
+        "createdDateTime": "2026-09-18T08:45:00Z", "webUrl": "https://teams.microsoft.com/l/message/1",
+        "from": {"application": {"id": "bot-oid", "displayName": "Build Pipeline"}},
+    },
 ]
 
 
 def test_promotion_fills_the_queue_during_a_graph_sync(encryption_key, tmp_path) -> None:
     """The missing link end to end: a sync leaves triage populated, not empty.
+
+    This is the only test that feeds the heuristic the shape Graph actually
+    returns, so it is where the normalization in between is pinned. Every noise
+    row is rejected by one rule reading one nested field -- the sender inside
+    ``from.emailAddress.address``, the To list inside ``toRecipients``, the
+    ``from.application`` marker on a chat post -- and each of those fields is
+    dropped by a different plausible mistake: not unwrapping it, or not naming it
+    in the ``$select``. Any of those and the count below stops being 1.
 
     The owner is addressed by ``mail``, not ``userPrincipalName``, and the bulk
     message is only recognizable by a header -- so the sync has to ask Graph for
@@ -391,13 +430,17 @@ def test_promotion_fills_the_queue_during_a_graph_sync(encryption_key, tmp_path)
         if "/me/mailFolders/" in url:
             return {"value": [_selected(url, row) for row in INBOX]}
         if "/me/chats" in url:
-            return {"value": []}
+            return {"value": [_selected(url, chat) for chat in CHATS]}
+        if "/chats/" in url and "/messages" in url:
+            return {"value": [_selected(url, row) for row in CHAT_MESSAGES]}
         raise AssertionError(url)
 
     with Session(engine) as session:
         result = sync(settings, session, client=GraphClient("token", transport))
 
-        assert result["new_sources"] == 2, "both signals must still be stored as sources"
+        # Sources count every signal the sync saw, so this also proves each noise
+        # row reached the heuristic rather than being rejected before it.
+        assert result["new_sources"] == 5, "every signal must still be stored as a source"
         assert result["new_work_items"] == 1
         item = session.query(WorkItem).one()
         assert item.source_external_id == "outlook:direct"
