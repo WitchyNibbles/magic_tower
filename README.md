@@ -55,14 +55,21 @@ it; `tests/test_migrations.py` fails if the chain and the models drift apart.
 
 **A database created before Alembic existed** (a `workboard.db` or `workboard-data`
 volume left by the old `create_all` startup hook) already holds the baseline
-tables. Revision `0001` detects that and records itself without recreating them,
-so plain `alembic upgrade head` -- which the API container now runs before
-serving -- works unchanged on such a database. Marking it explicitly is equivalent:
+tables. Revision `0001` detects that -- by column as well as by table name, so a
+schema altered by hand since cannot pass as an untouched one -- and records itself
+without recreating them, so plain `alembic upgrade head` -- which the API container
+now runs before serving -- works unchanged on such a database. Marking it
+explicitly is equivalent:
 
 ```sh
 cd backend
 DATABASE_URL=sqlite:///./workboard.db uv run alembic stamp 0001
 ```
+
+If those tables are present but their columns are not the ones `0001` creates, the
+upgrade fails and names the difference, leaving the database unstamped. No later
+revision recreates a column `0001` skipped, so stamping over such a database would
+strand it: repair the schema by hand, or recreate the database, before migrating.
 
 ## Install the API command with uv
 

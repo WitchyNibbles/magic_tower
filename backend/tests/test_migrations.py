@@ -11,12 +11,15 @@ operator use.
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
@@ -82,6 +85,12 @@ def _current_revision(database_path: Path) -> str | None:
             return MigrationContext.configure(connection).get_current_revision()
     finally:
         engine.dispose()
+
+
+def _declared_baseline_columns() -> dict[str, frozenset[str]]:
+    """``BASELINE_COLUMNS`` as revision ``0001`` declares it, loaded through Alembic."""
+    script = ScriptDirectory.from_config(Config(str(BACKEND_DIR / "alembic.ini")))
+    return script.get_revision("0001").module.BASELINE_COLUMNS
 
 
 def _head_revision() -> str:
@@ -163,3 +172,80 @@ def test_a_database_holding_only_some_baseline_tables_is_refused(tmp_path):
     assert result.returncode != 0, "a partial pre-Alembic schema was silently migrated"
     assert "only ['sources'] of the baseline tables" in result.stderr
     assert _current_revision(database_path) is None
+
+
+def test_a_database_whose_baseline_tables_lost_a_column_is_refused(tmp_path):
+    """Table names alone cannot tell a ``create_all`` database from a damaged one.
+
+    ``create_all`` always produced every baseline column, so a baseline table that is
+    present but short of one was altered afterwards. Nothing later in the chain adds
+    it back, so recording ``0001`` over it leaves the API querying a column that does
+    not exist while ``alembic current`` reports the database is at head.
+    """
+    database_path = tmp_path / "dropped-column.db"
+    engine = create_engine(f"sqlite:///{database_path}")
+    Base.metadata.create_all(bind=engine)
+    engine.dispose()
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("ALTER TABLE work_items DROP COLUMN priority")
+        connection.commit()
+    finally:
+        connection.close()
+
+    result = _run_with_database(database_path, "-m", "alembic", "upgrade", "head")
+
+    assert result.returncode != 0, "a drifted pre-Alembic schema was silently stamped"
+    assert "work_items is missing ['priority']" in result.stderr
+    assert _current_revision(database_path) is None
+
+
+def test_a_database_whose_baseline_tables_gained_a_column_is_refused(tmp_path):
+    """The other half of the mismatch: an added column is equally a sign of damage.
+
+    It also collides head-on with the chain's future -- the revision that adds this
+    column for everyone else would fail here with a duplicate -- so the database is
+    better stopped now, while the operator is already running ``upgrade``.
+    """
+    database_path = tmp_path / "added-column.db"
+    engine = create_engine(f"sqlite:///{database_path}")
+    Base.metadata.create_all(bind=engine)
+    engine.dispose()
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("ALTER TABLE work_items ADD COLUMN nickname VARCHAR(8)")
+        connection.commit()
+    finally:
+        connection.close()
+
+    result = _run_with_database(database_path, "-m", "alembic", "upgrade", "head")
+
+    assert result.returncode != 0, "a drifted pre-Alembic schema was silently stamped"
+    assert "work_items has unexpected ['nickname']" in result.stderr
+    assert _current_revision(database_path) is None
+
+
+def test_the_baseline_columns_the_skip_check_trusts_are_the_ones_it_creates(tmp_path):
+    """``0001`` declares the columns its skip check demands; the two must agree.
+
+    The check reads a declared mapping rather than ``Base.metadata``, which later
+    revisions are free to move on. Were that mapping to disagree with the
+    ``create_table`` calls beside it, the check would wave through exactly the drift
+    it exists to catch.
+    """
+    database_path = tmp_path / "baseline.db"
+    result = _run_with_database(database_path, "-m", "alembic", "upgrade", "0001")
+    assert result.returncode == 0, result.stderr
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        inspector = inspect(engine)
+        created = {
+            table: {column["name"] for column in inspector.get_columns(table)}
+            for table in MODEL_TABLES
+        }
+    finally:
+        engine.dispose()
+
+    declared = {table: set(columns) for table, columns in _declared_baseline_columns().items()}
+    assert created == declared, "the declared baseline columns drifted from the revision's DDL"
