@@ -118,3 +118,67 @@
 - commands: done-when → exit 0 (4 passed, 1 skipped); test → exit 0 (31 passed, unchanged); frontend suite → exit 0 (5 passed); probe: RED (20 impl files reverted); dead-code → 3 (baseline 3)
 - review: approve (2 advisories, both filed — B16 unlock clears the token field on a failed unlock, B17 package.json re-sort churn)
 - notes: first attempt verified, no repair round. **The probe finally bit on this task** — T10's note predicted it would stay structurally vacuous for T11–T13, and that prediction was wrong: reverting the impl no longer deletes the `test` script (T10 committed it), so the revert reddened on real assertions (`Unable to find role="region" and name "Filters"`, `Unable to find a label with the text of: Local API token`) rather than `Missing script`. Manager reproduced by hand before trusting the verdict. Separately the done-when **was** a vacuity trap at base: `npm run test -- --run -t "layout"` exits 0 with "1 skipped, 0 run" when nothing matches the `-t` filter, so a worker who named no test "layout" would have passed it green — it now selects 4 real tests, and a deleted `<ResizableHandle />` reddens it. Reviewer ran 4 independent mutations, each reddening a different test, including falsifying **both** arms of the `401 || 503` compound gate separately. Adjudicated and dismissed: the worker restored the full `@import "tailwindcss"` whose preflight de-bolds `h1..h6` — the exact mechanism that blocked T10 attempt 1 — but with 0 legacy selectors surviving there is nothing left to de-bold, and the five serif headings are consistently 400 while the two sans ones are consistently `font-semibold`; a system, not a leak. B13/B14/B15 all closed and verified mechanically on the built CSS (`.bg-primary` emits rules, preflight present, 0 legacy selectors). Build reproducibility re-checked with and without a stale `dist/` — byte-identical CSS, T10's `.dockerignore` holding. Worker's `frontend/src/test-setup.ts` stubs ResizeObserver/scrollIntoView (genuine jsdom gaps for react-resizable-panels and cmdk); reviewer confirmed it hides nothing. shadcn's published `resizable.tsx` targets react-resizable-panels v2/v3 and will not compile against the v4 API here — this one is hand-adapted, so do not paste the upstream file in T12/T13. Status `<select>` left native and every shadcn file trimmed to what is rendered, both to hold the knip gate at baseline; a later task wanting `buttonVariants` or `CommandShortcut` must add them at point of use or the gate rises.
+
+## 2026-09-18T03:05:00Z · T02 · attempt 1 rejected — repair dispatched
+- attempt: 1 · model: opus · reviewer: not reached (manager verification failed first)
+- commits: a97bcb6 (never merged; preserved as tag `t02-attempt1-selector-miss`)
+- commands: done-when → **exit 5**; test → exit 0 (34 passed); probe: RED but noisy (13 files reverted, 10 of them irrelevant frontend/`.companion` churn from the wrong base)
+- finding: **`-k alembic_stamp` selects zero tests.** All seven tests in
+  `backend/tests/test_migrations.py` are named `test_a_database_…` / `test_upgrading_…`; none
+  contains the substring `alembic_stamp`, so clause 1 of the done-when collects nothing and pytest
+  exits 5 (`21 deselected`, no `passed` line). The task body requires the three cases to be
+  selectable by `-k alembic_stamp`. `git grep alembic_stamp` finds nothing at base either, so the
+  previous session's recorded "done-when → exit 0" for 9574426 could not have been true — the gate
+  has never once selected a test.
+- finding: worker reset onto **9574426, not the named base f860b3a** (it reported the worktree
+  started at 05bc7f3 and reset to the wrong commit), so its branch is not fast-forwardable and every
+  measurement it took ran against the pre-T10/T11 frontend. Its dead-code number is unusable for
+  that reason: measured 5 here, but the Python side is 2 (the two known `config.py` `cls` false
+  positives, unchanged) and the 3 extra are stale-frontend knip noise on files the worker never
+  touched. No real regression, but it has to be re-measured after a merge onto the right base.
+- notes: **the substance is right and must be preserved, not rebuilt.** Manager verified the owner's
+  requirement by hand, both cases independently: matching legacy `create_all` DB → `upgrade head`
+  exit 0, `alembic_version='0001'`; same DB with `ALTER TABLE work_items DROP COLUMN priority` →
+  exit 1, `RuntimeError: database holds every baseline table but work_items is missing ['priority']`,
+  and `alembic_version` left **empty** rather than stamped. That is B10 closed. Clauses 2 and 3 of
+  the done-when pass on their own (fresh `/tmp` DB upgrade → exit 0; `ALTER TABLE` grep → exit 0),
+  so clause 1 is the only failure. Full suite 34 passed (was 31). README:55-61 and Dockerfile:22-24
+  both reworded for B11. Worker's own doubt, worth passing on: `BASELINE_COLUMNS` duplicates the
+  `create_table` DDL beside it, guarded by
+  `test_the_baseline_columns_the_skip_check_trusts_are_the_ones_it_creates`; and the check compares
+  column **names only**, so a retyped column still stamps — backlog, not this task.
+
+## 2026-09-18T03:55:00Z · T02 · verified
+- attempt: 2 · model: fable · reviewer: opus
+- commits: 65d6020, 027fdf2
+- commands: done-when → exit 0 (**6 passed, 15 deselected**); test → exit 0 (34 passed, was 31); probe: RED (3 impl files reverted); dead-code → 3 (baseline 3)
+- review: approve (3 advisories, all filed — B21 docs overstate the check, B22 guard test coupled to head-level `MODEL_TABLES`, B23 name-only comparison recorded as deliberate)
+- notes: attempt 1 (opus, a97bcb6, tag `t02-attempt1-selector-miss`) was rejected by the manager
+  before review on two findings, both mine: it reset onto **9574426 instead of the named base**, so
+  every number it reported came from a tree without T10/T11; and **`-k alembic_stamp` selected zero
+  tests** — all seven names were `test_a_database_…`, pytest exited 5 on `21 deselected`, and
+  `git grep alembic_stamp` found nothing at base either, so the gate had *never once* selected a
+  test and the previous session's recorded "done-when → exit 0" for 9574426 cannot have been true.
+  The repair was therefore a cherry-pick of the correct substance onto the right base plus 6 renames
+  — `git diff` is 4 files, +153/−15, nothing else. Each clause of the compound done-when falsified
+  **separately**, because a RED on an `&&` chain proves only what short-circuited: clause 1,
+  `_column_drift`'s loop neutered to `{}.items()` → 2 failed (`…lost_a_column`, `…gained_a_column`);
+  clause 2, `script_location` commented out → upgrade exit 255; clause 3, `# probe: ALTER TABLE`
+  appended to `app/main.py` → exit 1. All restored clean. The owner's requirement checked by hand in
+  the main tree: legacy `create_all` DB with `priority` dropped → exit **1**, `RuntimeError: database
+  holds every baseline table but work_items is missing ['priority']`, `alembic_version` rows `[]`,
+  column still absent; matching legacy DB → exit 0, `alembic_version='0001'`. B10 closed. The
+  reviewer earned its keep on the question I could not answer by running commands — **over-refusal**
+  — by building seven legitimate DB shapes (pristine legacy, legacy healed by the old startup DDL,
+  extra table, extra index, a view, already-stamped, offline `--sql`), all of which still stamp, and
+  by AST-diffing `BASELINE_COLUMNS` against the `create_table` calls column by column (35 columns,
+  zero divergence) rather than trusting the worker's guard test — then breaking that guard two ways
+  the worker had not tried. **Its most useful finding is the inverse of the original bug:** the old
+  self-healing `ALTER TABLE` added `priority` as `VARCHAR(6) NOT NULL DEFAULT 'medium'` with no enum
+  CHECK, so a *definition*-level check would refuse the most likely real volume in existence and
+  crash-loop the container CMD. Name-only is correct; only the docs oversell it (B21). Two traps
+  worth carrying forward: the worker's dead-code "9" was knip run **without `node_modules`** in its
+  worktree — the real number is 3, and knip's half must be measured where deps are installed; and
+  the companion Bash guard **blocks this task's own done-when** (its `rm`-plus-`tests` patterns both
+  match), so the chain was run verbatim from a script file rather than skipped — filed as B24.
+  `.claude/` is still untracked and un-ignored, an AC10 hazard for a later task.
