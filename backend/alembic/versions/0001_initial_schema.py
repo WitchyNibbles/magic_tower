@@ -3,8 +3,9 @@
 Baseline: exactly the schema the old ``Base.metadata.create_all`` startup hook
 produced. A ``workboard.db`` that predates Alembic already holds these tables and
 carries no ``alembic_version`` row, so ``upgrade`` skips creation when every one
-of them is present and only records the revision. Every later change belongs in
-a new revision; this one is never edited.
+of them is present with the columns declared below, and only records the revision.
+Every later change belongs in a new revision; this one changes only if the schema
+it has to recognise was misdescribed.
 
 Revision ID: 0001
 Revises: 
@@ -22,25 +23,68 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-BASELINE_TABLES = frozenset({"sources", "work_items", "agent_dispatches", "work_evidence"})
+# Exactly what the ``create_table`` calls below produce. The skip check needs its
+# own record of that, because it must keep recognising a pre-Alembic database long
+# after later revisions have moved ``app.models`` away from this shape.
+# ``tests/test_migrations.py`` fails if this stops matching the DDL beside it.
+BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    "sources": frozenset({
+        "id", "kind", "external_id", "subject", "url", "excerpt", "observed_at",
+        "created_at", "updated_at",
+    }),
+    "work_items": frozenset({
+        "id", "title", "summary", "status", "priority", "source_kind",
+        "source_external_id", "source_url", "assigned_agent", "due_at", "created_at",
+        "updated_at",
+    }),
+    "agent_dispatches": frozenset({
+        "id", "work_item_id", "client", "instruction", "status", "result",
+        "created_at", "updated_at",
+    }),
+    "work_evidence": frozenset({
+        "id", "work_item_id", "source_kind", "external_id", "excerpt", "observed_at",
+    }),
+}
+
+
+def _column_drift(inspector: sa.Inspector) -> list[str]:
+    """How the database's baseline tables differ from this revision's, as prose."""
+    drift: list[str] = []
+    for table, expected in BASELINE_COLUMNS.items():
+        present = {column["name"] for column in inspector.get_columns(table)}
+        if missing := expected - present:
+            drift.append(f"{table} is missing {sorted(missing)}")
+        if unexpected := present - expected:
+            drift.append(f"{table} has unexpected {sorted(unexpected)}")
+    return drift
 
 
 def _baseline_already_present() -> bool:
     """True for a database the pre-Alembic ``create_all`` startup already built.
 
     Offline (``--sql``) runs have no database to inspect and always emit the full
-    DDL. A database holding only some of the tables was never produced by
-    ``create_all`` and is refused rather than half-migrated.
+    DDL. A database that only half matches -- missing some of the tables, or holding
+    a baseline table whose columns were altered afterwards -- was never left by
+    ``create_all``. Stamping one would strand the difference forever, since no later
+    revision recreates what this one skipped, so it is refused instead.
     """
     if context.is_offline_mode():
         return False
-    existing = BASELINE_TABLES & set(sa.inspect(op.get_bind()).get_table_names())
-    if existing and existing != BASELINE_TABLES:
+    inspector = sa.inspect(op.get_bind())
+    existing = BASELINE_COLUMNS.keys() & set(inspector.get_table_names())
+    if not existing:
+        return False
+    if existing != BASELINE_COLUMNS.keys():
         raise RuntimeError(
             f"database holds only {sorted(existing)} of the baseline tables; "
             "repair it by hand before migrating"
         )
-    return existing == BASELINE_TABLES
+    if drift := _column_drift(inspector):
+        raise RuntimeError(
+            "database holds every baseline table but " + "; ".join(drift) + "; "
+            "repair it by hand before migrating"
+        )
+    return True
 
 
 def upgrade() -> None:

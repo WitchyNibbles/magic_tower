@@ -20,5 +20,6 @@ USER appuser
 EXPOSE 8000
 # The application writes no DDL of its own, so the schema is brought to head before
 # the first request. The baseline revision tolerates a workboard-data volume that
-# predates Alembic, so an existing volume needs no manual stamp.
+# predates Alembic, so an untouched existing volume needs no manual stamp; one whose
+# baseline columns were altered by hand fails here instead of serving mis-stamped.
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
