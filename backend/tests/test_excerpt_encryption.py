@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.database import Base
 from app.main import app
 from app.models import Source, SourceKind
@@ -132,6 +132,23 @@ def test_storing_an_excerpt_without_an_encryption_key_fails_closed(monkeypatch):
         )
     assert response.status_code == 503, response.text
     assert "APP_ENCRYPTION_KEY" in response.json()["detail"]
+
+
+def test_the_suite_ignores_an_env_file_in_the_working_directory(tmp_path, monkeypatch):
+    """The fail-closed test above is only honest if no file can undo its ``delenv``.
+
+    ``Settings`` resolves ``env_file`` against the working directory, and the suite
+    is documented to run from ``backend/`` -- where a developer who has connected
+    Microsoft Graph keeps a real ``.env`` holding a real key. Before ``conftest``
+    disabled it, that file handed the deleted key straight back and three
+    fail-closed assertions passed on every machine that had no ``.env`` and failed
+    on every machine that did.
+    """
+    (tmp_path / ".env").write_text("APP_ENCRYPTION_KEY=decoy-key-from-a-developers-env-file\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("APP_ENCRYPTION_KEY", raising=False)
+
+    assert Settings().app_encryption_key is None
 
 
 @pytest.mark.usefixtures("encryption_key")

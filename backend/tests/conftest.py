@@ -27,7 +27,16 @@ os.environ["APP_ENCRYPTION_KEY"] = generate_encryption_key()
 
 import pytest
 
-from app.config import get_settings
+from app.config import Settings, get_settings
+
+# ``Settings`` reads ``.env`` relative to the working directory, and the suite must
+# be run from ``backend/`` -- which is exactly where a developer who has connected
+# Microsoft Graph keeps their real one. Every test that asserts a fail-closed path
+# deletes a variable through monkeypatch and rebuilds the settings; without this,
+# the file hands the deleted value straight back and the assertion never fires. The
+# environment this module sets above is the suite's whole configuration, so a file
+# it cannot see is a file it does not need.
+Settings.model_config["env_file"] = None
 from app.database import Base, engine
 from app.security import _sessions, _sessions_lock
 
