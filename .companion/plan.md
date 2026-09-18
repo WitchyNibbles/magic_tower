@@ -122,6 +122,9 @@ newsletter would classify as pre-T05. **Prerequisite: B39** — adding a column 
 makes T02's `0001` drift check abort, because `test_migrations.py:135,164,178` build their legacy
 database from today's models; adding a *table* is not affected (`0001`'s skip check is scoped to
 `BASELINE_COLUMNS.keys()`), which is the cheaper route if B39 is not taken first.
+**Revision numbering, 2026-09-18:** T09 shipped revision `0004` on `main`, so the preserved
+`source_promotions` branch (also `0004`/`down_revision '0003'`) must be renumbered to `0005` on
+rebase or `alembic heads` reports a duplicate revision identifier.
 Two preserved branches, neither reviewed into `main`: `worktree-agent-aa02c3e50aa3ca413` (attempt 2,
 the queue-level gate — its test fixtures and the `…declined_unpromoted` discriminator are worth
 keeping) and `worktree-agent-a2af9b2b1c1e76c3e` (an interrupted session's `source_promotions` table
@@ -155,7 +158,7 @@ T06 backfill (otherwise the next run promotes it again). Both are cookie-writabl
 CSRF path (`backend/app/security.py:106-109`).
 
 ## T09 — Measure the heuristic against real mail
-- status: todo
+- status: blocked(the documented `docker compose` export path dies on a fresh second PC — `docker compose cp` into a not-yet-created `~/.magic-tower` exits 1)
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
@@ -178,6 +181,23 @@ works on either machine. It must **exit 0 with a clear message when the sample i
 and this PC stay green. Commit a small synthetic example as the schema reference. Document the exact
 sequence for the second PC: set the five `MICROSOFT_*` settings plus `APP_ENCRYPTION_KEY`, sync,
 export, label, eval, tune, commit rule changes.
+
+**Blocked once, 2026-09-18 — shipped and merged, but one documented path still fails.** Commits
+`8f72654` (attempt 1) and `cc2a177` (repair) are **kept on the branch, not reset away**: both
+reviewers endorsed the design, the suite is 125 green, the done-when passes, and the dead-code gate
+is 3 of 4. The export and eval commands, the `source_signal_context` table, revision `0004`, the
+header allowlist and the tests are all verified. What fails is the `docker compose` half of the
+second-PC sequence — README:133 tells the owner to `docker compose cp` into `~/.magic-tower/`, which
+does not exist on a fresh machine, so the command exits 1 (`invalid output path`); README:137's
+"0600 under a 0700 directory" is false there too, because the tool's `mkdir` runs inside the
+container. Repair forward from `cc2a177`: (1) `mkdir -p -m 700 ~/.magic-tower` before the cp line;
+(2) extend `backend/tests/test_documented_commands.py` to guard the compose path — it is blind to it
+today, which is how a broken pasted command passed a docs test; (3) `heuristic_sample.py:86` needs
+`read_text(encoding="utf-8")` or a cp1252 second PC throws `UnicodeDecodeError` on an accented
+subject; (4) `heuristic_export.py:73` catches only `OperationalError`, so an unmigrated Postgres URL
+still raises a raw `ProgrammingError`.
+Note for T06: this task's carry-across **closes the data gap T06's block called permanent** —
+`source_signal_context` now stores sender, sender_kind, to_recipients and the heuristic's headers.
 
 ## T10 — Frontend test infrastructure and shadcn foundation
 - status: verified
