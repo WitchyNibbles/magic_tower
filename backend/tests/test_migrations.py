@@ -106,7 +106,7 @@ def _head_revision() -> str:
     return result.stdout.split()[0]
 
 
-def test_upgrading_an_empty_database_reproduces_the_declarative_models(tmp_path):
+def test_an_empty_database_is_migrated_not_alembic_stamped_and_matches_the_models(tmp_path):
     database_path = tmp_path / "fresh.db"
 
     _upgrade_to_head(database_path)
@@ -132,7 +132,7 @@ def test_application_startup_writes_no_schema_of_its_own(tmp_path):
     assert tables == [], "startup still creates schema; migrations must be the only source of DDL"
 
 
-def test_a_database_predating_alembic_upgrades_in_place_with_its_rows_intact(tmp_path):
+def test_a_database_predating_alembic_takes_the_alembic_stamp_with_its_rows_intact(tmp_path):
     """The operator path for a ``workboard.db`` left behind by the old ``create_all`` startup.
 
     Such a database already holds every table the baseline revision creates but has
@@ -160,7 +160,7 @@ def test_a_database_predating_alembic_upgrades_in_place_with_its_rows_intact(tmp
     assert surviving.title == "predates alembic"
 
 
-def test_a_database_holding_only_some_baseline_tables_is_refused(tmp_path):
+def test_the_alembic_stamp_is_refused_when_only_some_baseline_tables_exist(tmp_path):
     """``create_all`` never left a partial schema behind, so one is a sign of damage."""
     database_path = tmp_path / "partial.db"
     engine = create_engine(f"sqlite:///{database_path}")
@@ -174,7 +174,7 @@ def test_a_database_holding_only_some_baseline_tables_is_refused(tmp_path):
     assert _current_revision(database_path) is None
 
 
-def test_a_database_whose_baseline_tables_lost_a_column_is_refused(tmp_path):
+def test_the_alembic_stamp_is_refused_when_a_baseline_table_lost_a_column(tmp_path):
     """Table names alone cannot tell a ``create_all`` database from a damaged one.
 
     ``create_all`` always produced every baseline column, so a baseline table that is
@@ -200,7 +200,7 @@ def test_a_database_whose_baseline_tables_lost_a_column_is_refused(tmp_path):
     assert _current_revision(database_path) is None
 
 
-def test_a_database_whose_baseline_tables_gained_a_column_is_refused(tmp_path):
+def test_the_alembic_stamp_is_refused_when_a_baseline_table_gained_a_column(tmp_path):
     """The other half of the mismatch: an added column is equally a sign of damage.
 
     It also collides head-on with the chain's future -- the revision that adds this
@@ -225,7 +225,7 @@ def test_a_database_whose_baseline_tables_gained_a_column_is_refused(tmp_path):
     assert _current_revision(database_path) is None
 
 
-def test_the_baseline_columns_the_skip_check_trusts_are_the_ones_it_creates(tmp_path):
+def test_the_alembic_stamp_check_trusts_exactly_the_columns_revision_0001_creates(tmp_path):
     """``0001`` declares the columns its skip check demands; the two must agree.
 
     The check reads a declared mapping rather than ``Base.metadata``, which later
