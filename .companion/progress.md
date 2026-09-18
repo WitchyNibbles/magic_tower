@@ -220,3 +220,41 @@
   blockquote renders, and **T05 is the task that starts carrying real mail into that column**. The
   contract's "mail and chat content stops sitting in plaintext on disk" is, as of today, true only of
   `sources`. T05 should close it or the owner should say it may stay open.
+
+## 2026-09-18T12:31:00Z · T04 · verified
+- attempt: 1 · model: sonnet · reviewer: opus
+- commits: e2ee8f9
+- commands: done-when → exit 0 (**3 passed, 28 deselected**); test → exit 0 (44 passed, was 41); probe: RED (2 impl files) but judged weak — falsified by hand instead; dead-code → 3 (baseline 3, node_modules present)
+- review: approve (4 advisories + 1 naming caveat, filed as B26–B30; none blocking)
+- notes: The probe's RED was not worth the letter it printed. It reverted both impl files, and one of
+  them (`sync_registry.py`) is a *new module*, so the suite died at collection with ImportError —
+  which proves only that deleting a module breaks imports. I falsified by hand instead: reverted
+  **only** `backend/app/services/sync.py` to base, left the registry module in place, and got
+  `2 failed, 1 passed, 28 deselected` with `TypeError: sync() got an unexpected keyword argument
+  'kind'` on both. So two of the three selected tests are load-bearing on this task's behaviour. The
+  third, `test_per_source_dispatch_defaults_to_graph_when_no_kind_given`, **passes at base** — it
+  asserts `pytest.raises(SyncError, match="Microsoft Graph is not configured")`, already true before
+  the change. Honest as a default-routing regression guard, but it is not evidence for AC6, and a
+  future reader counting "3 passed" should know only 2 of them prove anything.
+  **The worker deviated from the plan text and was right to.** The task says "a registry keyed by
+  `SourceKind`"; it shipped a plain `str` key. I checked the enum myself rather than take either
+  side's word: `SourceKind` is `outlook_email`/`teams_message`/`manual` (`backend/app/models.py:26-29`),
+  a per-signal DB type, and one Graph connection emits *both* of the first two in a single
+  `fetch_signals` call. Keying a connector registry on it would need two entries pointing at one
+  handler and would make `sync(kind=SourceKind.outlook_email)` also fetch Teams messages. Jira and
+  Freshservice — the kinds the contract's Result actually names — are not enum members at all. The
+  reviewer reached the same conclusion independently. Plan text was loose; the code is right. Cost:
+  a third vocabulary for "kind" (B30).
+  Registry is real, not theatre — both reviewer and I checked the thing most likely to be fake: the
+  fake kind registers through the public API and syncs end to end with **zero** edits to `sync()`'s
+  body. Graph identity assertion survived the extraction intact and now lives only in `_sync_graph`
+  (`sync.py:49-51`), so no other kind can trigger it — which is exactly what the task asked.
+  One finding I want to flag louder than "advisory": **B26**, `registered_kinds()` is dead on
+  arrival, zero call sites, introduced by this task. The contract's quality bar says "no dead code",
+  but the sealed gate runs vulture at `--min-confidence 80` and this only surfaces at 60 — so the
+  gate reported 3, baseline 3, green, while genuinely dead code went in. The gate is not lying, it is
+  just tuned below this. Worth deleting in the next task that opens the file (T05 does not), and
+  worth remembering that a green dead-code number is a floor, not a proof.
+  Also still open and not mine: `.claude/` remains untracked and un-ignored (B8), so AC3 and any
+  `done-when` ending in `test -z "$(git status --porcelain)"` fail spuriously while a worktree is
+  live. I removed the worktree before the final checks, as the T01 manager had to.
