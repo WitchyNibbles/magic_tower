@@ -68,7 +68,7 @@ registers without editing `sync()`. Prove it with a test that registers a fake k
 to end. Keep the Graph identity assertion for the Graph kind only. No new connector here.
 
 ## T05 — Promote actionable signals into work items
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T04
 - done-when: `cd backend && uv run pytest tests -q -k promotion`

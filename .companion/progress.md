@@ -323,3 +323,33 @@
   B25's first half is closed by this work: `WorkEvidence.excerpt` is `EncryptedText` under its own AAD
   with re-runnable revision `0003`; the reviewer checked the AAD separation, the mixed-table case and
   `downgrade`. B25's second half (`agent_dispatches.instruction`) stays open, as does B26.
+
+## 2026-09-18T17:05:00Z · T05 · verified
+- attempt: 1 · model: opus · reviewer: fable (author was opus; a reviewer is never the author's model)
+- commits: 90dafc9
+- commands: done-when → exit 0 (43 passed, 31 deselected); test → exit 0 (87 passed); probe: INAPPLICABLE (test-only) → falsified by hand, 5/5 RED; dead-code → 3 (baseline 4)
+- review: approve — each noise row is rejected by exactly one rule, so no rule masks another
+- notes: The block is closed. The diff is test-only (+46/-3, `backend/tests/test_promotion.py`); the
+  promotion implementation from attempt 2 was already merged and was not touched. I re-ran all four
+  named stubs myself in the worktree, each with the edit asserted to have landed on disk and asserted
+  restored afterwards: `_address`→None RED, `_addresses`→[] RED, `toRecipients` dropped from the
+  `$select` RED, `_teams_sender_kind`→"user" RED. The worker's extra fifth, `_headers`→{}, is also
+  RED, so the whole Graph→signal boundary is load-bearing, not just the four the block named.
+  Because the diff is test-only, that reddening can only come from the new fixture. I also ran a
+  **negative control** the block did not ask for: a behaviour-preserving rewrite of `_address`
+  (unwrap via an intermediate local) left the suite GREEN. That rules out the failure mode where a
+  test reddens on any edit to the file and so proves nothing — the reason two earlier attempts
+  produced evidence that read stronger than it was.
+  The fixture is three new noise rows (`newsletter@` with no bulk header, a cc-only row addressed to
+  someone else, a `from.application` chat post) and `new_sources` 2→5, which is a strengthening: it
+  proves every noise row reached the heuristic instead of being dropped before it. The reviewer
+  traced each of the four URLs `GraphClient` really builds through the fake and confirmed
+  `_selected` serves only `$select`ed fields, and checked that each noise row is rejected by exactly
+  one rule (bulk→r3, newsletter→r2, cc-only→r4, bot-post→r1) so a regression in one is not masked by
+  another. `test_promotion_is_idempotent` untouched.
+  Carried to the backlog rather than dropped: B35 (the fake dispatches on `"/me/chats"` before the
+  messages branch — wrong-reason-but-loud, not a silent pass). B31–B34 from the blocked session
+  remain open and were re-confirmed as still out of scope here; B25's second half
+  (`agent_dispatches.instruction`) and B26 also still open.
+  Worker note worth keeping: its worktree started at `05bc7f3` (`main`), not the run branch — the
+  known failure mode. It reset to base before working and every number above is from `1f1d6cd`.
