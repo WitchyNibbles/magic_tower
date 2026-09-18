@@ -27,6 +27,7 @@ from sqlalchemy import create_engine, inspect
 from app.database import Base
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
 ALEMBIC_VERSIONS_DIR = BACKEND_DIR / "alembic" / "versions"
 MODEL_TABLES = {"work_items", "sources", "work_evidence", "agent_dispatches"}
 BASELINE_TABLES_IN_FK_ORDER = ("work_evidence", "agent_dispatches", "work_items", "sources")
@@ -102,7 +103,9 @@ def _insert_baseline_work_item(database_path: Path, *, title: str) -> None:
     """Insert a row using nothing but the ``work_items`` columns revision
     ``0001`` declares, through raw SQL rather than ``app.models`` -- so the
     fixture stays valid even once a later revision has added a column to this
-    table that the frozen schema above does not have.
+    table that the frozen schema above does not have. The id is ``uuid4().hex``
+    because that is the 32-character form ``sa.Uuid`` stores on SQLite; a real
+    pre-Alembic database, written by the ORM, holds no dashed ids.
     """
     now = datetime.now(timezone.utc).isoformat()
     connection = sqlite3.connect(database_path)
@@ -110,7 +113,7 @@ def _insert_baseline_work_item(database_path: Path, *, title: str) -> None:
         connection.execute(
             "INSERT INTO work_items (id, title, status, priority, source_kind, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid4()), title, "pending", "medium", "manual", now, now),
+            (uuid4().hex, title, "pending", "medium", "manual", now, now),
         )
         connection.commit()
     finally:
@@ -270,7 +273,9 @@ def test_the_alembic_stamp_check_trusts_exactly_the_columns_revision_0001_create
     The check reads a declared mapping rather than ``Base.metadata``, which later
     revisions are free to move on. Were that mapping to disagree with the
     ``create_table`` calls beside it, the check would wave through exactly the drift
-    it exists to catch.
+    it exists to catch. The comparison walks the baseline tables, not ``MODEL_TABLES``:
+    a fifth model table belongs to a later revision, and asking a database built by
+    ``upgrade 0001`` for it would fail here for a reason that is not this subject.
     """
     database_path = tmp_path / "baseline.db"
     result = _run_with_database(database_path, "-m", "alembic", "upgrade", "0001")
@@ -281,7 +286,7 @@ def test_the_alembic_stamp_check_trusts_exactly_the_columns_revision_0001_create
         inspector = inspect(engine)
         created = {
             table: {column["name"] for column in inspector.get_columns(table)}
-            for table in MODEL_TABLES
+            for table in BASELINE_TABLES_IN_FK_ORDER
         }
     finally:
         engine.dispose()
@@ -322,6 +327,32 @@ def downgrade() -> None:
     op.drop_column("sources", "nickname")
 '''
 
+# The models half of the temporary revision above. A real migration that adds a
+# column to a baseline table lands the matching ``app.models`` change with it, and
+# the proof has to carry both: ``app.models`` and ``0001``'s ``BASELINE_COLUMNS``
+# agree exactly on the four baseline tables today, so without the models half the
+# two ways of building the fixture produce identical databases and the test below
+# cannot tell them apart. A child interpreter carries it, so the running suite's
+# ``Base.metadata`` is never mutated, and it builds the fixture through this
+# module's own ``_build_baseline_database`` so that builder stays the thing measured.
+LEGACY_DATABASE_WITH_THE_MODELS_AHEAD_OF_THE_BASELINE = """
+import sys
+from pathlib import Path
+
+import sqlalchemy as sa
+
+sys.path.insert(0, sys.argv[2])
+
+import app.models  # populates ``Base.metadata``
+from app.database import Base
+from test_migrations import _build_baseline_database
+
+Base.metadata.tables["sources"].append_column(
+    sa.Column("nickname", sa.String(length=64), nullable=True)
+)
+_build_baseline_database(Path(sys.argv[1]))
+"""
+
 
 def test_a_column_added_to_a_baseline_table_by_a_later_revision_still_stamps_a_legacy_database(tmp_path):
     """The proof this task exists for.
@@ -333,6 +364,13 @@ def test_a_column_added_to_a_baseline_table_by_a_later_revision_still_stamps_a_l
     made this untestable: they were built from ``app.models``, which already
     has the new column the moment a revision adds it, so the frozen baseline
     check would never see a legacy database missing it.
+
+    The child interpreter above is what keeps that claim honest. It puts the new
+    column on ``Base.metadata`` before asking ``_build_baseline_database`` for the
+    fixture, so were that builder put back to ``Base.metadata.create_all`` the
+    fixture would come out holding ``nickname`` as well, and the ``upgrade head``
+    below would exit non-zero with ``0001`` refusing a database whose ``sources``
+    has an unexpected column.
     """
     revision_path = ALEMBIC_VERSIONS_DIR / "t15_proof_added_column.py"
     revision_path.write_text(
@@ -340,14 +378,21 @@ def test_a_column_added_to_a_baseline_table_by_a_later_revision_still_stamps_a_l
     )
     try:
         database_path = tmp_path / "legacy-before-new-column.db"
-        _build_baseline_database(database_path)
+        built = _run_with_database(
+            database_path,
+            "-c",
+            LEGACY_DATABASE_WITH_THE_MODELS_AHEAD_OF_THE_BASELINE,
+            str(database_path),
+            str(TESTS_DIR),
+        )
+        assert built.returncode == 0, built.stderr
         connection = sqlite3.connect(database_path)
         try:
             now = datetime.now(timezone.utc).isoformat()
             connection.execute(
                 "INSERT INTO sources (id, kind, external_id, observed_at, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
-                (str(uuid4()), "manual", "manual:predates-new-column", now, now, now),
+                (uuid4().hex, "manual", "manual:predates-new-column", now, now, now),
             )
             connection.commit()
         finally:
