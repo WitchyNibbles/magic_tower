@@ -412,7 +412,7 @@ fixed to scan declarations anywhere. Found one real dead token, `--color-card-fo
 lines) so T21 will not break it. New baseline: **5**.
 
 ## T21 — Add dead documentation to the gate
-- status: todo
+- status: blocked(reviewer found four reproduced blocking defects in the repair round; no second repair allowed)
 - complexity: normal
 - deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -422,6 +422,35 @@ that references things which no longer exist — file paths, commands, endpoints
 across `README.md`, `docs/` and `.companion/*.md`. Prove it: add a line referencing a deleted path,
 confirm the total rises. This is the check that would have caught `README:133`'s broken
 `docker compose cp` before the owner hit it on the second PC.
+
+**Blocked 2026-09-19 after attempt 2.** Commits `aef0f3c`, `db2a2c5`, `b86f081`, `ed0ecd3` are
+**merged and kept** — repair forward from `ed0ecd3`, do not start over. The checker exists, the gate
+counts dead docs (17 vs 5 at base), the suite is 248 green, and the retired-capability vocabulary is
+genuinely derived from the code (falsified by the manager: re-adding `teams_message` to the live
+`SourceKind` drops the count 12 → 2). It reaches 8 of B94's 14 plus 2 B94 never cited.
+
+Four blocking defects, each reproduced by the manager, all cheap:
+1. `scripts/deaddocs_check.py:136` — `lstrip("./")` strips a *character set*, not a prefix, so
+   `.companion/x.md` → `companion/x.md`, fails the `top_level` test and is silently discarded. Every
+   path under a dot-directory is exempt from the path check, and `.companion/*.md` is one of the three
+   doc locations this task names. Use `removeprefix("./")`.
+2. Same line, mirror defect — `/docs/gone.md` → `docs/gone.md` **is** top-level, so absolute paths
+   *are* flagged despite the docstring at :27 claiming they are excluded. Add an explicit
+   `token.startswith("/")` skip.
+3. Three new tests are vacuous by the same "token discarded before the branch under test" trap the
+   worker documented in another test's docstring: `test_path_under_subproject_root_resolves_after_a_cd`
+   (:157), `test_harness_notes_file_is_excluded_from_the_path_scan` (:241) and
+   `test_absolute_path_is_not_treated_as_a_filesystem_claim` (:230). Mutation `path_bases = [root]`
+   leaves **30/30 green** while the real repo count goes **12 → 16**. Fix the fixtures so the cited
+   token's first segment is a fixture top-level dir.
+4. Each repaired test must be pinned by a **real-repo count delta**, not only a fixture assertion —
+   every vacuous test in both rounds passed against a synthetic tree while the mutation moved the real
+   count by 4, 133 or 1.
+
+Note: the `done-when` above is **blind** — it exits 0 at base, before any work. Do not credit it.
+Advisories are backlogged as B98 (removal-note false positive), B99 (`*_KIND` over-matching) and
+B100 (fenced code blocks unscanned — the motivating README bug was inside a fence).
+`.companion/deadcode.baseline` still reads `4`; the true total at `ed0ecd3` is **17**.
 
 ## T18 — Publish and hand off the real-mail validation
 - status: verified

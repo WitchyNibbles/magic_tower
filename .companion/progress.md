@@ -783,3 +783,117 @@
   **Worker self-reports that did survive checking**, unusually: the repair worker's cascade audit (four FKs reaching `sources`/`work_items`, all four now hand-deleted) was confirmed independently by the reviewer against the migration files, and its `include_teams=False` refactor really is byte-identical for existing callers. Its worktree opened at `05bc7f3` for the **twentieth** consecutive session and it reset onto the named base and said so — again, it only went right because the prompt warned it. I named the base as a short sha and told it to resolve the long form itself rather than typing one from memory.
   **B96 is the advisory worth reading as more than an advisory:** the new CLI test pins the *removal* of `teams_message`, not agreement with `SourceKind`. I reproduced it — adding `jira_issue` to `SourceKind` without touching either CLI tuple leaves the module **11 passed**. The contract's Result names Jira as the next kind to plug into the registry, so that gap has a dated customer. Recorded rather than quietly fixed: I do not author the work I verify.
   Both worktrees removed, both branches deleted. Ten stale worktrees from earlier sessions remain (B85). No containers left running.
+
+## 2026-09-19T11:10:00Z · T21 · attempt 1 dispatched
+- base: 230b96d (230b96dbf2887ec109679adee4a3f51f31b7e4bf) · model: sonnet · complexity: normal · deps: T17 (verified)
+- note: **done-when measured at base first — exit 0. The gate is blind to this whole task.**
+  `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'` only asserts the script still prints a
+  bare integer last, which it already does at base (vulture 3 + knip 1 + css 1 = **5**). It cannot
+  see whether a documentation checker was added at all, and `cmd | tail -1 | grep` returns grep's
+  status, so it would also stay green if the script started failing mid-way as long as some later
+  line were numeric. Every verdict on this task therefore has to come from hand falsification and
+  from the tests, not from the gate. I am not editing the done-when I own.
+- note: dead-code baseline at base = **5** (vulture 3, knip 1, css 1), `frontend/node_modules`
+  present. T20's note records the same 5, so the number is stable going in.
+- note: the task body cites `README:133`'s broken `docker compose cp` as the motivating customer.
+  That line is **no longer at README:133** — README is 139 lines and the command now lives at
+  `docs/second-pc.md:130,134,195`, fixed by T18. The motivating example is historical; the live
+  first customer is **B94** (14 stale Teams/`Chat.Read` references across `README.md`,
+  `docs/second-pc.md`, `docs/architecture.md`, `docs/agent-protocol.md`, `skills/pending-work/SKILL.md`,
+  `.codex-plugin/plugin.json`), which the backlog names as exactly this task's proving ground.
+
+## 2026-09-19T16:35:00Z · T21 · attempt 1 findings (no commits — repair ordered)
+- attempt: 1 · model: sonnet · branch `worktree-agent-aeda43761d1814bdd` · worktree opened and stayed at base 230b96d
+- commits: **none**. `git log --oneline 230b96d..worktree-agent-aeda43761d1814bdd` is empty and the
+  branch sha *is* 230b96d. The work exists only as uncommitted worktree state (`M scripts/deadcode.sh`,
+  `?? scripts/deaddocs_check.py`, `?? backend/tests/test_deaddocs_check.py`). Preserved to
+  `/tmp/t21-candidate/` before removing the worktree, so the repair round starts from a real artefact
+  rather than a description of one. The worker spent its round mutation-testing its own candidate
+  instead of committing it, and reported three blocking gaps in its own tests — creditable, but a
+  branch with no commits cannot be verified, merged or reviewed.
+- done-when: exit 0 — **and exit 0 at base too**, so it is not evidence. Measured both ways this session.
+- **BLOCKING A (mine, not the worker's).** The checker catches **0 of B94's 14** references — the task's
+  named first customer. Its only repo-wide finding is `dead doc path 'frontend/.gitignore'
+  (.companion/progress.md:92)`, which the checker's *own docstring* lists under "Known false positives
+  (accepted)" as a line that asserts an absence. So the whole-repo score is 1 finding, 1 false positive,
+  0 true positives. B94's 14 are prose claims about a removed *capability* — `Chat.Read` scope strings,
+  "Outlook and Teams conversations", `teams_message` — and none is a file path, a `METHOD /api/...`
+  endpoint, an uppercase `ENV_VAR`, or a `-m module`, which are the only four classes implemented.
+  I checked the lines by hand (`README.md:7,108,113,115`, `docs/architecture.md:19`,
+  `docs/agent-protocol.md:7`, `docs/second-pc.md:28-34`). The worker was told B94 was the acceptance
+  set and told to say which of the 14 it caught; its report never mentions them.
+- **BLOCKING B (worker's finding 3, reproduced by me, with the magnitude it omitted).** `_strip_line_suffix`
+  has zero coverage: neutering it to `return token` leaves **17/17 green**. In the real repo that same
+  mutation takes the count from **1 to 134** — 133 false positives, because `.companion/progress.md`
+  cites paths as `backend/app/models.py:26-29` throughout. So the untested function is the single most
+  load-bearing line in the checker.
+- **BLOCKING C (worker's finding 1, reproduced by me).** Deleting the `_is_gitignored` call site
+  outright leaves **17/17 green** — the gitignore-skip the docstring advertises has no coverage at all.
+  Cause: the fixture's probe token is a bare `ignored-thing.txt`, which `_looks_like_path` discards
+  before the gitignore branch is reached.
+- **BLOCKING D (worker's finding 2, taken on its report, not re-derived).** The documented scope decision
+  that endpoint/env-var/command checks cover `README.md`+`docs/` but not `.companion/*.md` is unpinned:
+  widening `_doc_scopes` to return `path_scope, path_scope` leaves 17/17 green.
+- What does work, measured: the task body's demanded proof. Appending a `docs/this-file-was-deleted.md`
+  reference to `README.md` takes the count **1 → 2**, and reverting takes it back to **1**. The path
+  class is real; it is the other three classes and the B94 customer that are not.
+- Negative controls the worker ran that I accept: removing the `top_level` guard reddens
+  `test_absolute_path_is_not_treated_as_a_filesystem_claim`; removing `first_segments` reddens
+  `test_dead_endpoint_reference_raises_the_count_by_one`. So its mutation harness was sound — the
+  vacuity findings are real, not a broken runner.
+- `.companion/deadcode.baseline` reads `4` and the measured base total is `5`; still stale, still unaddressed.
+
+## 2026-09-19T17:20:00Z · T21 · blocked(reviewer found four reproduced blocking defects in the repair round; no second repair is allowed)
+- attempt: 2 · model: sonnet (attempt 1), opus (repair) · reviewer: fable (opus authored the repair, so opus could not review it)
+- commits: ed0ecd3, b86f081, db2a2c5, aef0f3c — **kept merged, not reset away** (repair forward, the
+  T19 precedent). Judgement: the suite is green at 248, the gate runs and now counts dead docs, and
+  all four blockers are cheap edits. Discarding 884 lines of largely-verified work to hand the next
+  session a blank page would cost more than it saves. The next session repairs forward from ed0ecd3.
+- commands: done-when → exit 0 (**and exit 0 at base — blind, credited as nothing**); test → exit 0,
+  **248 passed** (218 at base, +30, none lost); gate → **17** (vulture 3, knip 1, css 1, docs 12) vs
+  **5** at base; probe: RED on `test_dead_path_carrying_a_line_suffix_is_still_flagged`, **worth almost
+  nothing** — it reverted both implementation files at once, so it proves only that *something* is pinned
+- review: revise — `lstrip("./")` strips a character *set*, not a prefix, so every path under a dot-directory is silently exempt from the path check
+- notes: **Attempt 1 wrote a decent checker and committed none of it.** Branch sha *was* base; the work
+  existed only as `?? scripts/deaddocs_check.py` in a worktree I was about to delete. I preserved it to
+  `/tmp/t21-candidate/` and ordered the repair to start from it rather than from scratch — which is the
+  only reason a 30-test, four-commit round was possible in one repair. The worker had spent its round
+  mutation-testing its own diff and self-reported three vacuous tests; creditable, and those three
+  became the repair order, but a branch with no commits cannot be verified, reviewed or merged.
+  **The repair fixed all four ordered findings and I falsified the hardest one myself.** Blocking A was
+  that attempt 1 caught **0 of B94's 14**. The repair derives the retired vocabulary by AST — live
+  `SourceKind` against every kind the alembic migrations ever spelled — and I falsified it by re-adding
+  `teams_message = "teams_message"` to the live enum: the count dropped **12 → 2**, all ten capability
+  findings vanishing. So it tracks the code, not a hardcoded `"teams"`. It reaches **8 of B94's 14**
+  plus **2 true positives B94 never cited** (`docs/second-pc.md:122,188`), which I read and confirmed.
+  The 3 unflagged `second-pc` lines really are `Chat.Read`-only and need a sixth class; `SKILL.md`×3 and
+  `plugin.json`×2 are outside the doc scope the task body declares.
+  **What blocked it is one Python gotcha and the same trap three times.** `lstrip("./")` strips any
+  leading `.` or `/`, so `.companion/does-not-exist.md` becomes `companion/...`, fails the `top_level`
+  test and is discarded — I appended exactly that line to README and the count **stayed 12**. The
+  mirror defect: `/docs/absolutely-gone.md` becomes `docs/...`, which *is* top-level, so it **is**
+  flagged (12 → 13) despite the docstring claiming absolute paths are excluded. `.companion/*.md` is
+  one of the three doc locations the task body names, so this is a miss of the primary class.
+  Then the same "token discarded before the branch under test" trap that made attempt 1's gitignore
+  test vacuous — a trap **the worker itself documented** in that test's docstring — recurs in three of
+  its own new tests. I reproduced the worst: `path_bases = [root]` leaves **30/30 green** while the real
+  repo count goes **12 → 16**. A fixture whose top-level dirs don't match the cited token cannot reach
+  the code it claims to test, and 30 green tests said nothing about it.
+  **A checker's tests need a real-repo delta, not just a fixture assertion.** Every vacuous test in both
+  rounds passed against a synthetic tree while the mutation moved the real count by 4, 133 or 1. The
+  fixture proves the shape; only the repo proves the wiring.
+  **My own gate count is 12, not the worker's 11, and the difference is my writing.** My attempt-1
+  findings entry cites `docs/this-file-was-deleted.md` — the fake path I used to measure the round trip —
+  and the checker correctly flags it. The manager's own progress log will keep accruing these as it
+  records deleted paths. Worth a decision next session, not a defect in the diff.
+  **An undisclosed false-positive class I found, which the reviewer confirmed and widened.** A README
+  line that *correctly states the removal* — "Teams ingestion was removed" — is flagged (12 → 13), as is
+  the ordinary English "small teams of agents" (reviewer, verified). The capability regex is a bare
+  case-insensitive `\bteams\b`. The docstring gives this reasoning for keeping `.companion/*.md` out of
+  capability scope but never states it for `README`/`docs/` — and **B94's fix is this checker's very next
+  consumer**, so whoever closes B94 must avoid the word entirely or the gate stays lit. Backlogged (B97).
+  Reviewer advisories backlogged, not dropped: B97 (removal-note FP), B98 (`*_KIND` over-matching),
+  B99 (fenced code blocks unscanned — and the motivating README bug was *inside* a fence).
+  `.companion/deadcode.baseline` still reads **4** while the true total is **17**; the worker left it
+  alone on the correct grounds that `.companion/` is mine and nothing reads the file. Still stale.
+  Both worktrees removed, both branches deleted. Ten stale worktrees from earlier sessions remain (B85).
