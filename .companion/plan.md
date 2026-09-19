@@ -412,7 +412,7 @@ fixed to scan declarations anywhere. Found one real dead token, `--color-card-fo
 lines) so T21 will not break it. New baseline: **5**.
 
 ## T21 — Add dead documentation to the gate
-- status: blocked(one false sentence in the docstring paragraph this round added; everything else verified and merged)
+- status: verified
 - complexity: normal
 - deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -439,7 +439,10 @@ the `top_level` filter because `..` is not a top-level name. The *decision* the 
 resolve against fixed bases, discard `../` rather than walk it — is sound and I agree with it; the
 link is live, so neither policy would change the count. It is the factual aside that is wrong, and a
 docstring claim contradicting the repo is the exact class this task was blocked for twice before.
-Fix: replace the clause with the truth, e.g. "the only such link in this repo today
+**Done directly by the assistant, 2026-09-19** — one clause did not justify another session.
+Verified the claim was false first (`docs/second-pc.md:56` is the live `../README.md#...` link),
+replaced it with the manager's recorded text, then re-ran the suite and the gate.
+Original fix note: replace the clause with the truth, e.g. "the only such link in this repo today
 (`docs/second-pc.md:56`, `../README.md#...`) points at a live file, so neither policy would change
 the count." Then re-run `cd backend && uv run pytest tests ../tests/agent_protocol -q` (expect 255)
 and `bash scripts/deadcode.sh` (expect 24). Nothing else is outstanding.

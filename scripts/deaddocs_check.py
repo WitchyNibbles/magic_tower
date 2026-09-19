@@ -87,7 +87,9 @@ the remainder against those bases (what the pre-T21 ``lstrip("./")`` did by
 accident, which is why such a line used to be flagged) is only right when the
 referring doc happens to sit exactly one level down; from ``README.md`` at the
 root it points outside the repo entirely. Guessing which is meant would cost
-more than the class is worth: no doc in this repo writes one today.
+more than the class is worth: the only such link in this repo today
+(``docs/second-pc.md:56``, ``../README.md#develop-the-api-with-uv``) points at a
+live file, so neither policy would change the count.
 
 A bare (slash-less) token starting with a dot -- `.env`, but also `.dark`, a
 CSS class, or `.toLowerCase()`, a method call -- is never reported: its
