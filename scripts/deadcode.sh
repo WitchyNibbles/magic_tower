@@ -53,6 +53,9 @@ echo "vulture (python): $vulture_count"
 total=$((total + vulture_count))
 
 # --- TypeScript (knip) -------------------------------------------------------
+# knip is pinned in `frontend/package.json` and run from `node_modules/.bin`, not
+# `npx --yes knip@latest`: the gate must not change its answer because knip shipped
+# a release today, and it has to work with no network.
 # Zero-config knip counts unused files, exports, types, dependencies,
 # devDependencies and unresolved imports, so dead TypeScript or CSS cannot
 # hide behind a Python-only gate. Knip's exit 0 (clean) and exit 1 (issues
@@ -60,7 +63,7 @@ total=$((total + vulture_count))
 # stdout that jq cannot parse as JSON means the checker never produced a
 # trustworthy count.
 knip_tmp="$(mktemp)"
-( cd "$repo_root/frontend" && npx --yes knip@latest --reporter json ) >"$knip_tmp" 2>/dev/null
+( cd "$repo_root/frontend" && ./node_modules/.bin/knip --reporter json ) >"$knip_tmp" 2>/dev/null
 knip_status=$?
 case "$knip_status" in
     0|1) ;;
@@ -76,6 +79,57 @@ rm -f "$knip_tmp"
     fail "knip's output was not valid JSON -- treating as a crash, not zero findings"
 echo "knip (typescript): $knip_count"
 total=$((total + knip_count))
+
+
+# --- CSS (custom properties) -------------------------------------------------
+# The stylesheet is Tailwind plus design tokens, so it declares no class
+# selectors -- dead CSS here means a `--token` that is declared and then
+# referenced by nothing. A token counts as used if its name appears anywhere in
+# the frontend sources outside its own declaration: via `var(--token)` in CSS,
+# or via the Tailwind class fragment Tailwind derives from a `--color-*` theme
+# token (`--color-card-foreground` -> `card-foreground`, as in `text-card-foreground`).
+css_count="$(
+python3 - "$repo_root/frontend" <<'PYEOF'
+import pathlib, re, sys
+
+root = pathlib.Path(sys.argv[1])
+src = root / "src"
+css_files = sorted(src.rglob("*.css"))
+code_files = [p for p in src.rglob("*") if p.suffix in {".ts", ".tsx", ".js", ".jsx", ".html"}]
+
+declared = {}
+for f in css_files:
+    text = f.read_text(encoding="utf-8")
+    # Declarations anywhere, not only at line start: `:root { --x: 1 }` is one line.
+    # `var(--x)` is a reference, not a declaration -- it has no colon after the name.
+    for m in re.finditer(r"(--[a-zA-Z0-9_-]+)\s*:", text):
+        lineno = text.count("\n", 0, m.start()) + 1
+        declared.setdefault(m.group(1), (f, lineno))
+
+css_text = {f: f.read_text(encoding="utf-8") for f in css_files}
+code_text = "\n".join(f.read_text(encoding="utf-8", errors="ignore") for f in code_files)
+
+dead = 0
+for token, (decl_file, decl_line) in sorted(declared.items()):
+    used = False
+    if f"var({token})" in "".join(css_text.values()):
+        used = True
+    if not used:
+        # Tailwind exposes `--color-x` as the class fragment `x`.
+        fragment = token[len("--color-"):] if token.startswith("--color-") else token.lstrip("-")
+        if re.search(r"[-\s\"'\[:]" + re.escape(fragment) + r"\b", code_text):
+            used = True
+    if not used:
+        print(f"  dead css token {token} ({decl_file.name}:{decl_line})", file=sys.stderr)
+        dead += 1
+print(dead)
+PYEOF
+)"
+css_status=$?
+[ "$css_status" -eq 0 ] && [ -n "$css_count" ] || \
+    fail "the CSS checker did not produce a count -- treating as a crash, not zero findings"
+echo "custom properties (css): $css_count"
+total=$((total + css_count))
 
 # --- Total -------------------------------------------------------------------
 echo "$total"

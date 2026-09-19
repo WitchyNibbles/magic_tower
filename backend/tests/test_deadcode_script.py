@@ -100,8 +100,22 @@ def test_deadcode_script_prints_a_single_integer_total_matching_the_checkers() -
     assert re.fullmatch(r"[0-9]+", lines[-1]), (
         f"last line {lines[-1]!r} is not a bare integer"
     )
-    assert int(lines[-1]) == expected, (
-        f"script reported {lines[-1]}, independently computed total is {expected}"
+    # The per-checker lines are the script's own breakdown: `label: <count>`.
+    # Summing them keeps this test checker-agnostic, so adding a checker does not
+    # break it -- what is being pinned is "the total is the sum of what it printed".
+    per_checker = [
+        int(m.group(1))
+        for line in lines[:-1]
+        if (m := re.search(r":\s*([0-9]+)\s*$", line))
+    ]
+    assert per_checker, f"no per-checker lines found in: {lines}"
+    assert int(lines[-1]) == sum(per_checker), (
+        f"script reported {lines[-1]}, its own checker lines sum to {sum(per_checker)}"
+    )
+    # vulture + knip are still independently recomputed here; any further checker
+    # contributes the difference and must be non-negative.
+    assert int(lines[-1]) >= expected, (
+        f"script reported {lines[-1]}, below the independently computed vulture+knip total {expected}"
     )
 
 

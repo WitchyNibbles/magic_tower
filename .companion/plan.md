@@ -385,7 +385,7 @@ single integer total as its last line and nothing else after it. Same two checke
 today (3). Run knip where `node_modules` exists, or the count inflates.
 
 ## T20 — Add dead CSS to the gate
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -394,6 +394,16 @@ Extend `scripts/deadcode.sh` to count CSS selectors present in the shipped bundl
 nothing rendered. The shadcn rebuild replaced `styles.css` wholesale and nothing checked the
 remains. Prove it: add a selector no component uses, confirm the total rises, remove it, confirm it
 falls. Record the new baseline in the task notes — a rise from widened coverage is not a regression.
+**Done directly by the assistant, 2026-09-19 (owner's call after three no-output sessions).** The
+stylesheet is Tailwind plus design tokens and declares no class selectors, so dead CSS here means a
+`--token` declared and referenced by nothing. Falsified: baseline 5 → 6 with a dead token added →
+5 when that token is referenced (negative control) → 5 restored. The first version failed that
+falsification — it only matched declarations at line start, so `:root { --x: 1 }` was invisible;
+fixed to scan declarations anywhere. Found one real dead token, `--color-card-foreground`
+(`frontend/src/styles.css:28`). knip pinned to 6.37.0 as a devDependency and run from
+`node_modules/.bin`, so the gate no longer re-resolves `knip@latest` per run.
+`backend/tests/test_deadcode_script.py` was made checker-agnostic (total == sum of its own printed
+lines) so T21 will not break it. New baseline: **5**.
 
 ## T21 — Add dead documentation to the gate
 - status: todo
