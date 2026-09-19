@@ -340,7 +340,7 @@ upgrades a legacy database correctly. Owner asked for this as its own task rathe
 (2026-09-18).
 
 ## T16 — Make the documented run command actually start the app
-- status: todo
+- status: verified
 - complexity: normal
 - deps:
 - done-when: `docker compose up -d --wait api && docker compose exec -T api python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)" && docker compose down`
