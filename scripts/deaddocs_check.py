@@ -71,24 +71,26 @@ Scope decisions, made explicit here because each cost a false positive to find:
   rewritten that way by T22); backticks stay reserved for identifiers this
   repo really has. This is a writing convention, not a narrowing of scope:
   those lines keep every path spelling and every measured number verbatim.
-  ``.companion/progress.md:92``'s "there is no `frontend/.gitignore`" is
-  deliberately *not* treated the same way and is left backticked, even though
-  it is this gate's only remaining docs finding. `frontend/.gitignore` is not a
-  fabricated token but an ordinary, real filename, and the sentence is a claim
-  about this repo's structure whose truth is the very point being recorded --
-  the backticks are doing their normal job. What defeats the checker there is
-  the negation, which it cannot see (below), not the formatting; un-backticking
-  it would be silencing a correctly-marked identifier to move a number, which
-  is the opposite of the case above.
+  ``.companion/progress.md:92``'s "there is no `frontend/.gitignore`" was kept
+  backtick-quoted rather than rewritten, on the same "not a fabricated token"
+  ground as above -- `frontend/.gitignore` was, at the time that history was
+  written, an ordinary real filename the sentence made a true claim about not
+  existing. This checker does no negation detection, so a claimed absence used
+  to read as a positive existence claim and cost a finding; T02 (2026-09-20)
+  resolved that by adding `frontend/.gitignore` for real (the file a
+  per-package ignore list for `node_modules/`, `dist/` and the generated Vite
+  config this repo's single root `.gitignore` already covered, so the checker
+  now sees a path that resolves and the line costs nothing), which is why this
+  historical claim in ``progress.md`` was left untouched rather than
+  un-backticked: the fix was to make the sentence's negation true of an
+  existing file, not to strip the punctuation that marked it as a claim.
 
 Known false positives (accepted, same class as vulture's pydantic-field noise
-documented in the contract): a doc line that *asserts an absence*
-(``.companion/progress.md``'s "there is no `frontend/.gitignore`") reads as a
-positive existence claim to this checker, which does no negation detection;
-and a bare identifier that names the *manager's own harness*, not this repo,
-inside an otherwise in-scope file (``.companion/backlog.md``'s `TEST_PATH`)
-cannot be told apart from a real dead reference without knowing which repo
-each backlog entry's code is even in.
+documented in the contract): a bare identifier that names the *manager's own
+harness*, not this repo, inside an otherwise in-scope file
+(``.companion/backlog.md``'s `TEST_PATH`) cannot be told apart from a real
+dead reference without knowing which repo each backlog entry's code is even
+in.
 
 Known gaps (dead references this deliberately does not reach): the doc scope is
 the three locations the task names -- ``README.md``, ``docs/`` and
