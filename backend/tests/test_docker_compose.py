@@ -40,6 +40,13 @@ def _rendered_web_ports(web_port: str | None) -> list[dict]:
     """The ``ports`` Compose says it will publish for ``web``, with ``WEB_PORT`` as given.
 
     ``web_port=None`` means the variable is unset entirely, not set to an empty string.
+
+    ``--env-file /dev/null`` is what makes that true. Compose otherwise interpolates from
+    the project-root ``.env`` as well as the environment, and that file is gitignored --
+    so a developer who happens to keep ``WEB_PORT`` in their own ``.env`` would see the
+    default test render their port and fail, on a checkout identical to everyone else's.
+    Only the file the test renders against changes here; ``docker compose up`` still reads
+    ``.env`` for the user, which is exactly where their real configuration belongs.
     """
     env = dict(os.environ)
     env.pop("WEB_PORT", None)
@@ -47,7 +54,7 @@ def _rendered_web_ports(web_port: str | None) -> list[dict]:
         env["WEB_PORT"] = web_port
 
     result = subprocess.run(
-        ["docker", "compose", "config"],
+        ["docker", "compose", "--env-file", "/dev/null", "config"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -91,3 +98,26 @@ def test_readme_documents_the_web_port_variable() -> None:
     section = re.search(r"\n## Raise the tower locally\n(.*?)(?=\n## )", readme, re.DOTALL)
     assert section, "README.md no longer has a 'Raise the tower locally' section"
     assert "WEB_PORT" in section.group(1)
+
+
+def test_readme_web_port_paragraph_points_at_the_redirect_uri() -> None:
+    """Changing ``WEB_PORT`` alone silently breaks Graph sign-in, so the paragraph that
+    offers the override has to say so.
+
+    ``MICROSOFT_REDIRECT_URI`` defaults to ``http://localhost:8787/api/auth/callback``
+    (``app/config.py``) and is not derived from ``WEB_PORT``; nor should it be, since the
+    value has to match a URI registered in Entra, and Microsoft rejects one that is not.
+    A reader who follows the override advice and nothing else therefore reaches a
+    sign-in that cannot complete. Pinning the pointer to the same paragraph keeps the
+    two from drifting apart again.
+    """
+    readme = (REPO_ROOT / "README.md").read_text()
+
+    section = re.search(r"\n## Raise the tower locally\n(.*?)(?=\n## )", readme, re.DOTALL)
+    assert section, "README.md no longer has a 'Raise the tower locally' section"
+
+    paragraphs = [p for p in section.group(1).split("\n\n") if "WEB_PORT" in p]
+    assert paragraphs, "the 'Raise the tower locally' section no longer mentions WEB_PORT"
+    assert any("MICROSOFT_REDIRECT_URI" in p for p in paragraphs), (
+        "the WEB_PORT paragraph must tell the reader to move MICROSOFT_REDIRECT_URI too"
+    )

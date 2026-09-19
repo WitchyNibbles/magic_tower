@@ -95,7 +95,9 @@ Open [http://localhost:8787](http://localhost:8787). The web service binds to lo
 
 If something else on the host already holds 8787, set `WEB_PORT` before bringing the stack up
 (`WEB_PORT=9191 docker compose up --build`, then open `http://localhost:9191`); the bind stays
-loopback-only either way.
+loopback-only either way. A changed port also needs `MICROSOFT_REDIRECT_URI` moved to it --
+it is not derived from `WEB_PORT` -- and that same URI registered in Entra, or Graph sign-in
+cannot complete.
 
 On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to create an HttpOnly, eight-hour local session. The typed value is not persisted in browser storage; cookie-backed writes also require CSRF protection.
 
@@ -108,7 +110,7 @@ On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to
 
 ## Configure the Graph familiar
 
-Register a Microsoft Entra application for the intended work/school account. Add the exact redirect URI `http://localhost:8787/api/auth/callback`, configure delegated read-only scopes `User.Read`, `Mail.Read`, `Chat.Read`, and `offline_access`, then set the tenant, client, target object ID, and separately generated `APP_ENCRYPTION_KEY` in `.env`. Some tenants require administrator consent for Teams scopes. The connector uses `/me` only and rejects a sign-in whose object ID does not match `MICROSOFT_TARGET_USER_ID`.
+Register a Microsoft Entra application for the intended work/school account. Add the exact redirect URI `http://localhost:8787/api/auth/callback` (matching `MICROSOFT_REDIRECT_URI`, so use your own port if you changed `WEB_PORT`), configure delegated read-only scopes `User.Read`, `Mail.Read`, `Chat.Read`, and `offline_access`, then set the tenant, client, target object ID, and separately generated `APP_ENCRYPTION_KEY` in `.env`. Some tenants require administrator consent for Teams scopes. The connector uses `/me` only and rejects a sign-in whose object ID does not match `MICROSOFT_TARGET_USER_ID`.
 
 Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook/Teams metadata. It never sends messages or acts in Microsoft 365.
 
