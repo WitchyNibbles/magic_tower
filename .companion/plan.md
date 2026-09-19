@@ -4,7 +4,7 @@ One task per `## Txx — title` heading. Statuses: `todo` → `doing` → `claim
 or `blocked(<reason>)`. Only the manager edits this file.
 
 ## T01 — Make leave-no-trace checkable
-- status: blocked(the gate is correct and merged, but `/tmp/t2.json` — a stale report from a previous contract — still counts and this environment denies the manager permission to delete `/tmp` entries; `rm /tmp/t2.json` turns clause 1 green, see B112)
+- status: verified
 - complexity: normal
 - deps:
 - done-when: `bash scripts/leave-no-trace.sh && cd backend && uv run pytest tests -q -k leave_no_trace`
@@ -18,6 +18,11 @@ processes whose command line points inside this repository. One labeled line per
 the last line, matching `scripts/deadcode.sh`'s shape. Test it as the dead-code gate is tested:
 create one artefact of each category, assert the count rises, remove it, assert it falls — the
 script must not report zero because a category silently failed to run.
+**Verified 2026-09-20.** The gate shipped in `9620c1c` and `2a4e23e` and is correct; it blocked
+only on `/tmp/t2.json`, a stale report from the previous contract that the build loop is denied
+permission to delete. I deleted it from this session, where that permission exists. Owner's policy:
+`/tmp` stays **fatal** and gate output moves to `.companion/scratch/` — fix the cause, not the
+check.
 Probe note: script-shaped; falsify by hand, each category separately.
 
 ## T02 — Make the dead-code baseline true
@@ -56,6 +61,9 @@ returning env-var **names** only. Add the rows to `.env.example`. Values never e
 over Basic auth (`email:token`) against `https://<site>.atlassian.net` — **not** the scoped-token
 host, which would 401. Handle 429 with `Retry-After`. `httpx` is dev-only today: either keep stdlib
 `urllib.request` like Graph, or promote `httpx` to a runtime dependency and say which and why.
+**Not a hard task — three sessions were killed at 600s.** The harness terminated each worker with
+"Background tasks still running after 600s; terminating"; nothing was committed and no transcript
+survived. The loop is now run with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`. Treat this as attempt 1.
 
 ## T05 — The participation query
 - status: todo
@@ -141,7 +149,7 @@ breaks. An unknown kind must fail cleanly, not 500 — `UnknownSourceKindError` 
 - status: todo
 - complexity: normal
 - deps: T10
-- done-when: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=/tmp/t11.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/t11.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
+- done-when: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/t11.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('.companion/scratch/t11.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
 
 The frontend is exhaustive on the source union: `frontend/src/api.ts:2`, the `Record<SourceKind,…>`
 labels (`frontend/src/lib/work-items.ts:7`) and the hardcoded filter list
