@@ -329,12 +329,35 @@ def test_dead_path_under_a_dot_directory_is_flagged(fake_repo: Path) -> None:
     assert _count(fake_repo) == before + 1
 
 
+def test_dot_prefixed_dead_path_is_still_flagged(fake_repo: Path) -> None:
+    """The `./` prefix has to be *stripped*, not merely tolerated: a dead path
+    written with it is as dead as one written without.
+
+    This is the discriminating half of the pair below. Deleting the
+    `.removeprefix("./")` call outright leaves `./docs/x.md` with `.` as its
+    first segment, which is no top-level directory, so the token is discarded
+    as "not a claim about this repo" before its existence is ever checked and
+    this finding silently disappears. Confirmed on the real repository too,
+    where a README line citing `./docs/never-here.md` takes the dead-doc count
+    from 19 to 20 as written, but leaves it at 19 with the strip deleted.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nAlso see `./docs/never-here.md`.\n")
+    assert _count(fake_repo) == before + 1
+
+
 def test_dot_prefixed_relative_path_still_resolves(fake_repo: Path) -> None:
-    """Negative control for the dot-directory fix above: `./backend/app/config.py`
-    (an explicit "current directory" prefix, the one case `lstrip` was
-    actually meant to handle) must still resolve normally, not be treated as
-    a broken path just because a leading `./` is now stripped as a prefix
-    rather than a character set.
+    """Negative control for the test above: `./backend/app/config.py` (an
+    explicit "current directory" prefix, the one case `lstrip` was actually
+    meant to handle) must still resolve normally, not be treated as a broken
+    path just because a leading `./` is now stripped as a prefix rather than
+    a character set.
+
+    On its own this probe is non-discriminating -- with the strip deleted it
+    stays green for the wrong reason, the token being discarded rather than
+    resolved -- which is why it is paired with the dead probe above rather
+    than standing alone.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
