@@ -78,6 +78,17 @@ tell the reader to register but ``GRAPH_SCOPES`` in
 ``backend/app/services/oauth.py`` does not request (``Chat.Read``, today) is a
 sixth class this does not implement; the lines carrying it are caught anyway
 wherever they also name the connector, but not where they name only the scope.
+A path written relative to its referring file's parent (`../docs/x.md`) is
+discarded rather than resolved. Every path here is resolved against a *fixed*
+set of bases -- the repo root and each subproject root -- precisely because
+docs switch base directory mid-file after a `cd backend`, so there is no
+referring directory to walk `..` up from. Stripping the `../` and resolving
+the remainder against those bases (what the pre-T21 ``lstrip("./")`` did by
+accident, which is why such a line used to be flagged) is only right when the
+referring doc happens to sit exactly one level down; from ``README.md`` at the
+root it points outside the repo entirely. Guessing which is meant would cost
+more than the class is worth: no doc in this repo writes one today.
+
 A bare (slash-less) token starting with a dot -- `.env`, but also `.dark`, a
 CSS class, or `.toLowerCase()`, a method call -- is never reported: its
 shape cannot tell a real dotfile reference apart from prose that merely

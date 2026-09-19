@@ -368,6 +368,25 @@ def test_dot_prefixed_relative_path_still_resolves(fake_repo: Path) -> None:
     assert _count(fake_repo) == before
 
 
+def test_parent_relative_path_is_a_documented_gap_not_a_finding(fake_repo: Path) -> None:
+    """`../docs/x.md` is deliberately discarded, not resolved: paths here are
+    resolved against a fixed set of bases (repo root, `backend/`, `frontend/`)
+    because docs switch base directory mid-file, so there is no referring
+    directory to walk `..` up from. See "Known gaps" in the module docstring.
+
+    This pins the decision rather than a mechanism, because the pre-T21
+    `lstrip("./")` *did* flag such a line -- by accident, eating the dots and
+    silently rewriting the path as `docs/x.md`, which is right only for a doc
+    sitting one level down and wrong for the root `README.md` this probe uses.
+    Confirmed on the real repository: the same README line took the pre-T21
+    checker from 18 to 19 and leaves this one at 19.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee `../docs/never-here.md` for the rest.\n")
+    assert _count(fake_repo) == before
+
+
 def test_a_markdown_link_with_a_backticked_label_counts_its_path_once(fake_repo: Path) -> None:
     """``[`docs/x.md`](docs/x.md)`` is this repo's own README idiom
     (`README.md:127`). It matches the backtick pattern *and* the markdown-link
