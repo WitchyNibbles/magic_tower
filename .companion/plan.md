@@ -374,15 +374,21 @@ it owns to make its own task pass. Remaining code work is B78 only (one dead `no
 clause in `graph_identifiers_are_not_urls`, now unreachable), which is cleanup, not a blocker.
 
 ## T17 — Move the dead-code gate into a script
-- status: blocked(no progress after 3 sessions)
+- status: verified
 - complexity: simple
 - deps:
-- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -le 4`
+- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && cd backend && uv run pytest tests/test_deadcode_script.py -q`
 
 Split from the original T17, which died three times with no worker output (owner, 2026-09-19).
 Just the wrapper: move today's inline vulture + knip command into `scripts/deadcode.sh`, printing a
 single integer total as its last line and nothing else after it. Same two checkers, same number as
 today (3). Run knip where `node_modules` exists, or the count inflates.
+**Status correction, 2026-09-19.** The work landed in `e8b43dc` and its tests pass, but the status
+was left `blocked(no progress after 3 sessions)` from the pre-split task. T20 and T21 both depend on
+T17, so the loop then had nothing runnable and went straight to verification three times — the
+"died with no worker output" symptom was this stale status, not a hard task. The `-le 4` clause was
+also stale: T20's CSS checker legitimately raised the total to 5, so the gate now runs the script's
+own test instead of pinning a number that widened coverage is expected to move.
 
 ## T20 — Add dead CSS to the gate
 - status: verified
