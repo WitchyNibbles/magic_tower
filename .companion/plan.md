@@ -340,10 +340,10 @@ upgrades a legacy database correctly. Owner asked for this as its own task rathe
 (2026-09-18).
 
 ## T16 — Make the documented run command actually start the app
-- status: blocked(done-when hardcodes port 8787, held by the session's own headroom proxy; fix is merged, reviewed and container-proven — see B79)
+- status: todo
 - complexity: normal
 - deps:
-- done-when: `docker compose up -d --build && until curl -sf http://127.0.0.1:8787/ >/dev/null; do sleep 2; done && curl -sf http://127.0.0.1:8787/api/health && docker compose down`
+- done-when: `docker compose up -d --wait api && docker compose exec -T api python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)" && docker compose down`
 
 `docker compose up` exits 1 today: the api container dies because the root `.env` sets
 `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `MICROSOFT_TARGET_USER_ID` to empty strings and the
@@ -351,6 +351,12 @@ validator at `backend/app/config.py:45` rejects `""` instead of treating it as u
 position: a failing `run:` command means the work is not finished. Treat an empty string as absent
 for every optional setting, and add a test that constructs `Settings` with empty strings present and
 asserts it validates. `docker compose build` passing is not evidence — building is not running.
+**Gate changed 2026-09-19 (owner):** the old gate hardcoded host port 8787, which is occupied on
+this machine by the session's own proxy, so `docker compose up` could not bind `web` regardless of
+the code. The fix itself (`be548b5`, blank optional settings treated as unset) is already merged and
+was container-proven. The gate now starts **only the api service**, which exposes 8000 internally
+and binds no host port. Also make the web host port overridable — `${WEB_PORT:-8787}` in
+`docker-compose.yml` — so a busy port never breaks the documented run again, and say so in the README.
 
 **Blocked once, 2026-09-19 — the gate, not the work. Repair forward, do not rebuild.** Commit
 `be548b5` is **kept merged, not reset away**: the reviewer approved it, and the manager proved it at
@@ -367,19 +373,40 @@ compose publish as `${MAGIC_TOWER_PORT:-8787}`. The manager deliberately did **n
 it owns to make its own task pass. Remaining code work is B78 only (one dead `not value.strip() or`
 clause in `graph_identifiers_are_not_urls`, now unreachable), which is cleanup, not a blocker.
 
-## T17 — Extend the dead-code gate to CSS and documentation
-- status: blocked(no progress after 3 sessions)
-- complexity: normal
+## T17 — Move the dead-code gate into a script
+- status: todo
+- complexity: simple
 - deps:
+- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -le 4`
+
+Split from the original T17, which died three times with no worker output (owner, 2026-09-19).
+Just the wrapper: move today's inline vulture + knip command into `scripts/deadcode.sh`, printing a
+single integer total as its last line and nothing else after it. Same two checkers, same number as
+today (3). Run knip where `node_modules` exists, or the count inflates.
+
+## T20 — Add dead CSS to the gate
+- status: todo
+- complexity: normal
+- deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
 
-The gate counts Python (vulture) and TypeScript (knip) but sees no dead CSS and no dead docs — the
-shadcn rebuild replaced `styles.css` wholesale and nothing checked what it left behind. Owner:
-"should always be checked, css included, even dead documentation. It should be common sense."
-Move the gate into `scripts/deadcode.sh` printing a single total as its last line, and add: unused
-CSS selectors against the built bundle, and documentation referencing paths, commands or endpoints
-that no longer exist (README, `docs/`, task files). Record the new baseline in the next contract —
-the number will rise because coverage widened, which is not a regression; state that plainly.
+Extend `scripts/deadcode.sh` to count CSS selectors present in the shipped bundle but matched by
+nothing rendered. The shadcn rebuild replaced `styles.css` wholesale and nothing checked the
+remains. Prove it: add a selector no component uses, confirm the total rises, remove it, confirm it
+falls. Record the new baseline in the task notes — a rise from widened coverage is not a regression.
+
+## T21 — Add dead documentation to the gate
+- status: todo
+- complexity: normal
+- deps: T17
+- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
+
+Owner: "even dead documentation… should be common sense." Extend the script to flag documentation
+that references things which no longer exist — file paths, commands, endpoints, env var names —
+across `README.md`, `docs/` and `.companion/*.md`. Prove it: add a line referencing a deleted path,
+confirm the total rises. This is the check that would have caught `README:133`'s broken
+`docker compose cp` before the owner hit it on the second PC.
+
 
 ## T18 — Publish and hand off the real-mail validation
 - status: verified
