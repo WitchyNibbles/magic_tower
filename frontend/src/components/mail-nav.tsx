@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { sourceLabels, statusLabels, statuses } from '@/lib/work-items'
 
-const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'teams_message', 'manual']
+const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'manual']
 
 export function MailNav({ items, filter, onFilter, source, onSource, onSync, onConnect, onDemo, missed, onPromote }: {
   items: WorkItem[]
@@ -51,7 +51,7 @@ export function MailNav({ items, filter, onFilter, source, onSource, onSync, onC
             aria-pressed={source === kind}
             onClick={() => onSource(kind)}
           >
-            <span className={cn('size-2 rounded-full', kind === 'all' ? 'bg-primary' : kind === 'outlook_email' ? 'bg-sky-400' : kind === 'teams_message' ? 'bg-violet-400' : 'bg-muted-foreground')} />
+            <span className={cn('size-2 rounded-full', kind === 'all' ? 'bg-primary' : kind === 'outlook_email' ? 'bg-sky-400' : 'bg-muted-foreground')} />
             {kind === 'all' ? 'All sources' : sourceLabels[kind]}
           </Button>
         ))}

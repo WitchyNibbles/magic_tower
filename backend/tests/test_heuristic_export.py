@@ -95,10 +95,10 @@ def test_persist_signals_carries_the_heuristic_fields_across() -> None:
 
 
 @pytest.mark.usefixtures("encryption_key")
-def test_persist_signals_stores_a_teams_signals_context_with_no_sender() -> None:
+def test_persist_signals_stores_a_signal_context_with_no_sender() -> None:
     with Session(engine) as session:
         persist_signals(session, [_signal(
-            external_id="teams:direct-1", source_kind="teams_message",
+            external_id="outlook:no-sender-1",
             sender=None, sender_kind="application", to_recipients=[], headers={},
         )])
 

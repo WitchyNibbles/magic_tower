@@ -112,8 +112,10 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
        the owner naming a mailbox the rules get wrong -- an internal robot whose
        output they act on -- and it overrides even rule 4, because such mail often
        arrives through a list rather than addressed to them.
-    1. Skip anything posted by an application rather than a person. A Teams bot
-       relaying build output is not work addressed to anybody.
+    1. Skip anything posted by an application rather than a person -- a bot
+       relaying build output is not work addressed to anybody. No connector wired
+       in today sets ``sender_kind`` to anything but ``"user"``; the rule stays
+       for the first one that reports an automated poster.
     2. Skip an automated sender -- a local part carrying ``noreply``, ``donotreply``,
        ``autoreply``, ``mailer-daemon``, ``postmaster``, ``bounce``, ``newsletter``,
        ``marketing``, ``campaign`` or ``mailinglist``, compared with separators
@@ -126,8 +128,9 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
        ``news@`` and ``updates@`` -- addresses real people also write from -- alone.
     4. Skip mail the owner was only copied on: the owner is known, the message
        carries a To list, and none of the owner's addresses is in it. Cc is an FYI,
-       not a request. Teams messages carry no To list, so this rule cannot reject them.
-    5. Otherwise promote: it reached the owner's own mailbox or chat, from a person.
+       not a request. A signal with no To list at all cannot be rejected by this
+       rule -- there is nothing in it to check the owner's absence against.
+    5. Otherwise promote: it reached the owner's own mailbox, from a person.
 
     Rule 3 alone is skipped for a ticket-system sender (see
     ``TICKET_SENDER_MARKERS``): Jira and Freshservice mail carries the

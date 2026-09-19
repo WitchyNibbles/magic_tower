@@ -38,6 +38,6 @@ def test_validation_and_duplicate_source_external_id_are_rejected():
         invalid = client.post("/api/work-items", json={"title": "", "source_kind": "manual", "unexpected": True}, headers=headers)
         assert invalid.status_code == 422
 
-        payload = {"title": "Unique source", "source_kind": "teams_message", "source_external_id": "chat-unique"}
+        payload = {"title": "Unique source", "source_kind": "outlook_email", "source_external_id": "mail-unique"}
         assert client.post("/api/work-items", json=payload, headers=headers).status_code == 201
         assert client.post("/api/work-items", json=payload, headers=headers).status_code == 409

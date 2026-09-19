@@ -26,15 +26,15 @@
     "label": false
   },
   {
-    "id": "teams:example-unlabeled-1",
-    "source_kind": "teams_message",
-    "subject": "Teams conversation",
+    "id": "outlook:example-unlabeled-1",
+    "source_kind": "outlook_email",
+    "subject": "EXAMPLE: freshly exported, not yet labeled by hand",
     "excerpt": "EXAMPLE: freshly exported, not yet labeled by hand.",
-    "sender": null,
+    "sender": "someone@example.test",
     "sender_kind": "user",
-    "to_recipients": [],
+    "to_recipients": ["owner@example.test"],
     "headers": {},
-    "url": "https://teams.microsoft.com/l/message/example-1",
+    "url": "https://outlook.office.com/mail/example-unlabeled-1",
     "observed_at": "2026-01-01T09:10:00+00:00",
     "label": null
   }

@@ -53,27 +53,13 @@ def _headers(entries: Any) -> dict[str, str]:
             if isinstance(entry, dict) and entry.get("name")}
 
 
-def _teams_sender_kind(row: dict[str, Any]) -> str:
-    """Whether an application or a person posted a Teams message."""
-    origin = row.get("from") if isinstance(row.get("from"), dict) else {}
-    return "application" if origin.get("application") else "user"
-
-
 def normalize_email(row: dict[str, Any]) -> dict[str, Any]:
     return {"external_id": f"outlook:{row['id']}", "source_kind": "outlook_email", "title": row.get("subject") or "(no subject)", "excerpt": row.get("bodyPreview") or "", "source_url": row.get("webLink"), "observed_at": row.get("receivedDateTime"),
             "sender": _address(row.get("from")), "sender_kind": "user", "to_recipients": _addresses(row.get("toRecipients")), "headers": _headers(row.get("internetMessageHeaders"))}
 
 
-def normalize_teams(row: dict[str, Any]) -> dict[str, Any]:
-    body = row.get("body") or {}
-    # A Teams ``from.user`` is an identity (id, displayName) with no address, so
-    # there is no sender to hand the automated-sender rule; only the kind is known.
-    return {"external_id": f"teams:{row['id']}", "source_kind": "teams_message", "title": row.get("chatTopic") or "Teams conversation", "excerpt": body.get("content") if isinstance(body, dict) else str(body), "source_url": row.get("webUrl"), "observed_at": row.get("createdDateTime"),
-            "sender": None, "sender_kind": _teams_sender_kind(row), "to_recipients": [], "headers": {}}
-
-
 def fetch_signals(client: GraphClient, limit: int = 50) -> list[dict[str, Any]]:
-    rows = [*(normalize_email(row) for row in client.inbox_messages(limit)), *(normalize_teams(row) for row in client.chat_messages(limit))]
+    rows = [normalize_email(row) for row in client.inbox_messages(limit)]
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:
         deduped.setdefault(row["external_id"], row)

@@ -46,17 +46,3 @@ class GraphClient:
         select = "id,subject,bodyPreview,webLink,receivedDateTime,from,toRecipients,internetMessageHeaders"
         path = f"/me/mailFolders/inbox/messages?$top={limit}&$select={quote(select, safe=',')}"
         return self._get(path).get("value", [])
-
-    def chat_messages(self, limit: int = 50) -> list[dict[str, Any]]:
-        chats = self._get(f"/me/chats?$top={limit}&$select=id,topic").get("value", [])
-        messages: list[dict[str, Any]] = []
-        for chat in chats[:limit]:
-            chat_id = chat.get("id")
-            if not chat_id:
-                continue
-            rows = self._get(f"/chats/{quote(str(chat_id), safe='')}/messages?$top={limit}&$select=id,body,createdDateTime,webUrl,from").get("value", [])
-            for row in rows:
-                row["chatTopic"] = chat.get("topic")
-                row["chatId"] = chat_id
-            messages.extend(rows)
-        return messages[:limit]

@@ -129,20 +129,21 @@ def _ticket(**overrides: Any) -> dict[str, Any]:
                      "headers": {"Auto-Submitted": "auto-generated", "Precedence": "bulk"}, **overrides})
 
 
-def _teams(**overrides: Any) -> dict[str, Any]:
-    return {
-        "external_id": "teams:direct-1",
-        "source_kind": "teams_message",
-        "title": "Release window",
-        "excerpt": "are you free to cut the release today?",
-        "source_url": "https://teams.microsoft.com/l/message/1",
-        "observed_at": "2026-09-18T09:00:00Z",
-        "sender": None,
-        "sender_kind": "user",
-        "to_recipients": [],
-        "headers": {},
+def _no_recipient_list(**overrides: Any) -> dict[str, Any]:
+    """A signal whose connector has no concept of a To list, and so no sender address either.
+
+    Not tied to any one source kind: a connector that never fills in
+    ``to_recipients`` (or ``sender``) is the shape rule 4 has to tolerate without
+    misreading the absence as "addressed to somebody else".
+    """
+    return _email(
+        external_id="generic:no-recipients-1", title="Release window",
+        excerpt="are you free to cut the release today?",
+        source_url="https://example.test/message/1",
+        observed_at="2026-09-18T09:00:00Z",
+        sender=None, to_recipients=[], headers={},
         **overrides,
-    }
+    )
 
 
 def test_promotion_accepts_mail_addressed_directly_to_the_owner() -> None:
@@ -276,25 +277,25 @@ def test_promotion_does_not_allowlist_an_address_that_merely_contains_a_listed_o
     assert should_promote(impostor, OWNER, ("validator@contoso.com",)) is False
 
 
-def test_promotion_accepts_a_teams_message_from_a_person() -> None:
-    """Teams carries no To list, so the recipient rule must not quietly reject it."""
-    assert should_promote(_teams(), OWNER) is True
+def test_promotion_accepts_a_signal_with_no_recipient_list() -> None:
+    """An empty To list must not be quietly read as 'addressed to somebody else'."""
+    assert should_promote(_no_recipient_list(), OWNER) is True
 
 
-def test_promotion_skips_a_teams_message_posted_by_an_application() -> None:
-    assert should_promote(_teams(sender_kind="application"), OWNER) is False
+def test_promotion_skips_a_signal_posted_by_an_application_rather_than_a_person() -> None:
+    assert should_promote(_no_recipient_list(sender_kind="application"), OWNER) is False
 
 
 @pytest.mark.usefixtures("encryption_key")
 def test_promotion_writes_one_pending_work_item_per_actionable_signal() -> None:
     with Session(engine) as session:
-        created = promote_signals(session, [_email(), _newsletter(), _bulk_mailing(headers={"List-Id": "x"}), _teams()], OWNER)
+        created = promote_signals(session, [_email(), _newsletter(), _bulk_mailing(headers={"List-Id": "x"}), _no_recipient_list()], OWNER)
 
         assert created == 2
         items = session.query(WorkItem).order_by(WorkItem.source_external_id).all()
-        assert [item.source_external_id for item in items] == ["outlook:direct-1", "teams:direct-1"]
+        assert [item.source_external_id for item in items] == ["generic:no-recipients-1", "outlook:direct-1"]
         assert {item.status for item in items} == {WorkStatus.pending}
-        assert {item.source_kind for item in items} == {SourceKind.outlook_email, SourceKind.teams_message}
+        assert {item.source_kind for item in items} == {SourceKind.outlook_email}
 
 
 @pytest.mark.usefixtures("encryption_key")
@@ -342,9 +343,9 @@ def test_promotion_falls_back_to_a_placeholder_title_for_a_blank_subject() -> No
 
 @pytest.mark.usefixtures("encryption_key")
 def test_promotion_bounds_the_title_and_excerpt_it_stores() -> None:
-    """A Teams body can run to any length; the schema would reject it, not truncate it."""
+    """A message body can run to any length; the schema would reject it, not truncate it."""
     with Session(engine) as session:
-        assert promote_signals(session, [_teams(title="t" * (TITLE_LIMIT + 1), excerpt="x" * 10_001)], OWNER) == 1
+        assert promote_signals(session, [_email(title="t" * (TITLE_LIMIT + 1), excerpt="x" * 10_001)], OWNER) == 1
         item = session.query(WorkItem).one()
         assert len(item.title) == TITLE_LIMIT
         assert len(item.evidence[0].excerpt) == EXCERPT_LIMIT
@@ -465,28 +466,16 @@ INBOX = [
     },
 ]
 
-CHATS = [{"id": "chat-1", "topic": "Build notifications"}]
-# A Teams identity carries no address and no To list, so rules 2, 3 and 4 have
-# nothing to read: ``from.application`` is the only thing keeping a bot out.
-CHAT_MESSAGES = [
-    {
-        "id": "bot-post", "body": {"contentType": "html", "content": "Build 412 failed"},
-        "createdDateTime": "2026-09-18T08:45:00Z", "webUrl": "https://teams.microsoft.com/l/message/1",
-        "from": {"application": {"id": "bot-oid", "displayName": "Build Pipeline"}},
-    },
-]
-
-
 def test_promotion_fills_the_queue_during_a_graph_sync(encryption_key, tmp_path) -> None:
     """The missing link end to end: a sync leaves triage populated, not empty.
 
     This is the only test that feeds the heuristic the shape Graph actually
     returns, so it is where the normalization in between is pinned. Every noise
     row is rejected by one rule reading one nested field -- the sender inside
-    ``from.emailAddress.address``, the To list inside ``toRecipients``, the
-    ``from.application`` marker on a chat post -- and each of those fields is
-    dropped by a different plausible mistake: not unwrapping it, or not naming it
-    in the ``$select``. Any of those and the count below stops being 1.
+    ``from.emailAddress.address``, or the To list inside ``toRecipients`` -- and
+    each of those fields is dropped by a different plausible mistake: not
+    unwrapping it, or not naming it in the ``$select``. Any of those and the count
+    below stops being 1.
 
     The owner is addressed by ``mail``, not ``userPrincipalName``, and the bulk
     message is only recognizable by a header -- so the sync has to ask Graph for
@@ -504,10 +493,6 @@ def test_promotion_fills_the_queue_during_a_graph_sync(encryption_key, tmp_path)
             return _selected(url, PROFILE)
         if "/me/mailFolders/" in url:
             return {"value": [_selected(url, row) for row in INBOX]}
-        if "/me/chats" in url:
-            return {"value": [_selected(url, chat) for chat in CHATS]}
-        if "/chats/" in url and "/messages" in url:
-            return {"value": [_selected(url, row) for row in CHAT_MESSAGES]}
         raise AssertionError(url)
 
     with Session(engine) as session:
@@ -515,7 +500,7 @@ def test_promotion_fills_the_queue_during_a_graph_sync(encryption_key, tmp_path)
 
         # Sources count every signal the sync saw, so this also proves each noise
         # row reached the heuristic rather than being rejected before it.
-        assert result["new_sources"] == 5, "every signal must still be stored as a source"
+        assert result["new_sources"] == 4, "every signal must still be stored as a source"
         assert result["new_work_items"] == 1
         item = session.query(WorkItem).one()
         assert item.source_external_id == "outlook:direct"

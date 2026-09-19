@@ -26,7 +26,7 @@ describe('Triage view', () => {
     queue([
       item('a', 'Q3 budget review', 'outlook_email'),
       item('b', 'Re: Q3 budget review', 'outlook_email'),
-      item('c', 'Q3 budget review', 'teams_message'),
+      item('c', 'Q3 budget review', 'manual'),
     ])
 
     render(<App />)
@@ -35,9 +35,9 @@ describe('Triage view', () => {
     expect(within(outlook).getByText('Q3 budget review')).toBeTruthy()
     expect(within(outlook).getByText('Re: Q3 budget review')).toBeTruthy()
 
-    const teams = screen.getByRole('group', { name: 'Teams · Q3 budget review' })
-    expect(within(teams).getByText('Q3 budget review')).toBeTruthy()
-    expect(within(teams).queryByText('Re: Q3 budget review')).toBeNull()
+    const manual = screen.getByRole('group', { name: 'Manual · Q3 budget review' })
+    expect(within(manual).getByText('Q3 budget review')).toBeTruthy()
+    expect(within(manual).queryByText('Re: Q3 budget review')).toBeNull()
   })
 
   it('triage keeps different threads of one source kind apart', async () => {
@@ -73,7 +73,7 @@ describe('Triage view', () => {
       item('a', 'Launch checklist', 'outlook_email'),
       item('b', 'RE: Launch checklist', 'outlook_email'),
       item('c', 'Fwd: Launch checklist', 'outlook_email'),
-      item('d', 'Standup notes', 'teams_message'),
+      item('d', 'Standup notes', 'manual'),
     ])
 
     render(<App />)
@@ -81,8 +81,8 @@ describe('Triage view', () => {
     const outlook = await screen.findByRole('group', { name: 'Outlook · Launch checklist' })
     expect(within(outlook).getByLabelText('3 items')).toBeTruthy()
 
-    const teams = screen.getByRole('group', { name: 'Teams · Standup notes' })
-    expect(within(teams).getByLabelText('1 item')).toBeTruthy()
+    const manual = screen.getByRole('group', { name: 'Manual · Standup notes' })
+    expect(within(manual).getByLabelText('1 item')).toBeTruthy()
   })
 
   it('triage says the queue is empty instead of rendering blank', async () => {

@@ -50,8 +50,8 @@ def _newsletter(**overrides: Any) -> dict[str, Any]:
 
 
 def _bot(**overrides: Any) -> dict[str, Any]:
-    """Correctly labeled ``False``: a Teams application post."""
-    defaults = {"id": "teams:bot-1", "source_kind": "teams_message", "sender": None,
+    """Correctly labeled ``False``: an application, not a person, posted it."""
+    defaults = {"id": "outlook:bot-1", "sender": None,
                 "sender_kind": "application", "to_recipients": [], "label": False}
     return _row(**{**defaults, **overrides})
 

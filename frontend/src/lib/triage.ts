@@ -22,7 +22,7 @@ const threadOf = (title: string) => {
  *
  * The rules, in order, are deterministic — no fuzzy matching and no model call:
  * 1. Two items share a group only when their source kinds are equal, so an
- *    Outlook mail and a Teams message with the same subject stay apart.
+ *    Outlook mail and a manually added item with the same subject stay apart.
  * 2. Within one source kind, the thread is the title with leading reply and
  *    forward markers ("Re:", "FW:", "Fwd:", "RE[2]:") stripped as often as they
  *    repeat, trimmed, inner whitespace collapsed, matched case-insensitively.

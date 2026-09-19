@@ -16,7 +16,7 @@ from .crypto import EncryptedTokenStore, TokenStoreError
 
 from ..config import Settings
 
-GRAPH_SCOPES = ("offline_access", "User.Read", "Mail.Read", "Chat.Read")
+GRAPH_SCOPES = ("offline_access", "User.Read", "Mail.Read")
 
 
 class OAuthError(RuntimeError):

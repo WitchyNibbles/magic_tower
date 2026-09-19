@@ -64,7 +64,6 @@ INBOX = [
         "internetMessageHeaders": [{"name": "List-Unsubscribe", "value": "<https://vendor.example/u>"}],
     },
 ]
-CHATS: list[dict[str, Any]] = []
 
 
 def _selected(url: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -78,8 +77,6 @@ def _fixture_transport(method: str, url: str, headers: dict[str, str], payload: 
         return _selected(url, PROFILE)
     if "/me/mailFolders/" in url:
         return {"value": [_selected(url, row) for row in INBOX]}
-    if "/me/chats" in url:
-        return {"value": [_selected(url, chat) for chat in CHATS]}
     raise AssertionError(url)
 
 

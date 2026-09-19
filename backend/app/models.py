@@ -32,7 +32,6 @@ class WorkPriority(str, enum.Enum):
 
 class SourceKind(str, enum.Enum):
     outlook_email = "outlook_email"
-    teams_message = "teams_message"
     manual = "manual"
 
 
@@ -70,8 +69,8 @@ class Source(Base):
     external_id: Mapped[str] = mapped_column(String(512), unique=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    # Real mail and Teams bodies land here, so the column -- and only the column --
-    # holds ciphertext; readers still see cleartext. Stays ``TEXT`` on disk.
+    # Real mail bodies land here, so the column -- and only the column -- holds
+    # ciphertext; readers still see cleartext. Stays ``TEXT`` on disk.
     excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -137,7 +136,7 @@ class WorkEvidence(Base):
     source_kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind))
     external_id: Mapped[str] = mapped_column(String(512))
     # Promotion carries the source excerpt across into this column, so it holds the
-    # same real mail and Teams bodies and is sealed the same way. Stays ``TEXT``.
+    # same real mail bodies and is sealed the same way. Stays ``TEXT``.
     excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

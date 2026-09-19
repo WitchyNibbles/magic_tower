@@ -1,7 +1,7 @@
 """Guards that message content never reaches the database file in cleartext.
 
-``Source.excerpt`` carries up to 2000 characters of real mail and Teams bodies, so
-these tests work against a real on-disk SQLite file and read its raw bytes: an
+``Source.excerpt`` carries up to 2000 characters of real mail bodies, so these
+tests work against a real on-disk SQLite file and read its raw bytes: an
 assertion against the ORM would only prove the round trip, which is exactly the
 part that still works when nothing is encrypted. The Alembic runs are subprocesses
 with ``DATABASE_URL`` in the environment for the same reason ``test_migrations.py``
@@ -95,7 +95,7 @@ def test_a_source_excerpt_is_decrypted_on_read(tmp_path):
     engine = _database_with_schema(database_path)
     try:
         with Session(engine) as session:
-            session.add(Source(kind=SourceKind.teams_message, external_id="teams:round-trip", excerpt=MARKER))
+            session.add(Source(kind=SourceKind.outlook_email, external_id="outlook:round-trip", excerpt=MARKER))
             session.commit()
         with Session(engine) as session:
             stored = session.query(Source).one()

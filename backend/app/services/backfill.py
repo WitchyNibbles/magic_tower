@@ -103,8 +103,8 @@ def _promoted_without_owner_check(signal: dict[str, Any]) -> bool:
 
     Rule 4 can reject a signal only if it reaches it -- one rules 1-3 let through
     -- and only if there is a To list to look in: ``_is_only_copied`` returns
-    ``False`` on an empty one, so a Teams message or a mail with no recipients is
-    decided identically whether or not the owner is known. Asking
+    ``False`` on an empty one, so a signal with no recipients at all is decided
+    identically whether or not the owner is known. Asking
     ``should_promote`` itself, with the same empty ``owner_addresses`` the backfill
     passes to ``promote_signals``, keeps that rule ordering in the single function
     that owns it instead of restating the rules here.
