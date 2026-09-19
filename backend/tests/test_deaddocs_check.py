@@ -97,6 +97,11 @@ def fake_repo(tmp_path: Path) -> Path:
         "    )\n"
     )
     (root / "backend" / "app" / "tools" / "real_tool.py").write_text("def main(): ...\n")
+    # Lives only under `backend/docs/`, not under the repo-root `docs/` created
+    # below -- the one file in this fixture reachable *only* through the
+    # `backend/` subproject base, not through the repo root.
+    (root / "backend" / "docs").mkdir(parents=True)
+    (root / "backend" / "docs" / "inner.md").write_text("Backend-local notes.\n")
     (root / "frontend" / "src" / "component.ts").write_text("export const x = 1;\n")
     (root / ".env.example").write_text("KNOWN_ENV_VAR=\n")
     (root / "docker-compose.yml").write_text("services: {}\n")
@@ -159,10 +164,23 @@ def test_path_under_subproject_root_resolves_after_a_cd(fake_repo: Path) -> None
     own README does exactly that around its Alembic instructions), so a path
     written relative to `backend/` must resolve against `backend/` too, not
     only against the repo root.
+
+    The probe token is `docs/inner.md`, not `app/config.py`: a bare `app/...`
+    token's first segment (`app`) is not a fixture top-level directory at all,
+    so it is discarded by the "not a claim about this repo" filter before
+    `path_bases` is ever consulted -- the old fixture proved nothing about
+    subproject-root resolution. `docs/inner.md` passes that filter (`docs` is
+    a real top-level directory here) and exists *only* under
+    `backend/docs/inner.md`, not under the repo-root `docs/`, so this test can
+    only pass by actually walking `path_bases` past the repo root.
+
+    Casualty this pins: mutating `path_bases = [root]` (dropping the
+    subproject bases) -- confirmed on the real repository too, where the
+    same mutation moves the dead-doc count from 18 to 22.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
-    readme.write_text(readme.read_text() + "\nFrom `backend/`, see `app/config.py`.\n")
+    readme.write_text(readme.read_text() + "\nFrom `backend/`, see `docs/inner.md`.\n")
     assert _count(fake_repo) == before
 
 
@@ -231,20 +249,96 @@ def test_absolute_path_is_not_treated_as_a_filesystem_claim(fake_repo: Path) -> 
     """`/data`, `/api/...`, `/me` are a container mount, this app's own HTTP
     API, and Microsoft Graph, respectively -- none is a claim about a file in
     this repository, so none should be checked for filesystem existence.
+
+    The probe token is `/docs/nonexistent-nested-thing`, not `/data/...`:
+    `/data`'s first segment (`data`) is not a fixture top-level directory, so
+    the old token was discarded by the "not a claim about this repo" filter
+    regardless of any absolute-path handling -- it never reached the code
+    under test. `docs` *is* a fixture top-level directory, so a leading `/`
+    that is not correctly recognized as absolute would leave `docs` in
+    `first_seg`, which *does* match, sending this token on to be checked for
+    filesystem existence.
+
+    Casualty this pins: reverting the whole stripping/skip block to the
+    original `_strip_line_suffix(token).lstrip("./")` (the bug defect 1
+    fixes) -- with only the explicit `stripped.startswith("/")` line removed
+    and the corrected prefix-stripping otherwise intact, this probe stays
+    green, because a leading `/` is no longer eaten and `stripped.split("/",
+    1)[0]` on any string starting with `/` is always `""`, which already
+    fails the top-level check on its own. The explicit skip is kept anyway,
+    matching the docstring's claim at line 27 and defending against a future
+    change to that split logic, but on today's code it is redundant with
+    defect 1's fix, not independently reachable by a single-line mutation.
+    Confirmed on the real repository: the combined revert (reintroducing the
+    original bug) takes the dead-doc count from 19 back to 18, the same
+    delta the dot-directory test below pins.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
-    readme.write_text(readme.read_text() + "\nMounted at `/data/nonexistent-nested-thing`.\n")
+    readme.write_text(readme.read_text() + "\nMounted at `/docs/nonexistent-nested-thing`.\n")
     assert _count(fake_repo) == before
 
 
 def test_harness_notes_file_is_excluded_from_the_path_scan(fake_repo: Path) -> None:
     """`.companion/harness-notes.md` documents a different repository (its own
     first line says so); a dead-looking path in it must not be flagged.
+
+    The probe token is `docs/verify.mjs`, not `scripts/lib/verify.mjs`:
+    `scripts` is not a fixture top-level directory, so the old token was
+    discarded by the "not a claim about this repo" filter before the
+    harness-notes exclusion could matter either way -- the old fixture
+    proved nothing about the exclusion itself. `docs` is a fixture top-level
+    directory and `docs/verify.mjs` does not exist anywhere in the fixture,
+    so this test can only pass because the file it is written into is
+    skipped entirely.
+
+    Casualty this pins: including `harness-notes.md` in the companion glob
+    -- confirmed on the real repository too, where that file's own
+    `scripts/lib/plan.mjs` reference (a path in the manager's
+    project-companion repo, not this one) starts being flagged, taking the
+    dead-doc count from 19 to 20.
     """
     before = _count(fake_repo)
     notes = fake_repo / ".companion" / "harness-notes.md"
-    notes.write_text(notes.read_text() + "\nAlso see `scripts/lib/verify.mjs` over there.\n")
+    notes.write_text(notes.read_text() + "\nAlso see `docs/verify.mjs` over there.\n")
+    assert _count(fake_repo) == before
+
+
+def test_dead_path_under_a_dot_directory_is_flagged(fake_repo: Path) -> None:
+    """`.companion/*.md` is one of the three doc locations this checker scans
+    (see the module docstring), so a dead path written as `.companion/x.md`
+    must be flagged the same as any other dead path -- a dot-directory is not
+    a reason to exempt it.
+
+    Casualty this pins: `stripped = _strip_line_suffix(token).lstrip("./")`,
+    which strips a *character set*, not a prefix -- `.companion/vanished.md`
+    loses its leading dot and becomes `companion/vanished.md`, whose first
+    segment (`companion`) matches no fixture top-level directory (the real
+    one is `.companion`, with the dot), so the token is silently discarded as
+    "not a claim about this repo" before its existence is ever checked.
+    Confirmed on the real repository too: this same mutation (reverting to
+    the original `lstrip("./")`, taking the fix for both this defect and the
+    absolute-path defect with it) drops the dead-doc count from 19 to 18 --
+    `.companion/plan.md`'s and `.companion/progress.md`'s own two example
+    `.companion/does-not-exist.md` citations, describing this very bug,
+    stop being counted.
+    """
+    before = _count(fake_repo)
+    plan = fake_repo / ".companion" / "plan.md"
+    plan.write_text(plan.read_text() + "\nSee `.companion/vanished.md` for details.\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_dot_prefixed_relative_path_still_resolves(fake_repo: Path) -> None:
+    """Negative control for the dot-directory fix above: `./backend/app/config.py`
+    (an explicit "current directory" prefix, the one case `lstrip` was
+    actually meant to handle) must still resolve normally, not be treated as
+    a broken path just because a leading `./` is now stripped as a prefix
+    rather than a character set.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nAlso see `./backend/app/config.py`.\n")
     assert _count(fake_repo) == before
 
 

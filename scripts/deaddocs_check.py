@@ -71,6 +71,12 @@ tell the reader to register but ``GRAPH_SCOPES`` in
 ``backend/app/services/oauth.py`` does not request (``Chat.Read``, today) is a
 sixth class this does not implement; the lines carrying it are caught anyway
 wherever they also name the connector, but not where they name only the scope.
+A bare (slash-less) token starting with a dot -- `.env`, but also `.dark`, a
+CSS class, or `.toLowerCase()`, a method call -- is not checked at all: its
+shape cannot tell a real dotfile reference apart from prose that merely
+starts with a dot, and this repo's own docs (`.companion/*.md` especially,
+full of quoted CSS/JS/regex fragments) currently need the second case not to
+be a false positive far more than they need the first case caught.
 """
 import ast
 import re
@@ -133,16 +139,25 @@ def find_dead_paths(root, path_scope):
             for token in _candidates(line, BACKTICK, MD_LINK):
                 if not _looks_like_path(token):
                     continue
-                stripped = _strip_line_suffix(token).lstrip("./")
+                stripped = _strip_line_suffix(token).removeprefix("./")
                 if not stripped or stripped in seen:
                     continue
                 seen.add(stripped)
-                first_seg = stripped.split("/", 1)[0]
-                if "/" in stripped:
-                    if first_seg not in top_level:
-                        continue  # not a claim about this repo
-                elif not stripped.startswith("."):
+                if stripped.startswith("/"):
+                    continue  # someone else's namespace, not a filesystem claim
+                if "/" not in stripped:
+                    # A bare (slash-less) token is structurally identical
+                    # whether it names a real dotfile (`.env`, `.gitignore`)
+                    # or merely looks like one in prose -- a CSS class
+                    # (`.dark`), a method chain (`.toLowerCase()`), a
+                    # relative-import fragment (`..database`). None of this
+                    # repo's own docs need a bare dotfile checked today, so
+                    # this shape stays out of scope rather than guessing;
+                    # see "Known gaps" in the module docstring.
                     continue
+                first_seg = stripped.split("/", 1)[0]
+                if first_seg not in top_level:
+                    continue  # not a claim about this repo
                 if any((base / stripped).exists() for base in path_bases):
                     continue
                 if _is_gitignored(root, stripped):
