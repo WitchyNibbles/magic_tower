@@ -81,7 +81,9 @@ def fake_repo(tmp_path: Path) -> Path:
     (root / "frontend" / "src" / "component.ts").write_text("export const x = 1;\n")
     (root / ".env.example").write_text("KNOWN_ENV_VAR=\n")
     (root / "docker-compose.yml").write_text("services: {}\n")
-    (root / ".gitignore").write_text("ignored-thing.txt\n__pycache__/\n")
+    # Both gitignore shapes the checker has to handle: a directory-only pattern
+    # (matched only when the query carries a trailing slash) and a plain file.
+    (root / ".gitignore").write_text("node_modules/\nbackend/local-notes.md\n__pycache__/\n")
 
     (root / "README.md").write_text(
         "# Fake project\n\n"
@@ -148,11 +150,62 @@ def test_path_under_subproject_root_resolves_after_a_cd(fake_repo: Path) -> None
 def test_gitignored_path_is_not_flagged_as_dead(fake_repo: Path) -> None:
     """A path that resolves nowhere but matches `.gitignore` (a build artifact,
     a user-created file) is expected-absent in a fresh checkout, not dead.
+
+    The probe token has to be path-shaped (`backend/local-notes.md`, not a bare
+    `notes.md`): `_looks_like_path` discards a token with no `/` and no leading
+    dot long before the gitignore branch is reached, so a bare token would make
+    this test pass for the wrong reason.
+
+    Casualty this pins: deleting the `_is_gitignored` call site entirely.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
-    readme.write_text(readme.read_text() + "\nGenerated at `ignored-thing.txt`.\n")
+    readme.write_text(readme.read_text() + "\nYour own notes live at `backend/local-notes.md`.\n")
     assert _count(fake_repo) == before
+
+
+def test_gitignored_directory_pattern_is_not_flagged_as_dead(fake_repo: Path) -> None:
+    """`git check-ignore` honours a directory-only pattern (`node_modules/`)
+    only when the query itself carries the trailing slash -- verified directly:
+    `frontend/node_modules` is reported not-ignored, `frontend/node_modules/`
+    ignored. Casualty this pins: dropping `_is_gitignored`'s trailing-slash
+    retry, which would flag every doc mention of an uninstalled `node_modules`.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nRun `npm ci` to populate `frontend/node_modules`.\n")
+    assert _count(fake_repo) == before
+
+
+def test_line_number_suffix_is_stripped_before_the_path_is_resolved(fake_repo: Path) -> None:
+    """Docs and session logs cite live code by line (`app/models.py:26-29`), in
+    three spellings: a single line, a range, and a comma-separated list. The
+    suffix is not part of the filename and must be stripped before the path is
+    resolved.
+
+    Casualty this pins: neutering `_strip_line_suffix` to `return token`, which
+    takes this repository's own count from 1 to 134 -- every such citation in
+    `.companion/progress.md` becomes a false positive.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(
+        readme.read_text()
+        + "\nSee `backend/app/config.py:2`, `backend/app/config.py:1-2`,"
+        " and `backend/app/config.py:1,2`.\n"
+    )
+    assert _count(fake_repo) == before
+
+
+def test_dead_path_carrying_a_line_suffix_is_still_flagged(fake_repo: Path) -> None:
+    """Negative control for the test above: stripping the suffix must not be
+    over-eager and swallow the finding. A citation of a file that does not
+    exist is dead whether or not it names a line.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee `backend/app/vanished.py:42-48`.\n")
+    assert _count(fake_repo) == before + 1
 
 
 def test_absolute_path_is_not_treated_as_a_filesystem_claim(fake_repo: Path) -> None:
@@ -174,6 +227,42 @@ def test_harness_notes_file_is_excluded_from_the_path_scan(fake_repo: Path) -> N
     notes = fake_repo / ".companion" / "harness-notes.md"
     notes.write_text(notes.read_text() + "\nAlso see `scripts/lib/verify.mjs` over there.\n")
     assert _count(fake_repo) == before
+
+
+# --- doc scopes ----------------------------------------------------------------
+
+def test_companion_log_identifiers_are_out_of_scope(fake_repo: Path) -> None:
+    """`.companion/*.md` is a session-by-session historical log that narrates
+    *other* systems' APIs (a third-party connector sketch in `explore.md`) and
+    the harness's own internal names inline in prose, so the endpoint, env-var
+    and command checks deliberately stop at `README.md` and `docs/`.
+
+    Casualty this pins: widening `_doc_scopes` to `return path_scope,
+    path_scope`, which would turn all three lines below into findings.
+    """
+    before = _count(fake_repo)
+    explore = fake_repo / ".companion" / "explore.md"
+    explore.write_text(
+        "Sketch of a third-party connector, not this repo's own API.\n"
+        "It exposes `GET /api/work-items/imaginary`, reads"
+        " `OTHER_SYSTEM_API_TOKEN`, and runs as `python -m other_repo.tool`.\n"
+    )
+    assert _count(fake_repo) == before
+
+
+def test_companion_log_file_paths_are_in_scope(fake_repo: Path) -> None:
+    """The other half of that asymmetry, so the narrowing cannot quietly become
+    a blanket exclusion: a broken *path* is a narrower, more objective claim
+    than an endpoint or a bare identifier, and stays checked across
+    `.companion/*.md`.
+
+    Casualty this pins: narrowing `_doc_scopes` to `return doc_files,
+    doc_files`.
+    """
+    before = _count(fake_repo)
+    progress = fake_repo / ".companion" / "progress.md"
+    progress.write_text("Deleted `backend/app/tools/gone_tool.py` this session.\n")
+    assert _count(fake_repo) == before + 1
 
 
 # --- endpoints -----------------------------------------------------------------
