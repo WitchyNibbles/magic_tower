@@ -490,7 +490,7 @@ per-source dispatch registry intact; it is what Jira will plug into next. Do not
 mail path or its tests while cutting the chat half out of shared code.
 
 ## T22 — Fix the dead documentation, then re-baseline
-- status: todo
+- status: blocked(one stale integer in the casualty docstring, which the repair itself invalidated two commits after measuring it correctly)
 - complexity: normal
 - deps: T21
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -lt 10 && test "$(cat .companion/deadcode.baseline)" = "$(bash scripts/deadcode.sh | tail -1)"`
@@ -502,3 +502,31 @@ only then write the remaining total to `.companion/deadcode.baseline`, which sti
 Where a line correctly *records* the removal, keep the line and rely on T21's narrowed regex —
 do not delete accurate history to satisfy a checker.
 
+**Blocked 2026-09-19, after attempt + one repair. Repair forward — do not start over.** Commits
+`c140766`, `1354f9b`, `15f30e0` (attempt) and `c8a2e1c`, `c88cf1c`, `34dbedf` (repair) are **merged
+and kept**. The deliverable is done: the gate went **22 to 6**, every removed finding was read at
+its source line, `.companion/deadcode.baseline` now reads **6** and matches the gate exactly,
+`done-when` exits 0, and the suite is **258 passed** (255 at the attempt's base, none deleted or
+weakened). The manager falsified the whole drop by parts — reverting the README and docs edits alone
+puts the gate back to 16, the progress-log edits to 11, the checker to 7, summing to the base 22 —
+and falsified all three done-when clauses individually with a passing negative control.
+
+**One blocking defect remains, and it is one integer.** `backend/tests/test_deaddocs_check.py:225-227`
+cites the line-suffix casualty as "whole dead-code gate from 6 to 169 -- the docs checker alone goes
+1 to 164 (both re-measured 2026-09-19)". On the tree it ships in, the true figures are **6 to 171**
+and **1 to 166**. The repair measured 164/169 correctly at `c8a2e1c`, then its own final commit
+`34dbedf` added the B104 backlog row, whose two line-cited paths the neutered checker flags. So the
+docstring that B102 marks "Fixed by T22" is wrong again on the very tree that claims to fix it.
+
+**Fix the convention, not just the number** — otherwise it goes stale again immediately, because
+this plan and the progress log keep gaining line-cited paths. Restate it as a measurement pinned to
+a commit, e.g. "measured at `34dbedf`: the docs checker alone goes 1 to 166, the whole gate 6 to
+171", so it stays verifiable instead of drifting, and make `.companion/backlog.md`'s B102 row repeat
+whatever number the test finally cites (B106). Then re-run `cd backend && uv run pytest tests
+../tests/agent_protocol -q` (expect 258) and `bash scripts/deadcode.sh` (expect 6, and the baseline
+file must still match it). Nothing else is outstanding.
+
+Note: the `done-when` above is **blind to the repair round** — it exits 0 at `15f30e0` too, because
+the count was already 6. It did fail at the attempt's base on the `< 10` clause. Do not credit it
+for the repair; the hand mutations recorded in progress.md are the only real evidence there.
+Advisories from this task: B104 (added by the repair), B105, B106, B107.
