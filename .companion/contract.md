@@ -1,130 +1,118 @@
-# Contract — a populated queue, and a GUI worth looking at
+# Contract — Jira as a tracked source, scoped to what you touched
 
-Approved: 2026-09-18 · Sealed by `.companion/contract.sha256`.
+Approved: 2026-09-19 · Sealed by `.companion/contract.sha256`.
 Changing this file after approval requires `/companion:contract` again; `companion build` refuses otherwise.
 
 ## Result
-After a Graph sync, the GUI shows real work items grouped for triage instead of an empty queue, and
-the owner can promote or dismiss them by hand when the heuristic gets it wrong. The heuristic is
-measured against a labeled sample of the owner's real mail, not only invented fixtures. Mail and
-chat content stops sitting in plaintext on disk. Schema changes go through Alembic instead of a
-hand-written `ALTER TABLE`. Lists are indexed and paginated. `sync()` stops being hardwired to
-Graph, so Jira and Freshservice can be added later without surgery.
+Jira issues you are involved in appear in the queue alongside your mail, with real status, priority
+and assignee — and the same ticket stops appearing twice once its notification mail is superseded.
+Issues assigned to you become work items; ones you merely watch, reported or voted on are stored and
+browsable but never clutter the actionable queue. A named project can be made fully visible for
+management without flooding anything. Cleanup stops depending on memory: worktrees, stray processes
+and temp files become a checkable gate.
 
 ## Non-goals
-- Any Jira or Freshservice connector. This contract only makes room for them
-  (`backend/app/services/sync.py:35-50` currently asserts the Graph-connected user id).
-- Any LLM call. Promotion is deterministic rules; LLM cleaning and grouping is a later contract.
-- MCP server / real agent hand-off. Dispatch stays a queue row and the clipboard copy of
-  `pending-work context <id>`.
-- Any LLM-based cleaning, titling or grouping. Grouping in this contract is deterministic
-  (by source thread/kind), not semantic.
-- Session persistence across API restart (`backend/app/security.py:31` stays a process-local dict)
-  and authentication on `GET /api/sync/status` (`backend/app/api/sync.py:14`). Both are backlog.
+- Comment-authorship participation. Jira Cloud has no `commentedBy`, `comment ~ currentUser()` is
+  invalid, and `issueFunction in commented(...)` needs ScriptRunner — a paid, admin-installed app.
+  Recorded as a known gap; revisit only if comment-only threads are actually missed.
+- Scoped API tokens and `cloudId` discovery. The owner has a **classic** token, so Basic auth
+  against `https://<site>.atlassian.net`.
+- Writing to Jira. Read-only: no transitions, comments or assignment changes.
+- Freshservice, and any further connector.
+- Rendering ADF richly. Description text is extracted plainly; no ADF-to-markdown fidelity work.
+- LLM grouping or summarisation of issues.
 
 ## Environment facts
 - test: `cd backend && uv run pytest tests ../tests/agent_protocol -q`
-  — **runs today: 26 passed in 1.79s.**
-- run: `docker compose build && docker compose up` (GUI same-origin behind nginx, which proxies
-  `/api/` → `api:8000`, `frontend/nginx.conf:11`). Backend alone:
-  `cd backend && DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app`.
+  — **runs today: 258 passed in 51.6s.** Frontend: `cd frontend && npm run test -- --run`
+  — **23 passed in 4 files.**
+- run: `WEB_PORT=8790 docker compose up -d --wait api && docker compose down`
+  — **verified working today** (T16). Port 8787 is occupied on this machine, hence `WEB_PORT`.
 - lint: none — no ruff/black/flake8/mypy configured.
-- dead-code: `{ ( cd backend && uv run --with vulture vulture app tests --min-confidence 80 | wc -l ); ( cd frontend && npx --yes knip@latest --reporter json 2>/dev/null | jq '[.issues[] | (.files|length)+(.exports|length)+(.types|length)+(.dependencies|length)+(.devDependencies|length)+(.unlisted|length)+(.unresolved|length)+(.duplicates|length)+(.enumMembers|length)+(.namespaceMembers|length)+(.binaries|length)] | add // 0' ); } | paste -sd+ | bc`
-  — **baseline 4 today**, covering *both* languages. Python side (vulture, 2): both `cls` in
-  `@classmethod` pydantic validators (`backend/app/config.py:34,45`), false positives; do not use
-  vulture's default 60% confidence, which reports 80 findings that are nearly all pydantic fields
-  and SQLAlchemy columns. TypeScript side (knip, 2): the generated `frontend/vite.config.d.ts`
-  (removed by T01) and an unused exported type `Evidence` (`frontend/src/api.ts:5`). knip runs
-  zero-config here and counts unused files, exports, types, dependencies and unresolved imports, so
-  the shadcn rebuild cannot hide dead TS or CSS behind a Python-only gate.
-- Python 3.12 + uv; Node 22 for the frontend (`frontend/Dockerfile:1`).
-- **There are no frontend tests today** — `frontend/src/` is 4 files and `frontend/package.json`
-  has no vitest/jest/testing-library/playwright dependency. Test infrastructure is part of T10, and
-  no GUI acceptance criterion can be written before it exists.
-- **There is no Alembic today** — startup does `create_all` plus a hand-written `ALTER TABLE`
-  (`backend/app/main.py:46`), and `alembic` is not a dependency.
-- The labeled real-mail sample is **local and gitignored**; CI and every committed test run on
-  synthetic fixtures only. No real mail content ever enters the repository.
-- **The test command must be run from `backend/`** — `env_file=".env"` is cwd-relative
-  (`backend/app/config.py:13`), so from the repo root the root `.env`'s empty `MICROSOFT_*` values
-  abort collection with 3 pydantic ValidationErrors.
-- `httpx` is currently a **dev-only** dependency; `EncryptedTokenStore` is single-slot, one path and
-  AAD `b"workboard-graph-v1"` (`backend/app/services/crypto.py:23-48`).
-- Untracked in the tree at sealing: `frontend/package-lock.json` (keep, T01),
-  `frontend/tsconfig*.tsbuildinfo`, `frontend/vite.config.js`, `frontend/vite.config.d.ts`
-  (generated by tsc despite `noEmit`; gitignore them).
+- dead-code: `bash scripts/deadcode.sh`
+  — **measured 9 at sealing** (vulture 3, knip 1, css 1, docs 4), while `.companion/deadcode.baseline`
+  reads a stale 6. The four doc findings are two real missing files, each cited twice: the
+  leave-no-trace script (promised in `.companion/plan.md` and again in this contract) and a frontend
+  gitignore (claimed in `.companion/progress.md` and again here). **Naming a missing file in a
+  contract creates two more findings** — an honest quirk of a checker that scans `.companion/*.md`,
+  not a reason to write the paths evasively. T01 and T02 take the count down; AC5 pins it at or
+  below whatever baseline is then true.
+- Python 3.12 + uv; Node 22. `httpx` is **dev-only** (`backend/pyproject.toml:29`); the Graph client
+  uses stdlib `urllib.request` with an injectable transport (`backend/app/integrations/graph.py:11,31`).
+- The test command must run from `backend/` — `env_file=".env"` is cwd-relative.
+- Env var names the connector needs (names only): `JIRA_SITE_URL`, `JIRA_ACCOUNT_EMAIL`,
+  `JIRA_API_TOKEN`, and a project key setting for management visibility. Each must be listed in
+  `_BLANKABLE_OPTIONAL_FIELDS` (`backend/app/config.py:13-20`) **and** the duplicated list in
+  `backend/tests/test_config.py:22-29`, or a blank `.env` line reads as `SecretStr("")` not `None`.
+- `source_kind` is `VARCHAR(13)` with no CHECK, so adding `jira` needs **no Alembic revision**.
+  But `scripts/deaddocs_check.py:50-60` treats a kind spelled in a migration yet absent from
+  `SourceKind` as a *retired* connector — spell `jira` identically in enum, code and docs.
+- `alembic/versions/0001_initial_schema.py:31` pins the `sources` column set and
+  `backend/tests/test_migrations.py:247` fails on any addition: per-source scope must live in a side
+  table or configuration, never a new `sources` column.
 
 ## Acceptance criteria
-- AC1: The whole backend suite is green, including every new test this contract adds.
+- AC1: Whole backend suite green, including every new test.
   - verify: `cd backend && uv run pytest tests ../tests/agent_protocol -q`
-- AC2: The frontend builds from a committed lockfile, and the image uses `npm ci`.
-  - verify: `git ls-files --error-unmatch frontend/package-lock.json && grep -q 'npm ci' frontend/Dockerfile && cd frontend && npm ci --silent && npm run build`
-- AC3: A full build leaves the tree clean — no generated artefact is untracked or unignored.
-  - verify: `cd frontend && npm run build >/dev/null 2>&1; cd .. && test -z "$(git status --porcelain)"`
-- AC4: Schema changes go through Alembic; the migration chain applies to an empty database and
-  startup no longer hand-writes DDL.
-  - verify: `cd backend && rm -f /tmp/ac4-alembic.db && DATABASE_URL=sqlite:////tmp/ac4-alembic.db uv run alembic upgrade head && ! grep -q 'ALTER TABLE' app/main.py`
-- AC5: Message content is not readable in the database file.
-  - verify: `cd backend && uv run pytest tests -q -k excerpt_is_encrypted_at_rest`
-- AC6: `sync()` dispatches per source kind; a second kind registers without editing `sync()`.
-  - verify: `cd backend && uv run pytest tests -q -k per_source_dispatch`
-- AC7: A sync promotes actionable signals into work items, ignores noise, and does not duplicate
-  on a second run.
-  - verify: `cd backend && uv run pytest tests -q -k promotion`
-- AC8: Sources stored before this change are promoted once, by a backfill that is safe to re-run.
-  - verify: `cd backend && uv run pytest tests -q -k backfill`
-- AC9: List endpoints are paginated and the columns they filter and sort on are indexed.
-  - verify: `cd backend && uv run pytest tests -q -k "pagination or indexes"`
-- AC10: The owner can promote a missed Source and dismiss a wrongly-promoted item through the API.
-  - verify: `cd backend && uv run pytest tests -q -k "promote_endpoint or dismiss_endpoint"`
-- AC11: The heuristic is measured against the owner's labeled real-mail sample, and the command
-  reports precision and recall. It skips cleanly when the gitignored sample is absent.
-  - verify: `cd backend && uv run python -m app.tools.heuristic_eval --sample "${MAGIC_TOWER_SAMPLE:-$HOME/.magic-tower/labeled-sample.json}"`
-- AC12: The frontend has tests and they pass.
+- AC2: Frontend tests green.
   - verify: `cd frontend && npm run test -- --run`
-- AC13: The GUI renders grouped triage items, paginates, and can promote/dismiss — proven by
-  frontend tests, not by the build succeeding.
-  - verify: `cd frontend && npm run test -- --run -t "triage"`
-- AC14: End to end — after a fixture sync, `GET /api/work-items` returns promoted items with
-  evidence.
-  - verify: `cd backend && uv run pytest tests -q -k sync_populates_api`
-- AC15: CI is green **for the exact commit at HEAD** — a stale earlier run does not satisfy this.
+- AC3: A full build leaves the tree clean.
+  - verify: `cd frontend && npm run build >/dev/null 2>&1; cd .. && test -z "$(git status --porcelain)"`
+- AC4: Cleanup is checkable — stray worktrees, agent branches, project temp files and repo-owned
+  processes are counted, and the script proves each category actually runs.
+  - verify: `bash scripts/leave-no-trace.sh && cd backend && uv run pytest tests -q -k leave_no_trace`
+- AC5: The dead-code gate is at or below its recorded baseline, and the recorded baseline is true.
+  - verify: `test "$(bash scripts/deadcode.sh | tail -1)" -le "$(cat .companion/deadcode.baseline)"`
+- AC6: A Jira issue the owner is involved in becomes a `Source`, fetched over the HTTP API with an
+  injectable transport and no network in tests.
+  - verify: `cd backend && uv run pytest tests -q -k jira_sync`
+- AC7: Only issues assigned to the owner are promoted; watcher, voter, reporter and creator
+  involvement is stored and browsable but never promoted.
+  - verify: `cd backend && uv run pytest tests -q -k jira_promotion`
+- AC8: The participation query is the five-clause JQL, bounded and cursor-paged, and requests its
+  fields explicitly — `fields` defaults to `id` alone.
+  - verify: `cd backend && uv run pytest tests -q -k jira_query`
+- AC9: The same issue arriving as notification mail and over the API yields one work item, and the
+  mail-first ordering keeps the item visible while the API replaces it.
+  - verify: `cd backend && uv run pytest tests -q -k jira_dedupe`
+- AC10: A named project can be synced browse-only — its issues are never promoted.
+  - verify: `cd backend && uv run pytest tests -q -k jira_project_visibility`
+- AC11: `POST /api/sync` accepts an optional source kind and still defaults to Graph.
+  - verify: `cd backend && uv run pytest tests -q -k sync_kind_parameter`
+- AC12: Missing or blank Jira settings fail closed with named env vars, never a stack trace.
+  - verify: `cd backend && uv run pytest tests -q -k jira_configuration`
+- AC13: The GUI shows Jira items with a working source filter.
+  - verify: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=/tmp/ac13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('/tmp/ac13.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
+- AC14: The documented run command starts the stack.
+  - verify: `WEB_PORT=8790 docker compose up -d --wait api && docker compose exec -T api python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)" && docker compose down`
+- AC15: CI is green for the exact commit at HEAD.
   - verify: `test "$(gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --limit 1 --json headSha,conclusion -q '.[0].headSha+":"+.[0].conclusion')" = "$(git rev-parse HEAD):success"`
+- AC16: The connector is proven against the owner's real Jira, not only fixtures.
+  - verify: manual — it needs the owner's site URL, email and API token, which are not on this
+    machine and must not be. The contract ships a documented command the owner runs; no local
+    command can substitute for real credentials.
 
 ## Quality bar
-- Tests first; every behaviour change has a test that fails without it. For the heuristic in
-  particular, the fixtures must include both a newsletter/automated sender that must NOT be
-  promoted and a direct message that must be.
-- The heuristic lives in one named, unit-testable function with its rules stated in a docstring —
-  not scattered through `persist_signals`.
-- No dead code (baseline 2, false positives only), no debug output, no unrelated formatting churn.
-- Matches existing conventions: sync `def` routes, module-level `app`, injectable transports for
-  I/O (`backend/app/integrations/graph.py:18-36`), `"kind:{external_id}"` prefixes for
-  `Source.external_id`.
-- Paginated list endpoints return a consistent envelope — items, total, limit, offset — and the
-  frontend consumes it rather than assuming a bare array (`frontend/src/api.ts:33`).
-- **No real mail content in the repository.** The labeled sample stays at a gitignored local path;
-  committed fixtures are synthetic.
-- The shadcn rebuild replaces `frontend/src/styles.css` rather than layering Tailwind on top of it;
-  no dead CSS left behind.
-- Secrets stay out of source. Encryption uses the existing AES-GCM helper with its own AAD, never a
-  second hardcoded key. Nothing weakens the fail-closed 503, the CSRF check, or
-  `hmac.compare_digest`.
+- Tests first; every behaviour change has a test that fails without it. Each Jira rule must be
+  falsifiable individually — stub its input, confirm the suite reddens.
+- No network in tests: the Jira client takes an injectable transport like
+  `backend/app/integrations/graph.py:31`.
+- Secrets never enter the repository: names in `.env.example`, values only in `.env`.
+- Spell `jira` identically in the enum, code, settings and docs, or the dead-docs checker marks the
+  connector retired.
+- No dead code above baseline, no debug output, no unrelated formatting churn.
+- Every worktree, process and temp file created during a task is gone when that task reports done.
 
 ## Playbook checks applied
-- Verify lines run through the verifier's own parser before sealing, not by hand — done, all 10
-  extracted and executed via `verifyCommands()`; results in the table below.
-- Contract carries a `dead-code:` command with a measured baseline — done: baseline **2**, measured
-  today with vulture at `--min-confidence 80`.
-- Push to prove CI rather than writing `verify: manual` — done: `origin` exists and `gh` is
-  authenticated as WitchyNibbles, so AC10 is a real command, not a manual note.
-- Out-of-scope findings go to `.companion/backlog.md` in the same session — done: Alembic,
-  indexes/pagination, session persistence, unauth'd `GET /api/sync/status`, and the UI rebuild are
-  recorded there, not dropped.
-- Each task's revertibility checked for the vacuity probe — T01 (lockfile/config), T02 (Alembic
-  scaffolding) and T06 (backfill) are config- or test-shaped and will produce weak or vacuous
-  probes; the manager must falsify those by hand rather than trust a RED.
-- The dead-code gate covers **both** languages (vulture + knip, baseline 4) at the owner's
-  instruction — a Python-only gate would have let the T10–T13 rebuild leave dead TypeScript and CSS
-  behind. T01 removes one of the four (the generated `vite.config.d.ts`), so the count should fall,
-  never rise.
+- Verify lines run through `verifyCommands()` before sealing — done; results below.
+- `dead-code:` command with a measured baseline — done: measured **7**, and the stale 6 in
+  `.companion/deadcode.baseline` is corrected by this contract's first task rather than assumed.
+- Push to prove CI rather than `verify: manual` — done: AC15 is a real command.
+- Out-of-scope findings to `.companion/backlog.md` — comment-authorship participation, scoped
+  tokens, ADF fidelity and Freshservice are recorded there, not dropped.
+- Revertibility checked per task for the vacuity probe — T01 (script) and T02 (baseline) are
+  config/script-shaped; the manager must falsify those by hand.
+- `run:` command started before sealing — done: `docker compose up -d --wait api` verified today.
+- A criterion that can pass by skipping is named — AC16 is explicitly manual and says why; AC13
+  asserts a passing-test count because `-t` exits 0 on zero matches.
+- Scratchpad not `/tmp`, stop every process, remove worktrees — enforced by AC4 rather than memory.
