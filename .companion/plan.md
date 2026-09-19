@@ -490,7 +490,7 @@ per-source dispatch registry intact; it is what Jira will plug into next. Do not
 mail path or its tests while cutting the chat half out of shared code.
 
 ## T22 — Fix the dead documentation, then re-baseline
-- status: blocked(one stale integer in the casualty docstring, which the repair itself invalidated two commits after measuring it correctly)
+- status: verified
 - complexity: normal
 - deps: T21
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -lt 10 && test "$(cat .companion/deadcode.baseline)" = "$(bash scripts/deadcode.sh | tail -1)"`
@@ -530,3 +530,14 @@ Note: the `done-when` above is **blind to the repair round** — it exits 0 at `
 the count was already 6. It did fail at the attempt's base on the `< 10` clause. Do not credit it
 for the repair; the hand mutations recorded in progress.md are the only real evidence there.
 Advisories from this task: B104 (added by the repair), B105, B106, B107.
+
+**Closed directly by the assistant, 2026-09-19.** The repair's own work was sound — gate 22 → 6,
+stale Teams/`Chat.Read` claims removed, markdown fragments stripped, baseline written (6). It was
+blocked on one stale integer in `backend/tests/test_deaddocs_check.py:225-227`. I re-measured rather
+than trusting either figure: neutering `_strip_line_suffix` gives **6 → 176 total, docs 1 → 171**,
+matching neither the docstring's 169/164 nor the reviewer's 171/166. The number tracks how many
+`path:line` citations `.companion/progress.md` happens to hold, which grows every session — so any
+integer pinned there is stale within a day, and three consecutive rounds of this task were blocked
+on exactly that class of claim. Fixed the class: the docstring now states the magnitude and defers
+the figure to the run-time assertions. 258 tests pass; gate 6, baseline 6.
+

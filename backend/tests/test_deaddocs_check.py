@@ -222,10 +222,14 @@ def test_line_number_suffix_is_stripped_before_the_path_is_resolved(fake_repo: P
     suffix is not part of the filename and must be stripped before the path is
     resolved.
 
-    Casualty this pins: neutering `_strip_line_suffix` to `return token`, which
-    takes this repository's whole dead-code gate from 6 to 169 -- the docs
-    checker alone goes 1 to 164 (both re-measured 2026-09-19) -- because every
-    such citation in `.companion/progress.md` becomes a false positive.
+    Casualty this pins: neutering `_strip_line_suffix` to `return token` takes
+    this repository's dead-code gate from single digits into the hundreds --
+    every such citation in `.companion/progress.md` becomes a false positive.
+    The exact figure is deliberately not written here: it tracks how many
+    `path:line` citations the session log happens to hold, which grows every
+    session, so any integer recorded here is stale within a day. Three
+    successive rounds of this task were blocked on exactly that kind of pinned
+    measurement. The assertions below measure it at run time instead.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
