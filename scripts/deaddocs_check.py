@@ -126,12 +126,17 @@ def find_dead_paths(root, path_scope):
     for f in path_scope:
         text = f.read_text(encoding="utf-8")
         for lineno, line in enumerate(text.splitlines(), start=1):
+            # `[`docs/x.md`](docs/x.md)` names one path but matches both
+            # patterns, so findings are de-duplicated per line by the resolved
+            # path -- two *different* dead paths on one line still count two.
+            seen = set()
             for token in _candidates(line, BACKTICK, MD_LINK):
                 if not _looks_like_path(token):
                     continue
                 stripped = _strip_line_suffix(token).lstrip("./")
-                if not stripped:
+                if not stripped or stripped in seen:
                     continue
+                seen.add(stripped)
                 first_seg = stripped.split("/", 1)[0]
                 if "/" in stripped:
                     if first_seg not in top_level:

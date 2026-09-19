@@ -248,6 +248,29 @@ def test_harness_notes_file_is_excluded_from_the_path_scan(fake_repo: Path) -> N
     assert _count(fake_repo) == before
 
 
+def test_a_markdown_link_with_a_backticked_label_counts_its_path_once(fake_repo: Path) -> None:
+    """``[`docs/x.md`](docs/x.md)`` is this repo's own README idiom
+    (`README.md:127`). It matches the backtick pattern *and* the markdown-link
+    pattern, so one dead reference was reported twice -- measured on this
+    repository: one such added line took the total from 11 to 13, while the
+    same path written plainly took it to 12.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee [`docs/gone.md`](docs/gone.md).\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_two_different_dead_paths_on_one_line_count_twice(fake_repo: Path) -> None:
+    """Negative control for the de-duplication above: it keys on the resolved
+    path, not on the line, so it must not collapse genuinely distinct findings.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee `docs/gone-a.md` and `docs/gone-b.md`.\n")
+    assert _count(fake_repo) == before + 2
+
+
 # --- doc scopes ----------------------------------------------------------------
 
 def test_companion_log_identifiers_are_out_of_scope(fake_repo: Path) -> None:
