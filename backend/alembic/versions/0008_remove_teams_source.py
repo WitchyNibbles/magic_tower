@@ -27,11 +27,14 @@ The cut reaches every table a promoted Teams source could have left rows in.
 constraint (see ``app/services/promotion.py``) -- so a work item promoted from
 a ``teams_message`` source needs its own delete; nothing cascades to it.
 ``source_signal_context`` and ``source_promotions`` do carry a real
-``ON DELETE CASCADE`` to ``sources``, so deleting the source rows is enough
-for those two on a connection that enforces foreign keys, but they are
-deleted by hand below anyway: SQLite only enforces ``ON DELETE CASCADE`` when
+``ON DELETE CASCADE`` to ``sources``, and ``agent_dispatches`` carries one to
+``work_items``, so deleting the parent rows would be enough for those three on
+a connection that enforces foreign keys; all three are deleted by hand below
+anyway, because SQLite only enforces ``ON DELETE CASCADE`` when
 ``PRAGMA foreign_keys`` is on for the connection that issues the delete, and
-this revision does not assume that pragma is set.
+this revision does not assume that pragma is set. Those four -- the two on
+``sources``, plus ``agent_dispatches`` and ``work_evidence`` on ``work_items``
+-- are every foreign key in the schema that reaches either parent.
 
 Irreversible: ``downgrade`` cannot bring back content this revision deletes,
 so it is a no-op rather than a lie.
@@ -59,6 +62,8 @@ _STATEMENTS = (
     "DELETE FROM work_evidence WHERE work_item_id IN "
     "(SELECT id FROM work_items WHERE source_kind = :kind)",
     "DELETE FROM work_evidence WHERE source_kind = :kind",
+    "DELETE FROM agent_dispatches WHERE work_item_id IN "
+    "(SELECT id FROM work_items WHERE source_kind = :kind)",
     "DELETE FROM work_items WHERE source_kind = :kind",
     "DELETE FROM source_signal_context WHERE source_id IN "
     "(SELECT id FROM sources WHERE kind = :kind)",

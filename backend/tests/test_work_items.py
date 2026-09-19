@@ -41,3 +41,34 @@ def test_validation_and_duplicate_source_external_id_are_rejected():
         payload = {"title": "Unique source", "source_kind": "outlook_email", "source_external_id": "mail-unique"}
         assert client.post("/api/work-items", json=payload, headers=headers).status_code == 201
         assert client.post("/api/work-items", json=payload, headers=headers).status_code == 409
+
+
+def test_teams_message_is_no_longer_an_accepted_source_kind():
+    """``SourceKind.teams_message`` is an API boundary, not an inert enum member.
+
+    Re-adding it re-opens ``201`` on a payload the product can no longer honour:
+    Teams ingestion needs a ``Chat.Read`` consent the owner cannot grant, so a
+    work item created with that kind could never gain evidence, nor be
+    re-verified against the chat it came from. Nothing else in the suite fails
+    if the member comes back, and the dead-code gate does not flag it either.
+    """
+    from app.models import SourceKind
+
+    assert "teams_message" not in {member.value for member in SourceKind}
+
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer test-local-agent-token"}
+        removed = client.post(
+            "/api/work-items",
+            json={"title": "Chat follow-up", "source_kind": "teams_message", "source_external_id": "chat-1"},
+            headers=headers,
+        )
+        assert removed.status_code == 422
+        assert client.get("/api/sources", params={"kind": "teams_message"}, headers=headers).status_code == 422
+
+        surviving = client.post(
+            "/api/work-items",
+            json={"title": "Chat follow-up", "source_kind": "outlook_email", "source_external_id": "chat-1"},
+            headers=headers,
+        )
+        assert surviving.status_code == 201

@@ -98,3 +98,20 @@ def test_context_rejects_a_non_uuid_id(capsys, monkeypatch):
     monkeypatch.setenv("PENDING_WORK_API_TOKEN", "local-app-token")
     assert cli.main(["context", "../../health"]) == 1
     assert "UUID" in json.loads(capsys.readouterr().out)["error"]
+
+
+def test_source_kind_choices_no_longer_offer_the_removed_teams_kind():
+    """argparse would accept a kind the API now answers 422 to.
+
+    The CLI holds its own copy of the list because it is a standalone stdlib
+    script with no import path to ``app.models``, so nothing but this test keeps
+    the two in step.
+    """
+    parser = cli.build_parser()
+
+    for argv in (["sources", "--kind", "teams_message"], ["propose", "--source-kind", "teams_message"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
+    assert parser.parse_args(["sources", "--kind", "outlook_email"]).kind == "outlook_email"
+    assert parser.parse_args(["propose", "--source-kind", "manual"]).source_kind == "manual"
