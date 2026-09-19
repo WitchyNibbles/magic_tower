@@ -77,9 +77,9 @@ Scope decisions, made explicit here because each cost a false positive to find:
   written, an ordinary real filename the sentence made a true claim about not
   existing. This checker does no negation detection, so a claimed absence used
   to read as a positive existence claim and cost a finding; T02 (2026-09-20)
-  resolved that by adding `frontend/.gitignore` for real (the file a
+  resolved that by adding `frontend/.gitignore` for real (the file being a
   per-package ignore list for `node_modules/`, `dist/` and the generated Vite
-  config this repo's single root `.gitignore` already covered, so the checker
+  config this repo's root `.gitignore` already covered, so the checker
   now sees a path that resolves and the line costs nothing), which is why this
   historical claim in ``progress.md`` was left untouched rather than
   un-backticked: the fix was to make the sentence's negation true of an
