@@ -154,7 +154,13 @@ def find_dead_paths(root, path_scope):
                     continue
                 seen.add(stripped)
                 if stripped.startswith("/"):
-                    continue  # someone else's namespace, not a filesystem claim
+                    # Someone else's namespace, not a filesystem claim. This
+                    # is knowingly redundant on today's code -- `"/x/y".split(
+                    # "/", 1)[0]` is `""`, which never matches `top_level`, so
+                    # deleting this line moves no count -- but the docstring
+                    # states the exclusion, so it is stated here too rather
+                    # than left resting on the split's incidental behaviour.
+                    continue
                 first_seg = stripped.split("/", 1)[0]
                 if first_seg not in top_level:
                     continue  # not a claim about this repo
