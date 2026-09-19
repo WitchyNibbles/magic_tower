@@ -36,14 +36,36 @@
 # they belong to -- `/tmp/ac13.json`, `/tmp/t11.json`, `/tmp/ac4-alembic.db`,
 # `/tmp/t03-clone-test`, all visible in `.companion/runs/*/verification.md`
 # history -- so the category matches top-level `/tmp` entry basenames
-# case-insensitively against `ac<digits>...` or `t<digits>...`. This
-# deliberately DOES count files a sealed contract's own verify command
-# writes on purpose, such as AC13's and T11's `/tmp/ac13.json` and
-# `/tmp/t11.json`: a file a verify command writes and a task never cleans up
-# afterwards is exactly the kind of trace this gate exists to catch, not an
-# exemption from it. Matching is non-recursive (top-level names only) so the
-# category stays cheap and does not have to reason about unrelated
+# case-insensitively against `ac<digits>` or `t<digits>`, and the ID has to
+# END there: at a `.`, `-`, `_`, or the end of the name. The terminator is
+# not decoration. Several unrelated tools name their /tmp entries with
+# random 21-character nanoids, and about one in two hundred of those opens
+# with `t` or `ac` followed by a digit -- `/tmp/t2zBWPxqUQ5ntZbhoh4Ai` is a
+# real one on this machine. On a bare prefix match the gate went red for an
+# artefact this project never created and cannot clean up, which trains
+# everyone to ignore it. Matching is non-recursive (top-level names only) so
+# the category stays cheap and does not have to reason about unrelated
 # directory trees underneath /tmp.
+#
+# --- Decision: exactly two basenames are exempt ------------------------------
+# A file a verify command writes and never cleans up is normally exactly the
+# trace this gate exists to catch. The two exceptions are named by a SEALED
+# contract that this script cannot edit to clean up after itself, and both
+# are rewritten every time that contract is verified -- so counting them
+# would make this gate red by construction, including in its own AC4 gate
+# `bash scripts/leave-no-trace.sh && ...`, whose first clause would then
+# never pass. They are exempted by exact basename, never by class: a stale
+# report like `/tmp/t2.json`, left by an earlier contract's task and
+# mandated by nothing, still counts. Exempting "*.json" or "anything a
+# verify command might write" would make the gate worthless.
+#
+# --- Seam: LEAVE_NO_TRACE_TMP_DIR --------------------------------------------
+# The directory this category scans, defaulting to /tmp. It exists so the
+# naming rules above can be falsified against a private directory: proving
+# `ac13.json` is exempt needs a file by that exact name, and the real
+# /tmp already holds one that AC13's verify command wrote and that no test
+# may clobber or delete. The rise-and-fall test passes no override, so the
+# default /tmp path stays exercised.
 set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -111,17 +133,24 @@ echo "orphan worktree-agent branches: $orphan_branches"
 total=$((total + orphan_branches))
 
 # --- Stray /tmp task files --------------------------------------------------
-tmp_raw="$(find /tmp -mindepth 1 -maxdepth 1 -printf '%f\n')"
+tmp_dir="${LEAVE_NO_TRACE_TMP_DIR:-/tmp}"
+tmp_raw="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -printf '%f\n')"
 tmp_status=$?
 [ "$tmp_status" -eq 0 ] || \
-    fail "listing /tmp exited $tmp_status -- treating as a crash, not zero findings"
+    fail "listing $tmp_dir exited $tmp_status -- treating as a crash, not zero findings"
 
 stray_tmp=0
 while IFS= read -r name; do
     [ -z "$name" ] && continue
+    # `t<digits>` / `ac<digits>` terminated by `.`, `-`, `_` or end of name.
+    [[ "$name" =~ ^([Aa][Cc]|[Tt])[0-9]+([._-]|$) ]] || continue
     case "$name" in
-        [Aa][Cc][0-9]*|[Tt][0-9]*) stray_tmp=$((stray_tmp + 1)) ;;
+        # AC13's verify command writes /tmp/ac13.json on every run.
+        ac13.json) continue ;;
+        # Plan task T11's done-when writes /tmp/t11.json the same way.
+        t11.json) continue ;;
     esac
+    stray_tmp=$((stray_tmp + 1))
 done <<<"$tmp_raw"
 echo "stray /tmp task files: $stray_tmp"
 total=$((total + stray_tmp))
