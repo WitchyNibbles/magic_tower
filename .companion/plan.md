@@ -33,7 +33,7 @@ leave-no-trace findings; this task removes the rest and records what remains.
 Probe note: config-shaped; falsify by hand.
 
 ## T03 — Jira settings, failing closed
-- status: todo
+- status: verified
 - complexity: simple
 - deps:
 - done-when: `cd backend && uv run pytest tests -q -k jira_configuration`
