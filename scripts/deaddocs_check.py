@@ -62,6 +62,25 @@ Scope decisions, made explicit here because each cost a false positive to find:
   is the doc line, the way the backlog counts these, so one wordy sentence
   does not outweigh three separately wrong ones.
 
+* Backticks are the convention this repo writes a reference *claim* in, and
+  that is what this checker reads. A path a session typed precisely *because*
+  it does not exist -- a fabricated probe token like
+  docs/this-file-was-deleted.md, invented to measure a round trip through the
+  gate -- is making no claim that the repo has such a file, so it is written
+  without backticks (``.companion/progress.md:837,872,874,886,906`` were
+  rewritten that way by T22); backticks stay reserved for identifiers this
+  repo really has. This is a writing convention, not a narrowing of scope:
+  those lines keep every path spelling and every measured number verbatim.
+  ``.companion/progress.md:92``'s "there is no `frontend/.gitignore`" is
+  deliberately *not* treated the same way and is left backticked, even though
+  it is this gate's only remaining docs finding. `frontend/.gitignore` is not a
+  fabricated token but an ordinary, real filename, and the sentence is a claim
+  about this repo's structure whose truth is the very point being recorded --
+  the backticks are doing their normal job. What defeats the checker there is
+  the negation, which it cannot see (below), not the formatting; un-backticking
+  it would be silencing a correctly-marked identifier to move a number, which
+  is the opposite of the case above.
+
 Known false positives (accepted, same class as vulture's pydantic-field noise
 documented in the contract): a doc line that *asserts an absence*
 (``.companion/progress.md``'s "there is no `frontend/.gitignore`") reads as a
@@ -76,9 +95,17 @@ the three locations the task names -- ``README.md``, ``docs/`` and
 ``.companion/*.md`` -- so stale capability claims in ``skills/*/SKILL.md`` and
 ``.codex-plugin/plugin.json`` are outside it. A delegated Graph scope the docs
 tell the reader to register but ``GRAPH_SCOPES`` in
-``backend/app/services/oauth.py`` does not request (``Chat.Read``, today) is a
-sixth class this does not implement; the lines carrying it are caught anyway
-wherever they also name the connector, but not where they name only the scope.
+``backend/app/services/oauth.py`` does not request (``Chat.Read``, until T22
+removed the last of it from ``README.md`` and ``docs/``; no instance is left in
+scope today) is a sixth class this does not implement; the lines carrying it
+are caught anyway wherever they also name the connector, but not where they
+name only the scope.
+A markdown link's `?query` suffix is not stripped, so a link carrying one is
+never resolved at all: `_looks_like_path` rejects every `?`-bearing token
+before `_strip_fragment` could see it, because a `?` in a doc is far more often
+a shell glob or prose than a path. Such a link is therefore never flagged, dead
+or alive -- a missed finding, not a false positive, and the repo has no such
+link today.
 A path written relative to its referring file's parent (`../docs/x.md`) is
 discarded rather than resolved. Every path here is resolved against a *fixed*
 set of bases -- the repo root and each subproject root -- precisely because
@@ -130,12 +157,13 @@ def _strip_line_suffix(token):
     return re.sub(r":\d+(-\d+)?(,\d+(-\d+)?)*$", "", token)
 
 
-def _strip_fragment_and_query(token):
-    # A markdown link's `#fragment` or `?query` is not part of the filesystem
-    # path -- `docs/second-pc.md#prerequisites` names the same file as
+def _strip_fragment(token):
+    # A markdown link's `#fragment` is not part of the filesystem path --
+    # `docs/second-pc.md#prerequisites` names the same file as
     # `docs/second-pc.md`, so the suffix has to come off before resolution or
-    # a live file with an anchor reads as a dead one.
-    return re.split(r"[#?]", token, maxsplit=1)[0]
+    # a live file with an anchor reads as a dead one. A `?query` suffix is not
+    # handled here; see "Known gaps".
+    return token.split("#", 1)[0]
 
 
 def _is_gitignored(root, relpath):
@@ -171,7 +199,7 @@ def find_dead_paths(root, path_scope):
             for token in _candidates(line, BACKTICK, MD_LINK):
                 if not _looks_like_path(token):
                     continue
-                stripped = _strip_line_suffix(_strip_fragment_and_query(token)).removeprefix("./")
+                stripped = _strip_line_suffix(_strip_fragment(token)).removeprefix("./")
                 if not stripped or stripped in seen:
                     continue
                 seen.add(stripped)

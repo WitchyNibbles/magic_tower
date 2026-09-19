@@ -223,8 +223,9 @@ def test_line_number_suffix_is_stripped_before_the_path_is_resolved(fake_repo: P
     resolved.
 
     Casualty this pins: neutering `_strip_line_suffix` to `return token`, which
-    takes this repository's own count from 6 to 168 (measured 2026-09-19) --
-    every such citation in `.companion/progress.md` becomes a false positive.
+    takes this repository's whole dead-code gate from 6 to 169 -- the docs
+    checker alone goes 1 to 164 (both re-measured 2026-09-19) -- because every
+    such citation in `.companion/progress.md` becomes a false positive.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
@@ -248,15 +249,18 @@ def test_dead_path_carrying_a_line_suffix_is_still_flagged(fake_repo: Path) -> N
 
 
 def test_anchored_link_to_a_live_file_does_not_raise_the_count(fake_repo: Path) -> None:
-    """A markdown link's `#fragment` (and a `?query`) is not part of the
-    filesystem path: `docs/guide.md#section` names the same file as
-    `docs/guide.md`. Before the fragment is stripped, the fragment is
-    resolved as part of the path, `docs/guide.md#section` does not exist as a
-    literal file, and a live target reads as dead (B101).
+    """A markdown link's `#fragment` is not part of the filesystem path:
+    `docs/guide.md#section` names the same file as `docs/guide.md`. Before the
+    fragment is stripped, the fragment is resolved as part of the path,
+    `docs/guide.md#section` does not exist as a literal file, and a live target
+    reads as dead (B101). A `?query` suffix is a separate, unhandled case --
+    see `test_query_string_link_is_a_documented_gap_not_a_finding`.
 
-    Casualty this pins: neutering `_strip_fragment_and_query` to `return
-    token`, which on the real repository turns `docs/second-pc.md#prerequisites`
-    (`.companion/backlog.md:108`) into a false positive.
+    Casualty this pins: neutering `_strip_fragment` to `return token`, which on
+    the real repository turns `docs/second-pc.md#prerequisites`
+    (`.companion/backlog.md:108`) into a false positive -- verified 2026-09-19
+    by running the pre-fix checker over an extracted copy of the `fd21b77`
+    tree, which printed exactly that finding.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
@@ -273,6 +277,26 @@ def test_anchored_link_to_a_dead_file_is_still_flagged(fake_repo: Path) -> None:
     readme = fake_repo / "README.md"
     readme.write_text(readme.read_text() + "\nSee [nope](docs/vanished.md#section).\n")
     assert _count(fake_repo) == before + 1
+
+
+def test_query_string_link_is_a_documented_gap_not_a_finding(fake_repo: Path) -> None:
+    """A `?query` suffix is *not* stripped, and a link carrying one is never
+    resolved at all: `_looks_like_path` rejects every `?`-bearing token -- a `?`
+    in a doc is far more often a shell glob or prose than a path -- long before
+    `_strip_fragment` could see it. So such a link is never flagged, dead or
+    alive. See "Known gaps" in the module docstring.
+
+    This pins the decision, not a mechanism, and it is the negative twin of
+    `test_anchored_link_to_a_dead_file_is_still_flagged`: the same dead target
+    written with `#section` *is* counted. Confirmed on the real repository
+    (2026-09-19): appending `See [gone](docs/vanished-for-real.md?v=1).` to
+    `README.md` leaves the gate at 6, while the same line with `#x` takes it
+    to 7.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee [nope](docs/vanished.md?v=1).\n")
+    assert _count(fake_repo) == before
 
 
 def test_absolute_path_is_not_treated_as_a_filesystem_claim(fake_repo: Path) -> None:
