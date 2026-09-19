@@ -834,7 +834,7 @@
 - **BLOCKING D (worker's finding 2, taken on its report, not re-derived).** The documented scope decision
   that endpoint/env-var/command checks cover `README.md`+`docs/` but not `.companion/*.md` is unpinned:
   widening `_doc_scopes` to return `path_scope, path_scope` leaves 17/17 green.
-- What does work, measured: the task body's demanded proof. Appending a `docs/this-file-was-deleted.md`
+- What does work, measured: the task body's demanded proof. Appending a fabricated docs/this-file-was-deleted.md
   reference to `README.md` takes the count **1 → 2**, and reverting takes it back to **1**. The path
   class is real; it is the other three classes and the B94 customer that are not.
 - Negative controls the worker ran that I accept: removing the `top_level` guard reddens
@@ -869,9 +869,9 @@
   The 3 unflagged `second-pc` lines really are `Chat.Read`-only and need a sixth class; `SKILL.md`×3 and
   `plugin.json`×2 are outside the doc scope the task body declares.
   **What blocked it is one Python gotcha and the same trap three times.** `lstrip("./")` strips any
-  leading `.` or `/`, so `.companion/does-not-exist.md` becomes `companion/...`, fails the `top_level`
+  leading `.` or `/`, so the fabricated path .companion/does-not-exist.md becomes `companion/...`, fails the `top_level`
   test and is discarded — I appended exactly that line to README and the count **stayed 12**. The
-  mirror defect: `/docs/absolutely-gone.md` becomes `docs/...`, which *is* top-level, so it **is**
+  mirror defect: `/docs/absolutely-gone.md` becomes docs/... (elided here for readability), which *is* top-level, so it **is**
   flagged (12 → 13) despite the docstring claiming absolute paths are excluded. `.companion/*.md` is
   one of the three doc locations the task body names, so this is a miss of the primary class.
   Then the same "token discarded before the branch under test" trap that made attempt 1's gitignore
@@ -883,7 +883,7 @@
   rounds passed against a synthetic tree while the mutation moved the real count by 4, 133 or 1. The
   fixture proves the shape; only the repo proves the wiring.
   **My own gate count is 12, not the worker's 11, and the difference is my writing.** My attempt-1
-  findings entry cites `docs/this-file-was-deleted.md` — the fake path I used to measure the round trip —
+  findings entry cites the fake path docs/this-file-was-deleted.md — used to measure the round trip —
   and the checker correctly flags it. The manager's own progress log will keep accruing these as it
   records deleted paths. Worth a decision next session, not a defect in the diff.
   **An undisclosed false-positive class I found, which the reviewer confirmed and widened.** A README
@@ -903,7 +903,7 @@
 - commits: a662e20, 23b081e (attempt) + 6217668, cf5b5d9, 82f29a2, efe870e, 53898c1, 99977dc (repair) — **all merged and kept**, repair-forward per the owner's standing instruction for this task. I did **not** `git reset --hard $base` before the repair round: the attempt's diff was verified good and the two reviewer blockers were edits on top of it. Deviation from §4, recorded deliberately.
 - commands: done-when → exit 0 (**and exit 0 at base — blind, credited as nothing**; gate printed `23` at base and `24` at HEAD, both bare integers); test → exit 0, **255 passed** (248 at base, +7, none deleted or weakened — `git diff 9d6e1a7..HEAD -- backend/tests/test_deaddocs_check.py | grep -E '^-def test_|^-\s+assert'` is empty); gate → **24** (vulture 3, knip 1, css 1, docs **19**) vs **23/18** at base; probe: RED both rounds, each reverting `scripts/deaddocs_check.py` alone
 - review: revise — `scripts/deaddocs_check.py:91` claims "no doc in this repo writes one today" of parent-relative paths, but `docs/second-pc.md:56` is `[Develop the API with uv](../README.md#develop-the-api-with-uv)`
-- notes: **six defects in, six out, and I falsified every one myself rather than reading the reports.** Defect 1 (`lstrip("./")` → `removeprefix`): the real repo now flags `.companion/really-not-here.md` appended to README (19→20) where the same line stayed flat before, and the mutation back to `lstrip` moves the repo 19→18 and reddens exactly two tests. Defect 2: absolute-path findings went from 4 to **0**. Defect 3: `path_bases = [root]` moves the repo 19→23 and now reddens `test_path_under_subproject_root_resolves_after_a_cd` — the same mutation left 30/30 green last round. Including `harness-notes.md` moves 19→20 and reddens its test. So all three formerly-vacuous tests are live.
+- notes: **six defects in, six out, and I falsified every one myself rather than reading the reports.** Defect 1 (`lstrip("./")` → `removeprefix`): the real repo now flags the fabricated path .companion/really-not-here.md appended to README (19→20) where the same line stayed flat before, and the mutation back to `lstrip` moves the repo 19→18 and reddens exactly two tests. Defect 2: absolute-path findings went from 4 to **0**. Defect 3: `path_bases = [root]` moves the repo 19→23 and now reddens `test_path_under_subproject_root_resolves_after_a_cd` — the same mutation left 30/30 green last round. Including `harness-notes.md` moves 19→20 and reddens its test. So all three formerly-vacuous tests are live.
   **Both reviewer blockers were real and I reproduced both before ordering the repair.** `'onedrive'.capitalize()` is `'Onedrive'`, which does not match "OneDrive", and `'Outlook'` does not match "OUTLOOK" — so the round's own narrowing silently broke the docstring's core promise that cutting the next connector needs no edit, while an inline comment claimed it "costs no coverage". The rule is now case-insensitive-but-not-plain-lowercase: `TEAMS conversations are ingested.` appended to README gives **20** (it gave 19 under `capitalize()`), `Teams` still gives 20, and `small teams of agents` still gives 19. The second blocker was 10 lines of provably inert code: deleting the bare-dotted-token block left the repo at 19 and 33 tests green, because for a slash-less token `first_seg` *is* the token, so the `top_level` filter or the `.exists()` check already handles every case. Deleted.
   **The `19→38` regression that justified those 10 lines never existed on the committed code.** It reproduces only against a naive restructure that keeps base's `elif not stripped.startswith("."): continue`. I checked the underlying worry independently by running the **base** checker and the **HEAD** checker side by side with `` `.env-not-real` `` appended to README: base 18→18, HEAD 19→19. The bare-dotfile class was already unreachable before this task touched anything, so nothing was lost — a "Known gaps" note was the right answer, a guard clause was not.
   **What blocks is one sentence, and I decided not to wave it through.** The paragraph's *decision* — resolve against fixed bases, discard `../` rather than walk it — is sound, and I agree with the worker's reasoning that stripping `../` is only correct when the referring doc sits exactly one level down, which is false for the root `README.md`. The live `../` link is to a real file, so neither policy changes the count. But "no doc in this repo writes one today" is false, `grep -rn '\.\./' docs/` finds it in two seconds, and a docstring claim contradicting the repo is precisely what blocked rounds 1 and 2. Waving it through because it is small is how the rule stops meaning anything. One clause, exact replacement text recorded in plan.md.
