@@ -12,7 +12,10 @@ Scope decisions, made explicit here because each cost a false positive to find:
   it documents "the project-companion repo" -- a different codebase -- so every
   path or identifier in it is a claim about code this checker cannot see.
 * Endpoint, env-var, command and capability checks are further scoped to
-  ``README.md`` and ``docs/`` only. The rest of ``.companion/*.md`` is a
+  ``README.md`` and ``docs/`` only, and no narrower: those two locations are
+  this repo's user-facing description of what the app does *today* -- the
+  audience a stale capability claim actually misleads -- so every file there
+  is in scope, not a selected subset. The rest of ``.companion/*.md`` is a
   session-by-session
   historical log (backlog, progress, plan, contract, explore) that narrates
   other systems' APIs (a Freshservice/Jira connector sketch in ``explore.md``)
@@ -315,7 +318,14 @@ def find_dead_capabilities(root, identifier_scope):
     retired = _retired_connectors(root)
     if not retired:
         return []
-    named = re.compile(r"\b(" + "|".join(sorted(re.escape(w) for w in retired)) + r")\b", re.I)
+    # Case-sensitive, matching only the capitalized (proper-noun) spelling:
+    # a connector name like `teams` is also an ordinary English word, and
+    # docs write the connector itself capitalized ("Teams conversations",
+    # "Teams-chat ingestion") but use the bare lowercase word for ordinary
+    # prose ("small teams of agents"). This is a shape rule, not a word
+    # list, so it costs no coverage of the vocabulary derived above -- it
+    # only stops matching the same word spelled the way English prose does.
+    named = re.compile(r"\b(" + "|".join(sorted(re.escape(w.capitalize()) for w in retired)) + r")\b")
     dead = []
     for f in identifier_scope:
         text = f.read_text(encoding="utf-8")

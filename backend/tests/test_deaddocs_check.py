@@ -492,6 +492,22 @@ def test_dead_capability_reference_raises_the_count_by_one(fake_repo: Path) -> N
     assert _count(fake_repo) == before + 1
 
 
+def test_ordinary_english_use_of_the_connector_word_does_not_raise_the_count(
+    fake_repo: Path,
+) -> None:
+    """`teams` is an ordinary English word as well as a retired connector's
+    name; a doc line using it to mean groups of people, not the Microsoft
+    Teams connector, must not be flagged.
+
+    Casualty this pins: the bare case-insensitive `\\bteams\\b` regex, which
+    matches this sentence exactly like it matches a real capability claim.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSmall teams of agents coordinate the work.\n")
+    assert _count(fake_repo) == before
+
+
 def test_live_capability_reference_does_not_raise_the_count(fake_repo: Path) -> None:
     """Negative control: a connector the enum still defines is not dead."""
     before = _count(fake_repo)
