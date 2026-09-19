@@ -368,7 +368,7 @@ it owns to make its own task pass. Remaining code work is B78 only (one dead `no
 clause in `graph_identifiers_are_not_urls`, now unreachable), which is cleanup, not a blocker.
 
 ## T17 — Extend the dead-code gate to CSS and documentation
-- status: todo
+- status: blocked(no progress after 3 sessions)
 - complexity: normal
 - deps:
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -382,7 +382,7 @@ that no longer exist (README, `docs/`, task files). Record the new baseline in t
 the number will rise because coverage widened, which is not a regression; state that plainly.
 
 ## T18 — Publish and hand off the real-mail validation
-- status: todo
+- status: verified
 - complexity: normal
 - deps:
 - done-when: `git ls-remote --exit-code origin "refs/heads/$(git rev-parse --abbrev-ref HEAD)" >/dev/null && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$(git rev-parse --abbrev-ref HEAD))" && cd backend && MAGIC_TOWER_REQUIRE_SAMPLE=1 uv run python -m app.tools.heuristic_eval --sample /nonexistent.json; test $? -ne 0`
@@ -408,4 +408,3 @@ promotion rules and its fixtures, with an Alembic revision handling existing row
 document whether they are deleted or remapped, and say which in the migration docstring. Keep the
 per-source dispatch registry intact; it is what Jira will plug into next. Do not weaken the Graph
 mail path or its tests while cutting the chat half out of shared code.
-
