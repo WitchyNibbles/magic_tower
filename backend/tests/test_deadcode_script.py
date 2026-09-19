@@ -156,3 +156,65 @@ def test_deadcode_script_does_not_report_zero_when_a_checker_cannot_run(tmp_path
         "script reported a total of 0 when its Python checker could not run at all "
         f"-- stdout: {result.stdout!r}, stderr: {result.stderr!r}"
     )
+
+
+def _run_with_stubbed_command(tmp_path, name: str, body: str) -> subprocess.CompletedProcess:
+    """Run the script with ``name`` shadowed on ``PATH`` by a stub running ``body``."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    stub = fake_bin / name
+    stub.write_text(f"#!/bin/sh\n{body}\n")
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    env = dict(os.environ)
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    return subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+
+def _assert_aborted_without_a_total(
+    result: subprocess.CompletedProcess, what: str
+) -> None:
+    """The script must exit nonzero and never reach the bare-integer last line."""
+    assert result.returncode != 0, f"script exited 0 {what}; stdout: {result.stdout!r}"
+    lines = [line for line in result.stdout.splitlines() if line]
+    last = lines[-1] if lines else ""
+    assert not re.fullmatch(r"[0-9]+", last), (
+        f"script printed a total of {last!r} {what} -- a count it cannot trust must "
+        f"not reach the last line; stderr: {result.stderr!r}"
+    )
+
+
+def test_deadcode_script_rejects_a_crashed_knip_that_still_prints_json(tmp_path) -> None:
+    """knip's *exit status* is the only signal that its JSON is untrustworthy.
+
+    This is not hypothetical: on a checkout without ``frontend/node_modules``,
+    knip exits 2 on an unresolvable import and *still* prints a well-formed
+    ``{"issues": [...]}`` document. The stub reproduces that shape -- exit 2,
+    valid JSON that sums to 0 -- so nothing but the exit-status check can tell
+    it apart from a clean run that found nothing.
+    """
+    result = _run_with_stubbed_command(tmp_path, "npx", 'echo \'{"issues":[]}\'\nexit 2')
+
+    _assert_aborted_without_a_total(result, "with a knip that crashed (exit 2)")
+
+
+def test_deadcode_script_rejects_knip_output_that_is_not_json(tmp_path) -> None:
+    """A clean exit status is not enough either -- the output still has to parse.
+
+    A knip that exits 0 while printing something other than JSON (a wrapper's
+    banner, a truncated stream) leaves ``jq`` with nothing to sum, and an empty
+    count is not a zero one.
+    """
+    result = _run_with_stubbed_command(
+        tmp_path, "npx", "echo 'knip: not json at all'\nexit 0"
+    )
+
+    _assert_aborted_without_a_total(result, "with knip output that jq cannot parse")

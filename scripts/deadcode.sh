@@ -27,6 +27,19 @@ fail() {
     exit 1
 }
 
+# Every checker's stdout (and stderr, where it is inspected) goes to its own
+# `mktemp` file, cleaned up by one trap rather than by each block -- so an
+# interrupt between a checker starting and its count being read leaves nothing
+# behind. A new checker declares its file here and adds it to `cleanup`.
+vulture_tmp=""
+vulture_err=""
+knip_tmp=""
+cleanup() {
+    rm -f "$vulture_tmp" "$vulture_err" "$knip_tmp"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
+
 total=0
 
 # --- Python (vulture) ------------------------------------------------------
@@ -36,19 +49,18 @@ total=0
 # outcomes; anything else (1: bad path/arguments, 127: uv or vulture missing,
 # ...) means the checker never produced a trustworthy count.
 vulture_tmp="$(mktemp)"
+vulture_err="$(mktemp)"
 ( cd "$repo_root/backend" && uv run --with vulture vulture app tests --min-confidence 80 ) \
-    >"$vulture_tmp" 2>"$vulture_tmp.err"
+    >"$vulture_tmp" 2>"$vulture_err"
 vulture_status=$?
 case "$vulture_status" in
     0|3) ;;
     *)
-        cat "$vulture_tmp.err" >&2
-        rm -f "$vulture_tmp" "$vulture_tmp.err"
+        cat "$vulture_err" >&2
         fail "vulture exited $vulture_status (not 0 or 3) -- treating as a crash, not zero findings"
         ;;
 esac
 vulture_count="$(wc -l <"$vulture_tmp" | tr -d ' ')"
-rm -f "$vulture_tmp" "$vulture_tmp.err"
 echo "vulture (python): $vulture_count"
 total=$((total + vulture_count))
 
@@ -65,13 +77,11 @@ knip_status=$?
 case "$knip_status" in
     0|1) ;;
     *)
-        rm -f "$knip_tmp"
         fail "knip exited $knip_status (not 0 or 1) -- treating as a crash, not zero findings"
         ;;
 esac
 knip_count="$(jq '[.issues[] | (.files|length)+(.exports|length)+(.types|length)+(.dependencies|length)+(.devDependencies|length)+(.unlisted|length)+(.unresolved|length)+(.duplicates|length)+(.enumMembers|length)+(.namespaceMembers|length)+(.binaries|length)] | add // 0' <"$knip_tmp")"
 knip_jq_status=$?
-rm -f "$knip_tmp"
 [ "$knip_jq_status" -eq 0 ] && [ -n "$knip_count" ] || \
     fail "knip's output was not valid JSON -- treating as a crash, not zero findings"
 echo "knip (typescript): $knip_count"
