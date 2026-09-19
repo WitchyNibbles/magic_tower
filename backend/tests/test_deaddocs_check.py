@@ -176,7 +176,9 @@ def test_path_under_subproject_root_resolves_after_a_cd(fake_repo: Path) -> None
 
     Casualty this pins: mutating `path_bases = [root]` (dropping the
     subproject bases) -- confirmed on the real repository too, where the
-    same mutation moves the dead-doc count from 18 to 22.
+    same mutation moves the dead-doc count from 19 to 23. (The 18-to-22
+    this once cited was the same +4 measured against the pre-T21 checker,
+    before the dot-directory fix raised the baseline.)
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
@@ -266,9 +268,10 @@ def test_absolute_path_is_not_treated_as_a_filesystem_claim(fake_repo: Path) -> 
     green, because a leading `/` is no longer eaten and `stripped.split("/",
     1)[0]` on any string starting with `/` is always `""`, which already
     fails the top-level check on its own. The explicit skip is kept anyway,
-    matching the docstring's claim at line 27 and defending against a future
-    change to that split logic, but on today's code it is redundant with
-    defect 1's fix, not independently reachable by a single-line mutation.
+    matching the module docstring's "Absolute paths" bullet and defending
+    against a future change to that split logic, but on today's code it is
+    redundant with defect 1's fix, not independently reachable by a
+    single-line mutation.
     Confirmed on the real repository: the combined revert (reintroducing the
     original bug) takes the dead-doc count from 19 back to 18, the same
     delta the dot-directory test below pins.
