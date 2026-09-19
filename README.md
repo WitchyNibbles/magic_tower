@@ -93,6 +93,10 @@ docker compose up --build
 
 Open [http://localhost:8787](http://localhost:8787). The web service binds to loopback only; the API stays inside the Compose network. Stop with `docker compose down`; persistent SQLite data is held in the `workboard-data` Docker volume.
 
+If something else on the host already holds 8787, set `WEB_PORT` before bringing the stack up
+(`WEB_PORT=9191 docker compose up --build`, then open `http://localhost:9191`); the bind stays
+loopback-only either way.
+
 On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to create an HttpOnly, eight-hour local session. The typed value is not persisted in browser storage; cookie-backed writes also require CSRF protection.
 
 ## What waits within
