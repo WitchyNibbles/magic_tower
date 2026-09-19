@@ -374,7 +374,7 @@ it owns to make its own task pass. Remaining code work is B78 only (one dead `no
 clause in `graph_identifiers_are_not_urls`, now unreachable), which is cleanup, not a blocker.
 
 ## T17 — Move the dead-code gate into a script
-- status: todo
+- status: blocked(no progress after 3 sessions)
 - complexity: simple
 - deps:
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -le 4`
@@ -407,7 +407,6 @@ across `README.md`, `docs/` and `.companion/*.md`. Prove it: add a line referenc
 confirm the total rises. This is the check that would have caught `README:133`'s broken
 `docker compose cp` before the owner hit it on the second PC.
 
-
 ## T18 — Publish and hand off the real-mail validation
 - status: verified
 - complexity: normal
@@ -424,7 +423,7 @@ risk on `Chat.Read`), and confirm every command in it runs as written up to the 
 credentials are required. Push the branch when done.
 
 ## T19 — Remove the Teams source
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T16
 - done-when: `cd backend && uv run pytest tests ../tests/agent_protocol -q && ! grep -rn "teams_message" app/ && rm -f /tmp/t19.db && DATABASE_URL=sqlite:////tmp/t19.db uv run alembic upgrade head`
