@@ -508,6 +508,43 @@ def test_ordinary_english_use_of_the_connector_word_does_not_raise_the_count(
     assert _count(fake_repo) == before
 
 
+def test_retired_connector_spelled_camel_case_in_the_docs_is_flagged(
+    fake_repo: Path,
+) -> None:
+    """The vocabulary is derived from the code, so the *docs* spelling of a
+    future connector is not the checker's to choose: Microsoft writes
+    "OneDrive", and a kind spelled `onedrive_file` in the enum must still be
+    recognized under that name.
+
+    Casualty this pins: building the pattern from `w.capitalize()`, which can
+    only ever produce the single `Xxxx` spelling -- `Onedrive` -- and so
+    silently drops every connector whose docs spelling is not that shape,
+    breaking the "derived, never hardcoded" promise in the module docstring.
+    """
+    before = _count(fake_repo)
+    migration = fake_repo / "backend" / "alembic" / "versions" / "0001_initial.py"
+    migration.write_text(migration.read_text().replace("'manual'", "'onedrive_file', 'manual'"))
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nIngests OneDrive files from the tenant.\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_retired_connector_spelled_all_caps_in_the_docs_is_flagged(fake_repo: Path) -> None:
+    """Same defect from the other side: docs shout a product name in a heading
+    or a table cell ("TEAMS"), which `w.capitalize()`'s `Teams` never matches.
+    Only the all-lowercase spelling is ordinary English prose; every other
+    casing is a proper-noun claim about a connector.
+
+    Casualty this pins: the case-sensitive `w.capitalize()` pattern.
+    Confirmed on the real repository too, where a README line naming `TEAMS`
+    takes the dead-doc count from 19 to 20.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nTEAMS conversations still land in the inbox.\n")
+    assert _count(fake_repo) == before + 1
+
+
 def test_live_capability_reference_does_not_raise_the_count(fake_repo: Path) -> None:
     """Negative control: a connector the enum still defines is not dead."""
     before = _count(fake_repo)

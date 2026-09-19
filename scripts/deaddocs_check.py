@@ -53,9 +53,13 @@ Scope decisions, made explicit here because each cost a false positive to find:
   (an initial ``sa.Enum(..., name="sourcekind")`` listing, plus the
   ``..._KIND = "..."`` constant a removal migration deletes rows by). A kind
   the migrations know and the enum does not is retired, and the first segment
-  of a kind names its connector (``teams_message`` -> ``teams``). The unit is
-  the doc line, the way the backlog counts these, so one wordy sentence does
-  not outweigh three separately wrong ones.
+  of a kind names its connector (``teams_message`` -> ``teams``). A connector
+  name doubles as an ordinary English word, so the match is made on casing,
+  not on a word list: any spelling *except* the all-lowercase one counts as a
+  proper-noun claim about the connector ("Teams", "OneDrive", "TEAMS"), while
+  the bare lowercase word is left to prose ("small teams of agents"). The unit
+  is the doc line, the way the backlog counts these, so one wordy sentence
+  does not outweigh three separately wrong ones.
 
 Known false positives (accepted, same class as vulture's pydantic-field noise
 documented in the contract): a doc line that *asserts an absence*
@@ -318,20 +322,25 @@ def find_dead_capabilities(root, identifier_scope):
     retired = _retired_connectors(root)
     if not retired:
         return []
-    # Case-sensitive, matching only the capitalized (proper-noun) spelling:
-    # a connector name like `teams` is also an ordinary English word, and
-    # docs write the connector itself capitalized ("Teams conversations",
-    # "Teams-chat ingestion") but use the bare lowercase word for ordinary
-    # prose ("small teams of agents"). This is a shape rule, not a word
-    # list, so it costs no coverage of the vocabulary derived above -- it
-    # only stops matching the same word spelled the way English prose does.
-    named = re.compile(r"\b(" + "|".join(sorted(re.escape(w.capitalize()) for w in retired)) + r")\b")
+    # Match any casing *except* all-lowercase: a connector name like `teams`
+    # is also an ordinary English word, and docs write the connector itself
+    # as a proper noun ("Teams conversations", "OneDrive files", a shouted
+    # "TEAMS" in a heading) but use the bare lowercase word for ordinary
+    # prose ("small teams of agents"). Anchoring on the one capitalized
+    # spelling `w.capitalize()` produces would make this a word list again:
+    # `onedrive` would only ever be looked for as `Onedrive`, never as the
+    # `OneDrive` the docs actually write, silently costing coverage of the
+    # vocabulary derived above.
+    named = re.compile(r"\b(" + "|".join(sorted(re.escape(w) for w in retired)) + r")\b", re.I)
     dead = []
     for f in identifier_scope:
         text = f.read_text(encoding="utf-8")
         for lineno, line in enumerate(text.splitlines(), start=1):
-            match = named.search(line)
-            if match:  # one finding per line, however many times it names the connector
+            # One finding per line, however many times it names the connector.
+            match = next(
+                (m for m in named.finditer(line) if m.group(0) != m.group(0).lower()), None
+            )
+            if match:
                 dead.append((f, lineno, match.group(0)))
     return dead
 
