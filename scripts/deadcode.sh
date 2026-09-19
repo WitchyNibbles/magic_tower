@@ -136,7 +136,7 @@ total=$((total + css_count))
 # like the two checkers above, so it can be unit-tested directly against a
 # temporary tree rather than only through the whole slow gate -- see
 # backend/tests/test_deaddocs_check.py). Its own module docstring records the
-# scope decisions (which doc locations, which of the four reference classes)
+# scope decisions (which doc locations, which of the five reference classes)
 # and the accepted false-positive classes.
 #
 # Unlike vulture/knip, this checker has no "found issues" exit code of its own

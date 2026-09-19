@@ -77,6 +77,25 @@ def fake_repo(tmp_path: Path) -> Path:
         'class Settings:\n'
         '    known_setting: str = "x"\n'
     )
+    # The two halves of the retired-capability vocabulary: what the code
+    # supports now, and what the schema has ever spelled.
+    (root / "backend" / "app" / "models.py").write_text(
+        "import enum\n\n"
+        "class SourceKind(str, enum.Enum):\n"
+        '    outlook_email = "outlook_email"\n'
+        '    manual = "manual"\n'
+    )
+    (root / "backend" / "alembic" / "versions").mkdir(parents=True)
+    (root / "backend" / "alembic" / "versions" / "0001_initial.py").write_text(
+        "import sqlalchemy as sa\n"
+        "from alembic import op\n\n"
+        "def upgrade():\n"
+        "    op.create_table(\n"
+        "        'sources',\n"
+        "        sa.Column('kind', sa.Enum('outlook_email', 'teams_message', 'manual',"
+        " name='sourcekind'), nullable=False),\n"
+        "    )\n"
+    )
     (root / "backend" / "app" / "tools" / "real_tool.py").write_text("def main(): ...\n")
     (root / "frontend" / "src" / "component.ts").write_text("export const x = 1;\n")
     (root / ".env.example").write_text("KNOWN_ENV_VAR=\n")
@@ -339,6 +358,80 @@ def test_existing_command_reference_does_not_raise_the_count(fake_repo: Path) ->
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
     readme.write_text(readme.read_text() + "\nAgain: `uv run python -m app.tools.real_tool`.\n")
+    assert _count(fake_repo) == before
+
+
+# --- retired capabilities ----------------------------------------------------------
+
+def test_dead_capability_reference_raises_the_count_by_one(fake_repo: Path) -> None:
+    """Casualty this pins: backlog B94 -- 14 doc lines still advertising Teams
+    ingestion after the enum, the dispatch table and the Graph calls dropped
+    it. Such a line names no file, no route, no env var and no module, only a
+    connector, so none of the four checks above can see it.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nIngests Outlook mail and Teams conversations.\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_live_capability_reference_does_not_raise_the_count(fake_repo: Path) -> None:
+    """Negative control: a connector the enum still defines is not dead."""
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nIngests Outlook mail from one mailbox.\n")
+    assert _count(fake_repo) == before
+
+
+def test_a_line_naming_a_retired_connector_twice_counts_once(fake_repo: Path) -> None:
+    """The unit is the doc line, the way backlog B94 counts its 14 -- otherwise
+    one wordy sentence would outweigh three separately wrong ones.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nTeams scopes and Teams metadata are both gone.\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_retired_vocabulary_comes_from_the_migrations_not_a_hardcoded_name(
+    fake_repo: Path,
+) -> None:
+    """The word `teams` is never written in the checker: it is derived, so
+    retiring the *next* connector needs no edit there. Rewrite the fixture's
+    migration history so it never knew that kind and the identical sentence
+    stops being a finding.
+    """
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nIngests Outlook mail and Teams conversations.\n")
+    assert _count(fake_repo) == 1
+    migration = fake_repo / "backend" / "alembic" / "versions" / "0001_initial.py"
+    migration.write_text(migration.read_text().replace("'teams_message', ", ""))
+    assert _count(fake_repo) == 0
+
+
+def test_a_removal_migrations_kind_constant_also_feeds_the_vocabulary(fake_repo: Path) -> None:
+    """A removal migration deletes rows by a `..._KIND = "..."` constant
+    (`0008_remove_teams_source.py:57` in this repo). That constant is the only
+    record of a kind an *initial* enum listing never contained, so it feeds the
+    vocabulary too -- the next connector to be cut will leave exactly this
+    trace and no other.
+    """
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nAlso tracks Jira issues.\n")
+    before = _count(fake_repo)
+    versions = fake_repo / "backend" / "alembic" / "versions"
+    (versions / "0002_remove_jira.py").write_text('REMOVED_KIND = "jira_issue"\n')
+    assert _count(fake_repo) == before + 1
+
+
+def test_companion_log_may_discuss_a_retired_capability(fake_repo: Path) -> None:
+    """The session log's whole job is to record *that* a connector was removed;
+    it must be able to say so without the gate counting its own history. Same
+    narrowing as the endpoint/env-var/command checks.
+    """
+    before = _count(fake_repo)
+    progress = fake_repo / ".companion" / "progress.md"
+    progress.write_text("T19 removed the Teams source this session.\n")
     assert _count(fake_repo) == before
 
 

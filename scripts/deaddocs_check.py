@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 """Dead-documentation checker for ``scripts/deadcode.sh``'s dead-code gate.
 
-Flags four kinds of documentation reference that name something this repo does
+Flags five kinds of documentation reference that name something this repo does
 not actually have: a file path (backtick-quoted or a markdown-link target), a
-`METHOD /api/...` endpoint, a bare `ENV_VAR_NAME`, and a `-m module.path`
-command.
+`METHOD /api/...` endpoint, a bare `ENV_VAR_NAME`, a `-m module.path` command,
+and a retired *capability* -- a connector the code no longer has.
 
 Scope decisions, made explicit here because each cost a false positive to find:
 
 * ``.companion/harness-notes.md`` is excluded entirely. Its own first line says
   it documents "the project-companion repo" -- a different codebase -- so every
   path or identifier in it is a claim about code this checker cannot see.
-* Endpoint, env-var and command checks are further scoped to ``README.md`` and
-  ``docs/`` only. The rest of ``.companion/*.md`` is a session-by-session
+* Endpoint, env-var, command and capability checks are further scoped to
+  ``README.md`` and ``docs/`` only. The rest of ``.companion/*.md`` is a
+  session-by-session
   historical log (backlog, progress, plan, contract, explore) that narrates
   other systems' APIs (a Freshservice/Jira connector sketch in ``explore.md``)
   and even the harness's own internal names inline in prose (``backlog.md``'s
   `TEST_PATH` entry names the *manager's* regex, not this repo's) --
-  indistinguishable from a real dead reference by a checker this simple. File
-  paths are still checked across all of ``.companion/*.md`` (minus
-  harness-notes.md): a broken path is a narrower, more objective claim than an
-  endpoint or a bare identifier, so it stays in scope there.
+  indistinguishable from a real dead reference by a checker this simple. The
+  log also has to be able to record *that* a connector was removed, which the
+  capability check would otherwise count as dead documentation of its own
+  history. File paths are still checked across all of ``.companion/*.md``
+  (minus harness-notes.md): a broken path is a narrower, more objective claim
+  than an endpoint or a bare identifier, so it stays in scope there.
 * Absolute paths (``/api/...``, ``/data``, ``/me``) are someone else's
   namespace (this app's own HTTP API, a container mount, Microsoft Graph), not
   a filesystem claim, and are excluded from the path check.
@@ -40,6 +43,16 @@ Scope decisions, made explicit here because each cost a false positive to find:
   segment after `/api/` matches a segment some real FastAPI router uses --
   otherwise it names someone else's API and is left alone rather than guessed
   at.
+* The retired-capability vocabulary is *derived*, never hardcoded, so cutting
+  the next connector needs no edit here: ``SourceKind`` in
+  ``backend/app/models.py`` is what the code supports now, and
+  ``backend/alembic/versions/*.py`` is every kind the schema has ever spelled
+  (an initial ``sa.Enum(..., name="sourcekind")`` listing, plus the
+  ``..._KIND = "..."`` constant a removal migration deletes rows by). A kind
+  the migrations know and the enum does not is retired, and the first segment
+  of a kind names its connector (``teams_message`` -> ``teams``). The unit is
+  the doc line, the way the backlog counts these, so one wordy sentence does
+  not outweigh three separately wrong ones.
 
 Known false positives (accepted, same class as vulture's pydantic-field noise
 documented in the contract): a doc line that *asserts an absence*
@@ -49,7 +62,17 @@ and a bare identifier that names the *manager's own harness*, not this repo,
 inside an otherwise in-scope file (``.companion/backlog.md``'s `TEST_PATH`)
 cannot be told apart from a real dead reference without knowing which repo
 each backlog entry's code is even in.
+
+Known gaps (dead references this deliberately does not reach): the doc scope is
+the three locations the task names -- ``README.md``, ``docs/`` and
+``.companion/*.md`` -- so stale capability claims in ``skills/*/SKILL.md`` and
+``.codex-plugin/plugin.json`` are outside it. A delegated Graph scope the docs
+tell the reader to register but ``GRAPH_SCOPES`` in
+``backend/app/services/oauth.py`` does not request (``Chat.Read``, today) is a
+sixth class this does not implement; the lines carrying it are caught anyway
+wherever they also name the connector, but not where they name only the scope.
 """
+import ast
 import re
 import subprocess
 import sys
@@ -219,6 +242,70 @@ def find_dead_env_vars(root, identifier_scope):
     return dead
 
 
+def _live_source_kinds(root):
+    models = root / "backend/app/models.py"
+    if not models.is_file():
+        return None
+    for node in ast.walk(ast.parse(models.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ClassDef) and node.name == "SourceKind":
+            return {
+                stmt.value.value
+                for stmt in node.body
+                if isinstance(stmt, ast.Assign)
+                and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str)
+            }
+    return None
+
+
+def _historic_source_kinds(root):
+    kinds = set()
+    for f in sorted((root / "backend/alembic/versions").glob("*.py")):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            # An initial schema spells every kind inside `sa.Enum(..., name="sourcekind")`.
+            if isinstance(node, ast.Call) and any(
+                kw.arg == "name" and getattr(kw.value, "value", None) == "sourcekind"
+                for kw in node.keywords
+            ):
+                kinds |= {
+                    arg.value
+                    for arg in node.args
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                }
+            # A removal migration deletes rows by a `..._KIND = "..."` constant, the
+            # only trace of a kind no enum listing ever contained.
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                if isinstance(node.value.value, str) and any(
+                    isinstance(t, ast.Name) and t.id.endswith("_KIND") for t in node.targets
+                ):
+                    kinds.add(node.value.value)
+    return kinds
+
+
+def _retired_connectors(root):
+    live = _live_source_kinds(root)
+    if live is None:
+        return set()  # no enum to compare against; nothing is provably retired
+    live_connectors = {kind.split("_", 1)[0] for kind in live}
+    retired = {kind.split("_", 1)[0] for kind in _historic_source_kinds(root) - live}
+    return retired - live_connectors
+
+
+def find_dead_capabilities(root, identifier_scope):
+    retired = _retired_connectors(root)
+    if not retired:
+        return []
+    named = re.compile(r"\b(" + "|".join(sorted(re.escape(w) for w in retired)) + r")\b", re.I)
+    dead = []
+    for f in identifier_scope:
+        text = f.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            match = named.search(line)
+            if match:  # one finding per line, however many times it names the connector
+                dead.append((f, lineno, match.group(0)))
+    return dead
+
+
 MODULE_REF = re.compile(r"-m\s+([A-Za-z_][A-Za-z0-9_.]*)")
 
 
@@ -258,6 +345,7 @@ def run(root):
         ("endpoint", find_dead_endpoints, (root, identifier_scope)),
         ("env var", find_dead_env_vars, (root, identifier_scope)),
         ("command", find_dead_commands, (root, identifier_scope)),
+        ("capability", find_dead_capabilities, (root, identifier_scope)),
     ):
         results = finder(*args)
         for f, lineno, token in results:
