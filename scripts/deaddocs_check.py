@@ -8,9 +8,10 @@ and a retired *capability* -- a connector the code no longer has.
 
 Scope decisions, made explicit here because each cost a false positive to find:
 
-* ``.companion/harness-notes.md`` is excluded entirely. Its own first line says
-  it documents "the project-companion repo" -- a different codebase -- so every
-  path or identifier in it is a claim about code this checker cannot see.
+* ``.companion/harness-notes.md`` is excluded entirely. Its own header says it
+  is "for the owner to carry to the project-companion repo" -- a different
+  codebase -- so every path or identifier in it is a claim about code this
+  checker cannot see.
 * Endpoint, env-var, command and capability checks are further scoped to
   ``README.md`` and ``docs/`` only, and no narrower: those two locations are
   this repo's user-facing description of what the app does *today* -- the
@@ -129,6 +130,14 @@ def _strip_line_suffix(token):
     return re.sub(r":\d+(-\d+)?(,\d+(-\d+)?)*$", "", token)
 
 
+def _strip_fragment_and_query(token):
+    # A markdown link's `#fragment` or `?query` is not part of the filesystem
+    # path -- `docs/second-pc.md#prerequisites` names the same file as
+    # `docs/second-pc.md`, so the suffix has to come off before resolution or
+    # a live file with an anchor reads as a dead one.
+    return re.split(r"[#?]", token, maxsplit=1)[0]
+
+
 def _is_gitignored(root, relpath):
     # A path can be gitignored as a file or as a directory; `git check-ignore`
     # only honours a directory-only pattern (`node_modules/`) when the query
@@ -162,7 +171,7 @@ def find_dead_paths(root, path_scope):
             for token in _candidates(line, BACKTICK, MD_LINK):
                 if not _looks_like_path(token):
                     continue
-                stripped = _strip_line_suffix(token).removeprefix("./")
+                stripped = _strip_line_suffix(_strip_fragment_and_query(token)).removeprefix("./")
                 if not stripped or stripped in seen:
                     continue
                 seen.add(stripped)

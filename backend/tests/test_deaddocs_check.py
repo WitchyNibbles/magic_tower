@@ -223,8 +223,8 @@ def test_line_number_suffix_is_stripped_before_the_path_is_resolved(fake_repo: P
     resolved.
 
     Casualty this pins: neutering `_strip_line_suffix` to `return token`, which
-    takes this repository's own count from 1 to 134 -- every such citation in
-    `.companion/progress.md` becomes a false positive.
+    takes this repository's own count from 6 to 168 (measured 2026-09-19) --
+    every such citation in `.companion/progress.md` becomes a false positive.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
@@ -244,6 +244,34 @@ def test_dead_path_carrying_a_line_suffix_is_still_flagged(fake_repo: Path) -> N
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
     readme.write_text(readme.read_text() + "\nSee `backend/app/vanished.py:42-48`.\n")
+    assert _count(fake_repo) == before + 1
+
+
+def test_anchored_link_to_a_live_file_does_not_raise_the_count(fake_repo: Path) -> None:
+    """A markdown link's `#fragment` (and a `?query`) is not part of the
+    filesystem path: `docs/guide.md#section` names the same file as
+    `docs/guide.md`. Before the fragment is stripped, the fragment is
+    resolved as part of the path, `docs/guide.md#section` does not exist as a
+    literal file, and a live target reads as dead (B101).
+
+    Casualty this pins: neutering `_strip_fragment_and_query` to `return
+    token`, which on the real repository turns `docs/second-pc.md#prerequisites`
+    (`.companion/backlog.md:108`) into a false positive.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee [the guide](docs/guide.md#section).\n")
+    assert _count(fake_repo) == before
+
+
+def test_anchored_link_to_a_dead_file_is_still_flagged(fake_repo: Path) -> None:
+    """Negative control for the test above: stripping the fragment must not be
+    over-eager and swallow the finding. A link to a file that does not exist
+    is dead whether or not it carries an anchor.
+    """
+    before = _count(fake_repo)
+    readme = fake_repo / "README.md"
+    readme.write_text(readme.read_text() + "\nSee [nope](docs/vanished.md#section).\n")
     assert _count(fake_repo) == before + 1
 
 
@@ -391,8 +419,9 @@ def test_a_markdown_link_with_a_backticked_label_counts_its_path_once(fake_repo:
     """``[`docs/x.md`](docs/x.md)`` is this repo's own README idiom
     (`README.md:127`). It matches the backtick pattern *and* the markdown-link
     pattern, so one dead reference was reported twice -- measured on this
-    repository: one such added line took the total from 11 to 13, while the
-    same path written plainly took it to 12.
+    repository (2026-09-19): with the `seen` de-dup removed, one such added
+    line took the total from 6 to 8, while the same path written plainly
+    (backtick only, no link) took it to 7.
     """
     before = _count(fake_repo)
     readme = fake_repo / "README.md"
