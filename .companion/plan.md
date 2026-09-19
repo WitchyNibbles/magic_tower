@@ -4,7 +4,7 @@ One task per `## Txx — title` heading. Statuses: `todo` → `doing` → `claim
 or `blocked(<reason>)`. Only the manager edits this file.
 
 ## T01 — Make leave-no-trace checkable
-- status: todo
+- status: blocked(the gate is correct and merged, but `/tmp/t2.json` — a stale report from a previous contract — still counts and this environment denies the manager permission to delete `/tmp` entries; `rm /tmp/t2.json` turns clause 1 green, see B112)
 - complexity: normal
 - deps:
 - done-when: `bash scripts/leave-no-trace.sh && cd backend && uv run pytest tests -q -k leave_no_trace`
