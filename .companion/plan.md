@@ -412,7 +412,7 @@ fixed to scan declarations anywhere. Found one real dead token, `--color-card-fo
 lines) so T21 will not break it. New baseline: **5**.
 
 ## T21 — Add dead documentation to the gate
-- status: blocked(reviewer found four reproduced blocking defects in the repair round; no second repair allowed)
+- status: todo
 - complexity: normal
 - deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -479,3 +479,35 @@ promotion rules and its fixtures, with an Alembic revision handling existing row
 document whether they are deleted or remapped, and say which in the migration docstring. Keep the
 per-source dispatch registry intact; it is what Jira will plug into next. Do not weaken the Graph
 mail path or its tests while cutting the chat half out of shared code.
+
+**Repair forward from `ed0ecd3` — do not start over (owner, 2026-09-19).** 248 tests pass and the
+checker works: falsified by re-adding `teams_message` to the live `SourceKind`, which dropped the
+count 12 → 2, so it reads the AST rather than a hardcoded string. Four reproduced defects to fix,
+all cheap:
+1. `lstrip("./")` strips a character *set*, not a prefix, so `.companion/does-not-exist.md` becomes
+   `companion/...`, fails the top-level test and is silently exempt. Proven: that exact dead line
+   appended to README left the count at 12. Strip a prefix (`removeprefix`), not a set.
+2. Mirror of the same bug: `/docs/absolutely-gone.md` becomes `docs/...`, *is* top-level and **is**
+   flagged, though the docstring claims absolute paths are excluded. Fix the code or the docstring —
+   and say which is intended.
+3. The capability regex is a bare case-insensitive `\bteams\b`, so a README line that *correctly
+   records the removal* ("Teams ingestion was removed") is flagged, as is ordinary English like
+   "small teams of agents". Narrow it. This matters immediately: fixing the 16 findings is this
+   checker's very next consumer, and whoever writes those fixes must not trip it.
+4. The docstring justifies keeping `.companion/*.md` out of capability scope but never states that
+   reasoning for `README`/`docs/`. Make scope explicit in one place.
+Do not re-baseline in this task. T22 fixes the findings and sets the baseline afterwards.
+
+## T22 — Fix the dead documentation, then re-baseline
+- status: todo
+- complexity: normal
+- deps: T21
+- done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$' && test "$(bash scripts/deadcode.sh | tail -1)" -lt 10 && test "$(cat .companion/deadcode.baseline)" = "$(bash scripts/deadcode.sh | tail -1)"`
+
+The gate reports 21, of which 16 are dead documentation — mostly docs still advertising the Teams
+connector T19 removed, plus two real dead paths at `docs/second-pc.md:122,188`. Owner's call: fix
+the docs rather than absorb the rot into a baseline. Read each finding, fix or delete the line, and
+only then write the remaining total to `.companion/deadcode.baseline`, which still reads a stale 4.
+Where a line correctly *records* the removal, keep the line and rely on T21's narrowed regex —
+do not delete accurate history to satisfy a checker.
+
