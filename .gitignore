@@ -19,3 +19,9 @@ frontend/vite.config.d.ts
 .magic-tower/
 labeled-sample.json
 .claude/
+
+# companion run transcripts are multi-MB and never belong in history
+.companion/runs/*/*.jsonl
+.companion/runs/*/tmp/
+.companion/build.lock
+.companion/status.json
