@@ -26,6 +26,10 @@ OPTIONAL_SETTINGS = (
     "microsoft_target_user_id",
     "app_encryption_key",
     "local_api_token",
+    "jira_site_url",
+    "jira_account_email",
+    "jira_api_token",
+    "jira_management_project_key",
 )
 
 

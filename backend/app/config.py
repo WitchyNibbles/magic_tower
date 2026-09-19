@@ -17,6 +17,10 @@ _BLANKABLE_OPTIONAL_FIELDS = (
     "microsoft_target_user_id",
     "app_encryption_key",
     "local_api_token",
+    "jira_site_url",
+    "jira_account_email",
+    "jira_api_token",
+    "jira_management_project_key",
 )
 
 
@@ -37,6 +41,16 @@ class Settings(BaseSettings):
     # Distinct from Graph/OAuth secrets. Installed local agents use this only
     # as ``Authorization: Bearer ...`` when accessing the agent protocol.
     local_api_token: SecretStr | None = None
+    # Jira: optional settings mirroring the Graph ones above. A classic API token
+    # authenticates as Basic auth over ``email:token`` against
+    # ``https://<site>.atlassian.net`` (not the scoped-token host).
+    jira_site_url: str | None = None
+    jira_account_email: str | None = None
+    jira_api_token: SecretStr | None = None
+    # The project key a management view syncs browse-only, without ever
+    # promoting its issues into the actionable queue. Optional: absent means no
+    # project gets that extra visibility.
+    jira_management_project_key: str | None = None
     # Addresses whose mail the promotion heuristic treats as work whatever its rules
     # decide, comma-separated. Tenant-specific by nature -- an internal robot one
     # owner acts on is noise to the next -- so it is configuration, not a constant.
@@ -94,6 +108,23 @@ class Settings(BaseSettings):
             "MICROSOFT_CLIENT_SECRET": self.microsoft_client_secret,
             "MICROSOFT_TARGET_USER_ID": self.microsoft_target_user_id,
             "APP_ENCRYPTION_KEY": self.app_encryption_key,
+        }
+        def present(value: str | SecretStr | None) -> bool:
+            if isinstance(value, SecretStr):
+                return bool(value.get_secret_value().strip())
+            return bool(value and value.strip())
+        return [name for name, value in required.items() if not present(value)]
+
+    def jira_configuration_errors(self) -> list[str]:
+        """Names of missing or blank core Jira settings, fail-closed.
+
+        The management-project key is a visibility setting (T09), not part of
+        the core connection, so it is deliberately excluded here.
+        """
+        required = {
+            "JIRA_SITE_URL": self.jira_site_url,
+            "JIRA_ACCOUNT_EMAIL": self.jira_account_email,
+            "JIRA_API_TOKEN": self.jira_api_token,
         }
         def present(value: str | SecretStr | None) -> bool:
             if isinstance(value, SecretStr):
