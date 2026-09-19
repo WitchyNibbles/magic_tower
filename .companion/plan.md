@@ -412,7 +412,7 @@ fixed to scan declarations anywhere. Found one real dead token, `--color-card-fo
 lines) so T21 will not break it. New baseline: **5**.
 
 ## T21 — Add dead documentation to the gate
-- status: todo
+- status: blocked(one false sentence in the docstring paragraph this round added; everything else verified and merged)
 - complexity: normal
 - deps: T17
 - done-when: `bash scripts/deadcode.sh | tail -1 | grep -qE '^[0-9]+$'`
@@ -423,34 +423,40 @@ across `README.md`, `docs/` and `.companion/*.md`. Prove it: add a line referenc
 confirm the total rises. This is the check that would have caught `README:133`'s broken
 `docker compose cp` before the owner hit it on the second PC.
 
-**Blocked 2026-09-19 after attempt 2.** Commits `aef0f3c`, `db2a2c5`, `b86f081`, `ed0ecd3` are
-**merged and kept** — repair forward from `ed0ecd3`, do not start over. The checker exists, the gate
-counts dead docs (17 vs 5 at base), the suite is 248 green, and the retired-capability vocabulary is
-genuinely derived from the code (falsified by the manager: re-adding `teams_message` to the live
-`SourceKind` drops the count 12 → 2). It reaches 8 of B94's 14 plus 2 B94 never cited.
+**Blocked 2026-09-19 after attempt 3 (round 3). Repair forward again — do not start over.**
+Commits `aef0f3c`, `db2a2c5`, `b86f081`, `ed0ecd3` (rounds 1-2) and `a662e20`, `23b081e`, `6217668`,
+`cf5b5d9`, `82f29a2`, `efe870e`, `53898c1`, `99977dc` (round 3) are **merged and kept**. The suite is
+**255 green** (248 at round 3's base), the gate reads **24** (dead-docs **19**), and all six defects
+that blocked round 2 are fixed and falsified by the manager, as are both of round 3's reviewer
+blockers. B94 reach is intact and byte-identical: `README.md:7,108,113,115`,
+`docs/agent-protocol.md:7`, `docs/architecture.md:19`, `docs/second-pc.md:31,34,122,188`.
 
-Four blocking defects, each reproduced by the manager, all cheap:
-1. `scripts/deaddocs_check.py:136` — `lstrip("./")` strips a *character set*, not a prefix, so
-   `.companion/x.md` → `companion/x.md`, fails the `top_level` test and is silently discarded. Every
-   path under a dot-directory is exempt from the path check, and `.companion/*.md` is one of the three
-   doc locations this task names. Use `removeprefix("./")`.
-2. Same line, mirror defect — `/docs/gone.md` → `docs/gone.md` **is** top-level, so absolute paths
-   *are* flagged despite the docstring at :27 claiming they are excluded. Add an explicit
-   `token.startswith("/")` skip.
-3. Three new tests are vacuous by the same "token discarded before the branch under test" trap the
-   worker documented in another test's docstring: `test_path_under_subproject_root_resolves_after_a_cd`
-   (:157), `test_harness_notes_file_is_excluded_from_the_path_scan` (:241) and
-   `test_absolute_path_is_not_treated_as_a_filesystem_claim` (:230). Mutation `path_bases = [root]`
-   leaves **30/30 green** while the real repo count goes **12 → 16**. Fix the fixtures so the cited
-   token's first segment is a fixture top-level dir.
-4. Each repaired test must be pinned by a **real-repo count delta**, not only a fixture assertion —
-   every vacuous test in both rounds passed against a synthetic tree while the mutation moved the real
-   count by 4, 133 or 1.
+**One blocking defect remains — one sentence.** `scripts/deaddocs_check.py:91`, in the "Known gaps"
+paragraph round 3 added, ends "no doc in this repo writes one today". False:
+`docs/second-pc.md:56` is `[Develop the API with uv](../README.md#develop-the-api-with-uv)`, which
+the checker parses (`MD_LINK` yields the token, `_looks_like_path` returns True) and then discards at
+the `top_level` filter because `..` is not a top-level name. The *decision* the paragraph defends —
+resolve against fixed bases, discard `../` rather than walk it — is sound and I agree with it; the
+link is live, so neither policy would change the count. It is the factual aside that is wrong, and a
+docstring claim contradicting the repo is the exact class this task was blocked for twice before.
+Fix: replace the clause with the truth, e.g. "the only such link in this repo today
+(`docs/second-pc.md:56`, `../README.md#...`) points at a live file, so neither policy would change
+the count." Then re-run `cd backend && uv run pytest tests ../tests/agent_protocol -q` (expect 255)
+and `bash scripts/deadcode.sh` (expect 24). Nothing else is outstanding.
 
-Note: the `done-when` above is **blind** — it exits 0 at base, before any work. Do not credit it.
-Advisories are backlogged as B98 (removal-note false positive), B99 (`*_KIND` over-matching) and
-B100 (fenced code blocks unscanned — the motivating README bug was inside a fence).
-`.companion/deadcode.baseline` still reads `4`; the true total at `ed0ecd3` is **17**.
+Note: the `done-when` above is **blind** — it exits 0 at base, before any work, and it did so again
+this round (the gate printed `23` at base and `24` at HEAD; both are bare integers). Do not credit
+it. I am not editing the gate I own.
+
+Advisories from round 3, backlogged not dropped: B98 updated (its English-prose half is now fixed,
+its removal-note half stands), B101 (anchored markdown links to live files are reported dead),
+B102 (two stale real-repo citations in test docstrings), B103 (the harness-notes "first line"
+docstring claim is wrong). `.companion/deadcode.baseline` still reads `4` against a true total of
+24 — T22's job, untouched here.
+
+Round 3 also moved this task's round-2 repair brief out of T19's section, where the previous
+session's append landed it by accident. Its two unique items (narrow the capability regex, state the
+`README`/`docs/` scope) were ordered and are done.
 
 ## T18 — Publish and hand off the real-mail validation
 - status: verified
@@ -479,24 +485,6 @@ promotion rules and its fixtures, with an Alembic revision handling existing row
 document whether they are deleted or remapped, and say which in the migration docstring. Keep the
 per-source dispatch registry intact; it is what Jira will plug into next. Do not weaken the Graph
 mail path or its tests while cutting the chat half out of shared code.
-
-**Repair forward from `ed0ecd3` — do not start over (owner, 2026-09-19).** 248 tests pass and the
-checker works: falsified by re-adding `teams_message` to the live `SourceKind`, which dropped the
-count 12 → 2, so it reads the AST rather than a hardcoded string. Four reproduced defects to fix,
-all cheap:
-1. `lstrip("./")` strips a character *set*, not a prefix, so `.companion/does-not-exist.md` becomes
-   `companion/...`, fails the top-level test and is silently exempt. Proven: that exact dead line
-   appended to README left the count at 12. Strip a prefix (`removeprefix`), not a set.
-2. Mirror of the same bug: `/docs/absolutely-gone.md` becomes `docs/...`, *is* top-level and **is**
-   flagged, though the docstring claims absolute paths are excluded. Fix the code or the docstring —
-   and say which is intended.
-3. The capability regex is a bare case-insensitive `\bteams\b`, so a README line that *correctly
-   records the removal* ("Teams ingestion was removed") is flagged, as is ordinary English like
-   "small teams of agents". Narrow it. This matters immediately: fixing the 16 findings is this
-   checker's very next consumer, and whoever writes those fixes must not trip it.
-4. The docstring justifies keeping `.companion/*.md` out of capability scope but never states that
-   reasoning for `README`/`docs/`. Make scope explicit in one place.
-Do not re-baseline in this task. T22 fixes the findings and sets the baseline afterwards.
 
 ## T22 — Fix the dead documentation, then re-baseline
 - status: todo
