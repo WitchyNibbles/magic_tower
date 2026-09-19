@@ -11,3 +11,8 @@ One line each. Read by /companion:contract and /companion:explore. Cap 40. Owner
 - If a verify command can pass through a skip or absent-input path, say so at contract time and name what would actually prove it · origin: 2026-09-18T18-19-10 · 2026-09-18
 - Before using a name-filtered test command as a gate, check the runner's zero-match behaviour — vitest exits 0, pytest exits 5 · origin: 2026-09-18T18-19-10 · 2026-09-18
 - When a criterion cannot be proven on this machine for lack of data or access, publish the branch and hand the owner an exact runnable sequence — never let it pass by skipping · origin: 2026-09-18T18-19-10 · 2026-09-18
+- Every process, container and dev server started in a session is stopped before the session ends — name them when you start them · origin: 2026-09-19 · 2026-09-19
+- Work files go in the session scratchpad, never `/tmp`; anything created for one task is deleted when that task ends · origin: 2026-09-19 · 2026-09-19
+- A task's worktree is removed and its branch deleted once the task is verified or abandoned — check `git worktree list` before reporting done · origin: 2026-09-19 · 2026-09-19
+- Before `/companion:present`, inventory worktrees, running processes, containers and temp files, and report the counts in the run report · origin: 2026-09-19 · 2026-09-19
+

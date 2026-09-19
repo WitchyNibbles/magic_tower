@@ -70,3 +70,27 @@ satisfied with zero tests written. Confirmed by hand: a bogus pattern exits 0. p
 5 in the same situation, so the hazard is runner-specific and easy to miss.
 **Suggestion:** at seal time, reject a `done-when`/`verify:` that filters by test name without
 asserting a count, or require `--passWithNoTests=false` equivalents per runner.
+
+## run 2026-09-19 (cleanup)
+
+### H8 — Agent worktrees and their branches are never reaped
+After this contract the repository held **15 agent worktrees and 21 `worktree-agent-*` branches**,
+the oldest from days earlier. Nine held uncommitted edits from abandoned attempts. The loop creates
+a worktree per task attempt and never removes it, so the count grows without bound; `.claude/` was
+gitignored earlier in this run specifically to stop them dirtying `git status`, which hid the
+growth rather than fixing it.
+**Suggestion:** remove the worktree and delete its branch when a task reaches `verified`, or when
+its attempt is abandoned. If uncommitted work must be preserved, write it as a patch outside the
+repository and say where.
+
+### H9 — Workers write scratch files to /tmp, not the session scratchpad
+224 files matching this project's task names (`ac*.log`, `t0*.db`, `ciprobe/`, `workboard-tests*`,
+`conftest.keep`, …) were left in `/tmp` by worker sessions. They are invisible to `git status`, so
+nothing in the loop ever notices them.
+**Suggestion:** give workers a per-run scratch directory and clean it when the run ends.
+
+### H10 — Nothing stops processes a session starts
+A `vite --port 5173` dev server started during `/companion:present` was still running roughly six
+hours later, along with a docker compose stack. The loop has no notion of process ownership.
+**Suggestion:** track processes started during a run and stop them at run end, or report them.
+

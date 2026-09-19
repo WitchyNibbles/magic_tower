@@ -541,3 +541,19 @@ integer pinned there is stale within a day, and three consecutive rounds of this
 on exactly that class of claim. Fixed the class: the docstring now states the magnitude and defers
 the figure to the run-time assertions. 258 tests pass; gate 6, baseline 6.
 
+## T23 — Make leave-no-trace checkable
+- status: todo
+- complexity: normal
+- deps:
+- done-when: `bash scripts/leave-no-trace.sh && cd backend && uv run pytest tests -q -k leave_no_trace`
+
+Cleanup was enforced by memory and was forgotten all run: 15 stale worktrees, 21 orphan branches,
+224 project files in `/tmp`, a vite dev server alive for hours, containers left up (owner,
+2026-09-19). Add `scripts/leave-no-trace.sh` reporting, and exiting non-zero on, anything left
+behind: `git worktree list` entries beyond the main one, `worktree-agent-*` branches, `/tmp` entries
+matching this project's task-file patterns, and running processes whose command line points inside
+this repository. Print one labeled line per category and a total on the last line, matching
+`scripts/deadcode.sh`'s shape. Test it the way the dead-code gate is tested: create one artefact of
+each category, assert the count rises, remove it, assert it falls — the script must not report zero
+because a category silently failed to run.
+
