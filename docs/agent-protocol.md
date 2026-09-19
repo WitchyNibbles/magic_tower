@@ -4,7 +4,7 @@ Agent integrations are installable commands or skills that communicate with Work
 
 ## Intake contract
 
-1. The connector supplies a normalized email or Teams message with a stable external ID and deep link.
+1. The connector supplies a normalized email with a stable external ID and deep link.
 2. The agent identifies actionable, pending work and returns a proposed `WorkItemCreate` payload.
 3. Each proposal includes source evidence (`source_kind`, external ID, optional minimal excerpt, observed time).
 4. The API validates the schema, records provenance, and returns a reviewable item. The user confirms or edits it in the UI.

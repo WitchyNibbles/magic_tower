@@ -16,6 +16,6 @@ The frontend never receives Microsoft credentials and talks only to same-origin 
 
 ## Boundaries
 
-- **Graph connector:** uses authorization-code PKCE and a one-time encrypted state, calls `/me` only, verifies the configured object ID, reads only delegated mail/Teams chat scopes, normalizes bounded metadata/excerpts, and never decides whether text is work.
+- **Graph connector:** uses authorization-code PKCE and a one-time encrypted state, calls `/me` only, verifies the configured object ID, reads only the delegated mail scope, normalizes bounded metadata/excerpts, and never decides whether text is work.
 - **Agent intake:** receives normalized, redacted source content; produces proposed tasks plus evidence and confidence. A human reviews proposals before any action.
 - **Dispatch adapter:** creates a bounded instruction for an installed Codex or Claude Code integration. It does not grant shell, Graph, or mailbox access beyond that integration's own consent.

@@ -4,7 +4,7 @@
 
 *A quiet, local-first tower for tending the work that finds you.*
 
-Magic Tower is a local-first workboard for tasks found in a specific Outlook mailbox and Teams conversations. Microsoft Graph ingestion and agent-driven work extraction are deliberately opt-in: nothing crosses the threshold until you invite it in.
+Magic Tower is a local-first workboard for tasks found in a specific Outlook mailbox. Microsoft Graph ingestion and agent-driven work extraction are deliberately opt-in: nothing crosses the threshold until you invite it in.
 
 ## Develop the API with uv
 
@@ -105,14 +105,14 @@ On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to
 
 - A clean local dashboard can filter, inspect, update, and dispatch pending work with source evidence.
 - SQLite-backed work items, sources, evidence, agent proposals, and auditable dispatch records.
-- Delegated Microsoft OAuth with PKCE, `/me`-only Outlook and Teams-chat ingestion, bounded excerpts, and encrypted local token storage.
+- Delegated Microsoft OAuth with PKCE, `/me`-only Outlook ingestion, bounded excerpts, and encrypted local token storage.
 - An installable Codex plugin/skill plus a Claude Code command and loopback-only JSON CLI in `scripts/pending-work`.
 
 ## Configure the Graph familiar
 
-Register a Microsoft Entra application for the intended work/school account. Add the exact redirect URI `http://localhost:8787/api/auth/callback` (matching `MICROSOFT_REDIRECT_URI`, so use your own port if you changed `WEB_PORT`), configure delegated read-only scopes `User.Read`, `Mail.Read`, `Chat.Read`, and `offline_access`, then set the tenant, client, target object ID, and separately generated `APP_ENCRYPTION_KEY` in `.env`. Some tenants require administrator consent for Teams scopes. The connector uses `/me` only and rejects a sign-in whose object ID does not match `MICROSOFT_TARGET_USER_ID`.
+Register a Microsoft Entra application for the intended work/school account. Add the exact redirect URI `http://localhost:8787/api/auth/callback` (matching `MICROSOFT_REDIRECT_URI`, so use your own port if you changed `WEB_PORT`), configure delegated read-only scopes `User.Read`, `Mail.Read`, and `offline_access`, then set the tenant, client, target object ID, and separately generated `APP_ENCRYPTION_KEY` in `.env`. The connector uses `/me` only and rejects a sign-in whose object ID does not match `MICROSOFT_TARGET_USER_ID`.
 
-Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook/Teams metadata. It never sends messages or acts in Microsoft 365.
+Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook metadata. It never sends messages or acts in Microsoft 365.
 
 If the database holds `sources` rows written before the promotion heuristic existed, call `POST /api/sync/backfill` once to offer them to it; it never runs on its own (not at startup, not from `POST /api/sync`), reaches no network, and is safe to call again -- a source it has already judged, promoted or not, is never re-judged. Its response reports `considered`, `new_work_items`, `judged_without_context` and `promoted_without_owner_check` separately, because a bare `new_work_items` count cannot tell "nothing left to backfill" apart from "backfilled some and the heuristic declined all of it".
 
@@ -124,7 +124,7 @@ The promotion heuristic in `app/services/promotion.py` can only be trusted once 
 
 `heuristic_export` reads the database a sync wrote to and never talks to Microsoft Graph. `heuristic_eval` reads only the labeled-sample JSON file it produces -- no database, no Graph credentials -- so it also runs safely on a machine that has never synced real mail: with no sample file present it prints a message and exits 0, and `MAGIC_TOWER_REQUIRE_SAMPLE=1` turns that (and an exported-but-never-labeled sample) into a hard failure instead, for the one run that is meant to prove the heuristic was actually checked. See `app/tools/labeled-sample.example.json` for the (entirely synthetic) row shape.
 
-See [`docs/second-pc.md`](docs/second-pc.md) for the full, ordered, pasteable sequence -- from `git clone` to a printed precision/recall number -- including every prerequisite (the five `MICROSOFT_*` settings, `APP_ENCRYPTION_KEY`, `LOCAL_API_TOKEN`, and the `Chat.Read` admin-consent risk) and exactly how far it runs without real Microsoft credentials.
+See [`docs/second-pc.md`](docs/second-pc.md) for the full, ordered, pasteable sequence -- from `git clone` to a printed precision/recall number -- including every prerequisite (the five `MICROSOFT_*` settings, `APP_ENCRYPTION_KEY`, and `LOCAL_API_TOKEN`) and exactly how far it runs without real Microsoft credentials.
 
 ## Agent integration
 

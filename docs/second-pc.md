@@ -25,14 +25,7 @@ Before touching a keyboard on the second PC, have on hand:
 
 - A Microsoft Entra application registration for the target work/school account,
   with the exact redirect URI `http://localhost:8787/api/auth/callback` and
-  delegated read-only scopes `User.Read`, `Mail.Read`, `Chat.Read`, and
-  `offline_access`.
-- **The `Chat.Read` admin-consent risk.** Some tenants require an administrator
-  to grant consent for delegated Teams scopes, and the owner of this mailbox may
-  not hold or be able to obtain that consent. This is a risk to plan around, not
-  a settled requirement: if consent is refused or unavailable, drop `Chat.Read`
-  from the app registration and skip Teams ingestion entirely -- mail-only sync,
-  export, and heuristic evaluation all still work with `Mail.Read` alone.
+  delegated read-only scopes `User.Read`, `Mail.Read`, and `offline_access`.
 - Five `MICROSOFT_*` settings the app registration above produces:
   `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`,
   `MICROSOFT_TARGET_USER_ID` (the signed-in account's Entra object ID), and
@@ -119,7 +112,7 @@ Sign in through the GUI's Microsoft sign-in control, which calls
 `GET /api/auth/microsoft/start` -- **this is the first line in this document
 that needs real Microsoft credentials to succeed** (see below). Once signed in,
 trigger a sync from the GUI, which calls `POST /api/sync`; it never sends mail
-or acts in Microsoft 365, only reads bounded Outlook/Teams metadata.
+or acts in Microsoft 365, only reads bounded Outlook metadata.
 
 ## 5. Export the synced sources for hand-labeling
 
@@ -185,7 +178,7 @@ answers every request cleanly rather than crashing.
 What "was exercised" covers is worth splitting in three, because one documented
 command was not among them.
 
-**Run exactly as written, on a machine with no Outlook or Teams access:**
+**Run exactly as written, on a machine with no Outlook access:**
 
 - Step 2's two `python3 -c` lines, and `docker compose build` in step 3: exit 0.
   (Step 1 is a plain `git clone` and was not re-run -- this was written from a
