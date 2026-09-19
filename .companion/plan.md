@@ -26,7 +26,7 @@ check.
 Probe note: script-shaped; falsify by hand, each category separately.
 
 ## T02 — Make the dead-code baseline true
-- status: todo
+- status: verified
 - complexity: simple
 - deps: T01
 - done-when: `test "$(bash scripts/deadcode.sh | tail -1)" -le "$(cat .companion/deadcode.baseline)" && test "$(cat .companion/deadcode.baseline)" -lt 9`
@@ -35,6 +35,14 @@ Probe note: script-shaped; falsify by hand, each category separately.
 claim at `.companion/progress.md:92` — create the file if it is wanted, or correct the line if it is
 not; do not delete accurate history to satisfy a checker. Then write the true total. T01 removes the
 leave-no-trace findings; this task removes the rest and records what remains.
+**Verified 2026-09-20.** Gate **7** (vulture 3, knip 1, css 1, docs 2), baseline **7**, both
+clauses falsified individually. The `frontend/.gitignore` claim was resolved by *creating* the file:
+`.companion/progress.md:92` is a dated record pinned to `bfcc54d`, where the absence was true, so
+no accurate history was deleted. The two remaining docs findings are this plan's own citations of
+the client module T04 will add and the setup guide T12 will ship — future deliverables, left cited
+in their own task bodies on purpose. Each takes the gate down by one as it lands, so a later task
+may lower the baseline but must never raise it. Spelling either path in backticks *here* costs a
+finding per line, which is how this note first pushed the gate 7 to 9 before being rewritten.
 Probe note: config-shaped; falsify by hand.
 
 ## T03 — Jira settings, failing closed
