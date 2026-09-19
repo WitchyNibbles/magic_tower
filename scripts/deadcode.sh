@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Dead-code gate: one checker per language, summed into a single integer.
+# Dead-code gate: one checker per language (plus CSS and documentation), summed
+# into a single integer.
 #
 # Prints one labeled line per checker, then the total alone on the last line --
 # `tail -1` is the whole contract. A checker that cannot run at all (bad
 # invocation, missing tool, crashed interpreter) aborts the script instead of
-# folding into the total as a silent zero: both checkers below exit nonzero
-# when they simply *find* dead code, so their exit status alone cannot tell a
-# clean run apart from a crash, and their real output has to be inspected too.
+# folding into the total as a silent zero: every checker below exits nonzero
+# when it simply *finds* dead code, so its exit status alone cannot tell a
+# clean run apart from a crash, and its real output has to be inspected too.
 #
 # Callable from any working directory -- it resolves the repository root from
 # its own location, then `cd`s each checker to where its config and installed
@@ -14,9 +15,8 @@
 # `node_modules` has to already exist or knip's unresolved-import count
 # inflates).
 #
-# A third or fourth checker (dead CSS, dead docs) is another block shaped like
-# the two below: run it, validate its exit status and output, echo its count,
-# add it to `total`.
+# Another checker is another block shaped like the ones below: run it,
+# validate its exit status and output, echo its count, add it to `total`.
 set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,6 +130,40 @@ css_status=$?
     fail "the CSS checker did not produce a count -- treating as a crash, not zero findings"
 echo "custom properties (css): $css_count"
 total=$((total + css_count))
+
+# --- Documentation (dead references) ----------------------------------------
+# Delegated to scripts/deaddocs_check.py (kept as its own file, not a heredoc
+# like the two checkers above, so it can be unit-tested directly against a
+# temporary tree rather than only through the whole slow gate -- see
+# backend/tests/test_deaddocs_check.py). Its own module docstring records the
+# scope decisions (which doc locations, which of the four reference classes)
+# and the accepted false-positive classes.
+#
+# Unlike vulture/knip, this checker has no "found issues" exit code of its own
+# -- the count is its stdout, not its exit status -- so exit 0 is the only
+# normal outcome; anything else means an uncaught exception (a doc file it
+# could not read, a regex it could not compile, ...) and the checker never
+# produced a trustworthy count.
+# stderr is left unredirected on purpose, same as the CSS checker above: its
+# per-reference debug lines ("dead doc path ...") should reach the terminal
+# directly, not be swallowed and only surfaced on a crash.
+docs_tmp="$(mktemp)"
+python3 "$script_dir/deaddocs_check.py" "$repo_root" >"$docs_tmp"
+docs_status=$?
+case "$docs_status" in
+    0) ;;
+    *)
+        rm -f "$docs_tmp"
+        fail "the documentation checker exited $docs_status -- treating as a crash, not zero findings"
+        ;;
+esac
+docs_count="$(cat "$docs_tmp")"
+rm -f "$docs_tmp"
+printf '%s' "$docs_count" | grep -qE '^[0-9]+$' || \
+    fail "the documentation checker did not produce a count -- treating as a crash, not zero findings"
+echo "dead documentation (docs): $docs_count"
+total=$((total + docs_count))
+
 
 # --- Total -------------------------------------------------------------------
 echo "$total"
