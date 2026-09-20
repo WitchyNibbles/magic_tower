@@ -3,7 +3,13 @@
 Usage::
 
     cd backend
-    uv run python -m app.tools.jira_check
+    uv run --env-file ../.env python -m app.tools.jira_check
+
+``--env-file`` is load-bearing, not decoration: ``Settings`` resolves its
+``env_file=".env"`` against the current working directory (``app/config.py``),
+so the repository-root ``.env`` this project keeps its settings in is invisible
+from ``backend/`` unless it is named. Without the flag this command reports
+every required Jira setting as missing while correct ones sit on disk.
 
 Reads ``JIRA_SITE_URL``, ``JIRA_ACCOUNT_EMAIL``, ``JIRA_API_TOKEN`` and,
 optionally, ``JIRA_MANAGEMENT_PROJECT_KEY`` the same way the sync handler
@@ -35,7 +41,7 @@ from __future__ import annotations
 import sys
 
 from ..config import Settings, get_settings
-from ..integrations.jira import JiraClient, JiraConfigurationError, JiraError, Transport, default_transport
+from ..integrations.jira import JiraClient, JiraError, Transport, default_transport
 
 
 def run_check(settings: Settings, transport: Transport = default_transport) -> dict[str, object]:
@@ -73,15 +79,16 @@ def main() -> int:
     settings = get_settings()
     try:
         report = run_check(settings, transport=default_transport)
-    except JiraConfigurationError as error:
-        # ``JiraConfigurationError``'s own message already says "Jira is not
-        # configured: missing ..." (``app/integrations/jira.py``) -- no prefix
-        # here, or the observed output reads "Jira is not configured: Jira is
-        # not configured: missing ..." twice.
-        print(str(error), file=sys.stderr)
-        return 1
     except JiraError as error:
-        print(f"Jira request failed: {error}", file=sys.stderr)
+        # One branch, no prefix: every ``JiraError`` ``app/integrations/jira.py``
+        # raises already names itself ("Jira is not configured: missing ...",
+        # "Jira request failed with status 401", "Jira request failed", "Jira
+        # rate limit exceeded"). Prefixing any of them prints the subject twice
+        # -- "Jira request failed: Jira request failed" for the transport's
+        # generic branch (``jira.py``'s ``except Exception``), which is the one
+        # a DNS failure, a TLS failure, a timeout or unparseable JSON takes.
+        # ``JiraConfigurationError`` is a ``JiraError``, so it lands here too.
+        print(str(error), file=sys.stderr)
         return 1
     _print_report(report)
     return 0

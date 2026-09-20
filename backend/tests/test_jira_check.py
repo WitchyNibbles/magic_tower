@@ -172,3 +172,67 @@ def test_main_never_prints_the_configured_token_on_a_jira_error(monkeypatch, cap
     assert exit_code == 1
     assert SECRET_TOKEN not in captured.out
     assert SECRET_TOKEN not in captured.err
+
+
+# --- The exact lines docs/jira-setup.md quotes -----------------------------
+# ``docs/jira-setup.md`` reproduces this tool's output verbatim so the owner can
+# recognise a healthy result and a misconfigured one. Substring assertions leave
+# that quotation unpinned: dropping a whole line, renaming a label or collapsing
+# the identity line all keep ``"Owner Example" in out`` true while making the
+# document false. These three assert the full captured stream instead.
+
+
+def test_main_prints_the_healthy_report_lines_verbatim(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("JIRA_SITE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_ACCOUNT_EMAIL", "owner@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", SECRET_TOKEN)
+    monkeypatch.setenv("JIRA_MANAGEMENT_PROJECT_KEY", "OPS")
+    get_settings.cache_clear()
+    monkeypatch.setattr(jira_check, "default_transport", _transport([ISSUE], project_issues=[ISSUE, ISSUE, ISSUE]))
+
+    exit_code = jira_check.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == (
+        f"connected to https://example.atlassian.net as 'Owner Example' (accountId {OWNER_ACCOUNT_ID})\n"
+        "participation window: 1 issue(s)\n"
+        "management project 'OPS': 3 issue(s)\n"
+    )
+    assert captured.err == ""
+
+
+def test_main_prints_the_unconfigured_message_verbatim(monkeypatch, capsys) -> None:
+    for name in ("JIRA_SITE_URL", "JIRA_ACCOUNT_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    get_settings.cache_clear()
+
+    exit_code = jira_check.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.err == "Jira is not configured: missing JIRA_SITE_URL, JIRA_ACCOUNT_EMAIL, JIRA_API_TOKEN\n"
+    assert captured.out == ""
+
+
+def test_main_prints_a_request_failure_without_repeating_its_own_prefix(monkeypatch, capsys) -> None:
+    """``default_transport`` raises a bare ``JiraError("Jira request failed")``
+    for a DNS/TLS failure, a timeout or unparseable JSON (``app/integrations/
+    jira.py``). Every ``JiraError`` this connector raises already names itself,
+    so a prefix here renders that one as "Jira request failed: Jira request
+    failed" -- the same doubling the unconfigured branch avoids."""
+    monkeypatch.setenv("JIRA_SITE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_ACCOUNT_EMAIL", "owner@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", SECRET_TOKEN)
+    get_settings.cache_clear()
+
+    def failing_transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        raise JiraError("Jira request failed")
+
+    monkeypatch.setattr(jira_check, "default_transport", failing_transport)
+
+    exit_code = jira_check.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.err == "Jira request failed\n"
