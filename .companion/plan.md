@@ -214,7 +214,7 @@ when reverted in round 1; in the repair round `backend/app/services/jira_sync.py
 design, its whole increment being prose.
 
 ## T10 — Sync a chosen source
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T06
 - done-when: `cd backend && uv run pytest tests -q -k sync_kind_parameter`
@@ -224,6 +224,16 @@ from Python. Add an optional kind parameter defaulting to today's Graph behaviou
 breaks. An unknown kind must fail cleanly, not 500 — `UnknownSourceKindError` already exists
 (`sync_registry.py:35-39`). Update the CLI choices, which are hand-written in two places
 (`scripts/pending-work:139,146`) and pinned by `tests/agent_protocol/test_pending_work_cli.py:103`.
+**Verified 2026-09-20.** Attempt 1 (sonnet) shipped the parameter and 4 tests; the opus reviewer
+returned revise on a single blocking finding, and it was one clause of a docstring, so §4's textual
+exception applied rather than a repair round. The route dispatches any registered kind and the
+default is pinned against another *registered* kind, not merely an unregistered one. Gate **3**
+against baseline 7; leave-no-trace 0/0/0/0. **The 409 is the registry's fail-closed path only** --
+`run_sync` catches `SyncError` alone, so a handler raising `GraphError` returns 500, which I
+reproduced through the live route; it is pre-existing (the try/except is byte-identical at base) and
+is B148. The router tag rename to "source sync" is untested churn I accepted deliberately as B150,
+because leaving the Graph-only label would have been this contract's twelfth stale sentence.
+Probe note: `backend/app/api/sync.py` and `scripts/pending-work` each redden when reverted.
 
 ## T11 — Jira in the GUI
 - status: todo
