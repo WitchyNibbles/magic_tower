@@ -265,7 +265,7 @@ reverted one at a time; the API module is VACUOUS under vitest, a type-only unio
 typechecks, and RED under `tsc -b`, which the build runs — so AC3 is what pins that site.
 
 ## T12 — Prove it against the owner's real Jira
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T08, T09, T11, T02
 - done-when: `cd backend && uv run pytest tests ../tests/agent_protocol -q && cd ../frontend && npm run test -- --run && cd .. && test "$(gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --limit 1 --json headSha,conclusion -q '.[0].headSha+":"+.[0].conclusion')" = "$(git rev-parse HEAD):success"`
