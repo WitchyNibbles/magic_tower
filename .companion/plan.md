@@ -154,7 +154,7 @@ Probe note: `promotion.py` and `jira_sync.py` each redden the gate when reverted
 change is a docstring paragraph and reverts vacuous by design -- the pin lives in `promotion.py`.
 
 ## T08 — One ticket, not two
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T07
 - done-when: `cd backend && uv run pytest tests -q -k jira_dedupe`
@@ -165,6 +165,22 @@ part of the 55% → 94% recall jump). Without dedupe the same ticket lands twice
 when the poll catches up — nothing is invisible while waiting. Extract the issue key from
 notification mail to match the two, carry over any dismissal so a dismissed ticket stays dismissed,
 and keep evidence from both. Test both orderings: mail-then-API and API-then-mail.
+
+**Verified 2026-09-20.** Attempt 1 (opus) shipped the dedupe and 13 tests; the reviewer blocked on an
+`IntegrityError` only the production session can reach -- `link_issue` merely `db.add`ed the key row,
+and `SessionLocal` is `autoflush=False`, so two notification mails for one issue in one batch created
+two work items and failed the sync. All 13 tests used `Session(engine)`, whose autoflush default hides
+it. The fable repair added `db.flush()` in the reader plus a test on the production session factory,
+reworded two sentences its own code falsified, and closed a precedence gap that had survived mutation.
+Probe RED on all five implementation files in round 1 and RED again on the repair increment. My own
+matrix: **15/15 RED, no survivors**, control green at 15. Gate **3** against baseline 7;
+leave-no-trace 0/0/0/0. **AC9's letter holds with one qualification worth keeping:** `should_promote`
+gates before the merge, so an issue assigned to somebody else never merges into the mail item its
+notification created -- the count stays one, because T07's rule rejects the API arrival rather than
+adding a row. Five surviving mutations the reviewer found are B136-B137; the shipped code is correct
+in each, only the tests are missing.
+Probe note: `jira_dedupe.py` is the load-bearing file; the migration reverts VACUOUS by design, since
+its whole change is a docstring.
 
 ## T09 — Browse a whole project without flooding the queue
 - status: todo
