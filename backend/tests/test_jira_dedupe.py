@@ -9,8 +9,9 @@ for the mail and ``jira:{id}`` for the issue.
 **The ordering the owner chose.** Mail promotes immediately and the API replaces
 it when the poll catches up, so nothing is invisible while waiting. "Replaces"
 means the same ``WorkItem`` row is re-pointed at the issue -- the tests below
-assert its ``id`` does not change -- so a dismissal, or any other edit made while
-only the mail existed, survives the replacement by never being rewritten.
+assert its ``id`` does not change. The replacement rewrites the title, kind,
+``source_external_id`` and link and nothing else, so a dismissal survives it --
+as do ``priority``, ``summary``, ``assigned_agent`` and ``due_at``.
 
 **What matches the two.** The Jira issue key: taken from the issue itself on the
 API side, and extracted from notification mail on the other. Extraction is gated
@@ -27,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.database import engine
+from app.database import SessionLocal, engine
 from app.integrations.jira import JiraClient
 from app.models import SourceKind, WorkItem, WorkStatus
 from app.schemas import WorkItemCreate
@@ -99,6 +100,15 @@ def test_jira_dedupe_takes_the_key_from_a_browse_link_in_the_body() -> None:
     ("Dana assigned an issue to you"); the link in the body is what identifies it."""
     mail = _mail_signal(title="Dana assigned an issue to you",
                         excerpt=f"Open it at {SITE_URL}/browse/OPS-42 to get started.")
+
+    assert issue_key(mail) == "OPS-42"
+
+
+def test_jira_dedupe_prefers_the_browse_link_over_a_key_in_the_subject() -> None:
+    """The documented precedence: when the subject and the body's link name
+    different issues, the link is the one the notification is about."""
+    mail = _mail_signal(title="(OPS-7) blocks the release",
+                        excerpt=f"See {SITE_URL}/browse/OPS-42 for the fix.")
 
     assert issue_key(mail) == "OPS-42"
 
@@ -195,6 +205,29 @@ def test_jira_dedupe_carries_the_same_mail_across_as_evidence_only_once() -> Non
         assert _promote_mail(session, _mail_signal()) == 0
 
         assert len(_the_item(session).evidence) == 2
+
+
+def test_jira_dedupe_folds_two_notifications_for_one_issue_from_one_sync() -> None:
+    """Assigned, then commented on: two notifications for one issue in a single
+    inbox window, run through the session the API serves requests with.
+
+    ``SessionLocal`` is built with ``autoflush=False``; every other test here uses
+    ``Session(engine)``, whose default flushes before each query. Under the
+    production session the second mail has to find the link the first one added
+    a moment earlier in the same batch -- otherwise the batch creates a second
+    work item, and the final commit trips the ``issue_key`` uniqueness that is
+    meant to be the floor, not the common path.
+    """
+    assigned = _mail_signal(external_id="outlook:1", title="(OPS-1) assigned to you")
+    comment = _mail_signal(external_id="outlook:2", title="(OPS-1) new comment")
+    with SessionLocal() as session:
+        persist_signals(session, [assigned, comment])
+
+        assert promote_signals(session, [assigned, comment], (OWNER_ADDRESS,)) == 1
+
+        item = _the_item(session)
+        assert item.source_external_id == "outlook:1"
+        assert sorted(evidence.external_id for evidence in item.evidence) == ["outlook:1", "outlook:2"]
 
 
 def test_jira_dedupe_keeps_two_different_issues_apart() -> None:

@@ -21,9 +21,9 @@ a bare ``ABC-123`` in a colleague's subject line is as likely to be a release
 name as an issue key, and matching on it would fold an unrelated message into
 somebody's ticket. Which work item holds which key is stored
 (``models.WorkItemIssueKey``) rather than re-derived: the two arrivals are
-separated by however long the poll takes, and by then nothing on the stored work
-item says which issue it is about -- its ``external_id`` is the message's, and
-the excerpt the key was read from is a column the database holds encrypted.
+separated by however long the poll takes, and the stored key lets the second
+one find the first by a single lookup instead of re-parsing every mail item's
+title and excerpt.
 """
 
 from __future__ import annotations
@@ -90,7 +90,16 @@ def issue_key(signal: dict[str, Any]) -> str | None:
 
 
 def work_item_for_issue(db: Session, key: str) -> WorkItem | None:
-    """The work item already holding this issue, from either arrival."""
+    """The work item already holding this issue, from either arrival.
+
+    Flushes before asking. The session the API serves requests with
+    (``database.SessionLocal``) is ``autoflush=False``, so a link
+    :func:`link_issue` added for an earlier signal in the same batch is still
+    pending when the next signal for the same issue gets here; without the
+    flush this query cannot see it, the batch creates a second work item, and the
+    final commit fails on the ``issue_key`` unique constraint.
+    """
+    db.flush()
     return db.scalar(
         select(WorkItem)
         .join(WorkItemIssueKey, WorkItemIssueKey.work_item_id == WorkItem.id)

@@ -8,10 +8,11 @@ two ``external_id``s share nothing, so the issue key is what matches them
 for an issue that already has one is refused by the database, not only by the
 promoter's lookup.
 
-The table is created empty. Existing work items are left unlinked, so a mail
-item promoted before this revision is not matched against its issue until it is
-seen again; nothing here guesses a key from stored rows, and an unlinked item is
-exactly what the code before this revision already produced.
+The table is created empty. Existing work items are left unlinked, and stay
+so: the promoter skips a mail it has already promoted before it reads a key, so
+an item promoted before this revision is never matched against its issue.
+Nothing here guesses a key from stored rows, and an unlinked item is exactly
+what the code before this revision already produced.
 
 A new table cannot be confused with the pre-Alembic schema revision ``0001``
 recognises: that check reads only the four baseline tables and their columns, and
