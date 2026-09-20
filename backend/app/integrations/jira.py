@@ -131,8 +131,8 @@ class JiraClient:
         return self._get(f"{JIRA_API_ROOT}/myself")
 
     def search_participation_issues(self) -> list[dict[str, Any]]:
-        """Fetch every issue in the caller's participation window (``JIRA_PARTICIPATION_JQL``)
-        via ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
+        """Fetch up to ``JIRA_SEARCH_MAX_PAGES`` pages of the caller's participation
+        window (``JIRA_PARTICIPATION_JQL``) via ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
         (CHANGE-2046) and stays removed. Requests ``JIRA_SEARCH_FIELDS`` explicitly, since this
         endpoint otherwise returns only ``id``. Follows ``nextPageToken`` cursor pagination:
         there is no ``total``/``startAt`` on this endpoint, so an absent token is the only
