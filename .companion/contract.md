@@ -82,7 +82,7 @@ and temp files become a checkable gate.
 - AC12: Missing or blank Jira settings fail closed with named env vars, never a stack trace.
   - verify: `cd backend && uv run pytest tests -q -k jira_configuration`
 - AC13: The GUI shows Jira items with a working source filter.
-  - verify: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/ac13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('.companion/scratch/ac13.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
+  - verify: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/ac13.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('../.companion/scratch/ac13.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
 - AC14: The documented run command starts the stack.
   - verify: `WEB_PORT=8790 docker compose up -d --wait api && docker compose exec -T api python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)" && docker compose down`
 - AC15: CI is green for the exact commit at HEAD.

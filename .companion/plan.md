@@ -236,16 +236,21 @@ because leaving the Graph-only label would have been this contract's twelfth sta
 Probe note: `backend/app/api/sync.py` and `scripts/pending-work` each redden when reverted.
 
 ## T11 — Jira in the GUI
-- status: blocked(the done-when and AC13 resolve the vitest report against `frontend/` and can never exit 0 for any implementation; the code is merged, reviewed and green)
+- status: verified
 - complexity: normal
 - deps: T10
-- done-when: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/t11.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('.companion/scratch/t11.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
+- done-when: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/t11.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('../.companion/scratch/t11.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
 
 The frontend is exhaustive on the source union: `frontend/src/api.ts:2`, the `Record<SourceKind,…>`
 labels (`frontend/src/lib/work-items.ts:7`) and the hardcoded filter list
 (`frontend/src/components/mail-nav.tsx:8`). Add Jira to all three, show the issue key and link back
 to the browse URL, and make the source filter select Jira items. Gate note: `-t` exits 0 on zero
 matches, hence the counted assertion above.
+**Verified 2026-09-20.** The code shipped in `35c2057` and `c33b08e` and was reviewed green; the
+gate itself was broken by me when I moved scratch out of `/tmp`: vitest wrote to
+`../.companion/scratch/t11.json` while the Python check ran with cwd `frontend/` and opened
+`.companion/scratch/t11.json`, so it could never exit 0 for any implementation. Corrected here and
+in AC13, then run: **2 passed, 0 failed, exit 0**.
 **Blocked 2026-09-20 on the gate alone, not on the code.** The done-when above, and AC13, which is
 the same line, can never exit 0: `cd frontend` persists into the `python3 -c` after the `;`, so
 python resolves the report against the frontend directory while vitest wrote it to the repo root.
