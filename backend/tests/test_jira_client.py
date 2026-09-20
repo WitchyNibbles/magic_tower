@@ -4,9 +4,9 @@ an injectable transport, a GET-only guard, and no network reachable from tests.
 Jira differs from Graph in one respect the tests below pin: there is no OAuth
 token exchange in front of it, so the client authenticates straight off
 ``Settings`` with a classic API token as Basic auth over ``email:token``
-against ``https://<site>.atlassian.net`` -- never the scoped-token host,
-which would 401. Each behaviour is falsified individually: a stub transport
-or a monkeypatched ``urlopen`` isolates exactly one rule per test.
+against ``https://<site>.atlassian.net``. Each behaviour is falsified
+individually: a stub transport or a monkeypatched ``urlopen`` isolates
+exactly one rule per test.
 """
 
 from __future__ import annotations
@@ -91,24 +91,6 @@ def test_jira_client_strips_a_path_from_the_configured_site_url() -> None:
     client.myself()
 
     assert calls == ["https://example.atlassian.net/rest/api/3/myself"]
-
-
-def test_jira_client_search_issues_sends_jql_and_returns_the_issue_list() -> None:
-    calls: list[str] = []
-
-    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
-        calls.append(url)
-        assert method == "GET"
-        return {"issues": [{"key": "PROJ-1"}, {"key": "PROJ-2"}]}
-
-    client = JiraClient("https://example.atlassian.net", "owner@example.com", "token", transport=transport)
-    issues = client.search_issues("assignee=currentUser()", fields=("summary", "status"))
-
-    assert issues == [{"key": "PROJ-1"}, {"key": "PROJ-2"}]
-    assert len(calls) == 1
-    assert calls[0].startswith("https://example.atlassian.net/rest/api/3/search?")
-    assert "jql=assignee%3DcurrentUser%28%29" in calls[0]
-    assert "fields=summary,status" in calls[0]
 
 
 def test_jira_client_default_transport_rejects_non_get_methods() -> None:

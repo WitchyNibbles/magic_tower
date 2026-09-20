@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
@@ -104,9 +104,3 @@ class JiraClient:
 
     def myself(self) -> dict[str, Any]:
         return self._get(f"{JIRA_API_ROOT}/myself")
-
-    def search_issues(self, jql: str, fields: Sequence[str] | None = None, max_results: int = 50) -> list[dict[str, Any]]:
-        query = f"jql={quote(jql, safe='')}&maxResults={max_results}"
-        if fields:
-            query += f"&fields={quote(','.join(fields), safe=',')}"
-        return self._get(f"{JIRA_API_ROOT}/search?{query}").get("issues", [])
