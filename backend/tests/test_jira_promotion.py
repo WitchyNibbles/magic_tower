@@ -222,7 +222,8 @@ def test_jira_promotion_stores_everything_and_promotes_nothing_when_myself_fails
 
 
 def test_jira_promotion_fails_closed_when_myself_names_no_account_id() -> None:
-    """A 200 with an unexpected body is as unrecognised as a failed call."""
+    """A 200 whose JSON object omits ``accountId`` is as unrecognised as a failed
+    call. A body that is not an object is a different path and is not pinned here."""
     with Session(engine) as session:
         result = _sync_jira(_configured_settings(), db=session,
                             jira_client=_client([_issue("10001", OWNER_ACCOUNT_ID)], account_id=None))
@@ -234,9 +235,10 @@ def test_jira_promotion_fails_closed_when_myself_names_no_account_id() -> None:
 def test_jira_promotion_does_not_let_the_backfill_promote_a_stored_jira_source() -> None:
     """The backfill has neither the stored assignee nor an owner ``accountId``, so
     the assignment rule cannot be satisfied there and the issue stays out of the
-    queue. That is the fail-closed direction: the owner's manual promote (T08) is
-    the way a Jira issue enters the queue outside a live sync, not a guess made
-    from a row that never kept who it was assigned to.
+    queue. That is the fail-closed direction: the owner's manual promote
+    (``POST /api/sources/{id}/promote``) is the way a Jira issue enters the queue
+    outside a live sync, not a guess made from a row that never kept who it was
+    assigned to.
     """
     with Session(engine) as session:
         session.add(Source(kind=SourceKind.jira, external_id="jira:99", subject="Watched issue",

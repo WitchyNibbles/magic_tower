@@ -77,15 +77,19 @@ def _owner_account_id(client: JiraClient) -> str | None:
     """The ``accountId`` of the account the configured API token belongs to, or
     ``None`` when Jira will not say.
 
-    Errors are swallowed on purpose, and only here. The issues have already been
-    fetched by the time this is called, and ``/myself`` failing is no reason to
-    throw them away or fail the sync -- they are still stored and browsable. It is
-    every reason not to promote any of them: ``should_promote``'s Jira rule reads
-    ``None`` as an unrecognised owner and declines, so a failed lookup costs the
-    queue recall for one sync rather than filling it with issues nobody checked.
+    ``JiraError`` is swallowed on purpose, and only here. The issues have already
+    been fetched by the time this is called, and a ``/myself`` that errors is no
+    reason to throw them away or fail the sync -- they are still stored and
+    browsable. It is every reason not to promote any of them: ``should_promote``'s
+    Jira rule reads ``None`` as an unrecognised owner and declines, so a failed
+    lookup costs the queue recall for one sync rather than filling it with issues
+    nobody checked.
 
-    A response with no ``accountId`` needs no handling of its own here: it yields
-    the same ``None`` the failure path returns, and the rule treats it the same.
+    A JSON *object* with no ``accountId`` needs no handling of its own here: it
+    yields the same ``None`` the error path returns, and the rule treats it the
+    same. A 200 whose body is not an object at all is **not** handled -- ``.get``
+    raises ``AttributeError`` and the sync fails after the issues were stored.
+    Promotion stays closed either way; what is unproven is the sync surviving it.
     """
     try:
         return client.myself().get("accountId")

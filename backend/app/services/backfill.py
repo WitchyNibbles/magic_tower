@@ -45,7 +45,8 @@ the issue's assignee and the owner's Atlassian ``accountId``, and this module ha
 neither: the assignee is carried on the live signal rather than stored, and no
 setting or table holds the account ID. So a Jira row is declined here whoever it
 is assigned to -- never promoted on a guess -- and the owner's manual promote
-(T08) is how one enters the queue outside a live sync. These rows are not counted
+(``POST /api/sources/{id}/promote``) is how one enters the queue outside a live
+sync. These rows are not counted
 by ``judged_without_context``: ``persist_signals`` writes them a context row like
 any other, and the count is about the row, not about which rule could fire on it.
 
