@@ -124,6 +124,12 @@ class JiraClient:
         assert site_url is not None and account_email is not None and api_token is not None
         return cls(site_url, account_email, api_token.get_secret_value(), transport=transport)
 
+    @property
+    def base_url(self) -> str:
+        """The validated ``https://<site>.atlassian.net`` root, for a caller (the
+        sync handler) that needs to build a browse link rather than an API path."""
+        return self._base_url
+
     def _get(self, path: str) -> dict[str, Any]:
         return self._transport("GET", f"{self._base_url}{path}", self._headers, None)
 
@@ -149,7 +155,11 @@ class JiraClient:
             if next_page_token is not None:
                 params["nextPageToken"] = next_page_token
             response = self._get(f"{JIRA_API_ROOT}/search/jql?{urlencode(params)}")
-            issues.extend(response.get("issues", []))
+            # ``or []``, not a bare ``.get(..., [])`` default: a malformed
+            # ``{"issues": null}`` response returns ``None`` for a present key, so
+            # the default alone never fires and ``.extend(None)`` raises
+            # ``TypeError`` instead of the ``JiraError`` a sync's caller catches.
+            issues.extend(response.get("issues") or [])
             next_page_token = response.get("nextPageToken")
             if not next_page_token:
                 break

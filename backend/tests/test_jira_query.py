@@ -199,3 +199,16 @@ def test_jira_query_extracts_plain_text_from_nested_adf_content() -> None:
 
 def test_jira_query_extract_plain_text_returns_none_for_a_missing_description() -> None:
     assert extract_adf_plain_text(None) is None
+
+
+def test_jira_query_treats_a_null_issues_array_as_empty_instead_of_erroring() -> None:
+    """A malformed ``{"issues": null}`` response must not raise a bare ``TypeError``
+    out of the connector's own exception hierarchy -- a caller wrapping a sync in
+    ``except JiraError`` (T06) would not catch it."""
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        return {"issues": None}
+
+    issues = _client(transport).search_participation_issues()
+
+    assert issues == []

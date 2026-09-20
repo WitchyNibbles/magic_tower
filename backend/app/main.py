@@ -5,6 +5,7 @@ from sqlalchemy.exc import StatementError
 from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
+from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
