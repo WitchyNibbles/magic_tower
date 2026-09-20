@@ -94,8 +94,8 @@ def test_jira_client_strips_a_path_from_the_configured_site_url() -> None:
 
 
 def test_jira_client_default_transport_rejects_non_get_methods() -> None:
-    """The GET-only guard lives in the transport actually used against the network,
-    not only in the client -- a caller cannot smuggle a write past it."""
+    """The client only ever issues GET; the guard that enforces it lives in
+    ``default_transport``, the transport actually used against the network."""
     try:
         default_transport("POST", "https://example.atlassian.net/rest/api/3/issue", {}, {"fields": {}})
     except JiraError as error:

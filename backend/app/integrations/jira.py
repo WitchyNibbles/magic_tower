@@ -39,7 +39,9 @@ class JiraError(RuntimeError):
 
 class JiraConfigurationError(JiraError):
     """Raised when the configured Jira connection cannot be used as given --
-    missing settings, or a site URL whose shape would 401 or never resolve."""
+    missing settings, or a site URL that is not a full ``https://<host>`` URL.
+    Host identity is not checked: a well-formed https URL pointing somewhere
+    other than the site is accepted here and fails at the request."""
 
 
 class JiraRateLimitError(JiraError):
