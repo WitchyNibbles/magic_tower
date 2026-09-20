@@ -128,7 +128,7 @@ Probe note: `backend/app/services/jira_sync.py` is the load-bearing file; RED on
 implementation files reverted one at a time, and RED again on the repair increment.
 
 ## T07 — Promote only what is assigned to you
-- status: todo
+- status: verified
 - complexity: complex
 - deps: T06
 - done-when: `cd backend && uv run pytest tests -q -k jira_promotion`
@@ -139,6 +139,19 @@ promotes; reporter, creator, watcher and voter involvement is stored and browsab
 promoted — those are things being followed, not owed. Identifying "the owner" needs care: nothing
 persists owner identity today, and Jira uses `accountId`, not email. Decide and document how the
 owner is recognised. Each rule falsifiable on its own: stub its input, confirm the suite reddens.
+**Verified 2026-09-20.** Attempt 1 (opus) shipped the rule and 12 tests; the reviewer (fable)
+approved with three advisories, two of them stale sentences I fixed myself. The owner is recognised
+by the Atlassian `accountId` of the account the API token belongs to, read from `/myself` per sync
+-- the same account `currentUser()` in the participation JQL already means -- and the assignee rides
+on the normalized signal, since the schema forbids a new `sources` column. All seven of the worker's
+mutations reddened under my own matrix, each replacement asserted present before applying, with a
+comment-only negative control green at 12. Gate **3** against baseline 7; leave-no-trace 0/0/0/0.
+The rewritten T06 test is a legitimate replacement: it pinned the unconditional promotion this task
+removes and named T07 as its replacer. **AC7's four named involvements -- watcher, voter, reporter,
+creator -- appear in no test**; they share the assignee branch and the reviewer reproduced the
+behaviour, so it is B129, not a blocker.
+Probe note: `promotion.py` and `jira_sync.py` each redden the gate when reverted; `backfill.py`'s
+change is a docstring paragraph and reverts vacuous by design -- the pin lives in `promotion.py`.
 
 ## T08 — One ticket, not two
 - status: todo
