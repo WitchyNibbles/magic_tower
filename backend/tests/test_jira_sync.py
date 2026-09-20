@@ -2,10 +2,13 @@
 ``Source`` rows and dispatches through the same envelope every registered kind
 returns (``app/services/sync.py:sync``).
 
-Each rule is falsified individually: dropping the enum member, the registration
-call, or the normalization step reddens exactly the test that pins it. No test
-here reaches the network -- everything goes through the injectable ``jira_client``
-kwarg, the same seam ``test_jira_query.py`` and ``test_jira_client.py`` use.
+Dropping the enum member, the registration call, or any line of the normalization
+step reddens exactly the test that pins it. That is not yet true of every line
+here -- ``synced_at``, the ``new_work_items`` count and the two ``db is not None``
+guards survive mutation, mirroring gaps ``_sync_graph``'s own tests have (B128).
+No test here reaches the network -- everything goes through the injectable
+``jira_client`` kwarg, the same seam ``test_jira_query.py`` and
+``test_jira_client.py`` use.
 """
 
 from __future__ import annotations
@@ -127,10 +130,11 @@ def test_jira_sync_stores_an_issue_with_no_key_and_no_fields_block() -> None:
 
 
 def test_jira_sync_keeps_one_signal_for_an_issue_repeated_across_two_pages() -> None:
-    """``search_participation_issues`` follows ``nextPageToken`` cursors over an
-    ``ORDER BY updated DESC`` result, so an issue whose ``updated`` changes mid-walk
-    moves back to the front and can be handed out on two pages. The dedup in
-    ``_fetch_issue_signals`` is what keeps the envelope's ``count`` honest."""
+    """``search_participation_issues`` follows ``nextPageToken`` cursors, and
+    ``/search/jql`` guarantees nothing about consistency across pages while the
+    ``updated >= -15m`` window is re-evaluated per request -- so the same ``id``
+    can arrive twice. This pins the handling, not any particular cause: the dedup
+    in ``_fetch_issue_signals`` is what keeps the envelope's ``count`` honest."""
     settings = _configured_settings()
 
     with Session(engine) as session:

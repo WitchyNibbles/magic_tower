@@ -60,10 +60,12 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
 def _fetch_issue_signals(client: JiraClient) -> list[dict[str, Any]]:
     """Every participation issue, normalized and de-duplicated by ``external_id``
     -- mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
-    clauses are a set union and cannot themselves yield a duplicate; what can is
-    the cursor walk in ``search_participation_issues``, whose pages are ordered
-    by ``updated`` -- an issue updated between two page reads moves back to the
-    front of that ordering and is handed out on both."""
+    clauses are a set union and cannot themselves yield a duplicate. What is not
+    ruled out is the cursor walk in ``search_participation_issues``: ``/search/jql``
+    offers no cross-page consistency guarantee, and the ``updated >= -15m`` window
+    is re-evaluated per request, so the same ``id`` can arrive on two pages. Which
+    pagination mechanism would do that is not established here -- the dedup is
+    defensive, and the test pins the handling, not the cause."""
     rows = [_normalize_issue(issue, client.base_url) for issue in client.search_participation_issues()]
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:
