@@ -59,7 +59,7 @@ Add `jira_configuration_errors()` mirroring `graph_configuration_errors()` (`con
 returning env-var **names** only. Add the rows to `.env.example`. Values never enter the repo.
 
 ## T04 — Jira HTTP client
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T03
 - done-when: `cd backend && uv run pytest tests -q -k jira_client`
@@ -72,6 +72,15 @@ host, which would 401. Handle 429 with `Retry-After`. `httpx` is dev-only today:
 **Not a hard task — three sessions were killed at 600s.** The harness terminated each worker with
 "Background tasks still running after 600s; terminating"; nothing was committed and no transcript
 survived. The loop is now run with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`. Treat this as attempt 1.
+**Verified 2026-09-20.** Attempt 1 (sonnet) shipped the client and 13 tests; the reviewer blocked
+on a `search_issues` method the task never asked for, aimed at the search endpoint T05's body
+records as removed, with a test pinning that path. The opus repair deleted the method and its
+test and nothing else. Twelve tests remain, each reddened by a distinct mutation of mine with a
+comment-only negative control green. Gate **3** against baseline 7 — but see the backlog: vulture
+reads 0 only because the new classmethod reads `cls`, which suppresses three pre-existing false
+positives in the settings module, so the drop is an artefact, not a cleanup.
+Probe note: `backend/app/integrations/jira.py` is the one revertible implementation file; the
+repair round is pure deletion, so falsify it by grepping the tree for the removed endpoint.
 
 ## T05 — The participation query
 - status: todo
