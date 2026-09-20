@@ -115,3 +115,14 @@ def test_source_kind_choices_no_longer_offer_the_removed_teams_kind():
 
     assert parser.parse_args(["sources", "--kind", "outlook_email"]).kind == "outlook_email"
     assert parser.parse_args(["propose", "--source-kind", "manual"]).source_kind == "manual"
+
+
+def test_source_kind_choices_offer_the_jira_kind():
+    """T06 added ``jira`` to ``SourceKind``; the CLI's own copy of the list
+    (this file has no import path to ``app.models``) has to name it too, or a
+    caller filtering for Jira sources gets argparse's ``invalid choice`` instead
+    of an answer."""
+    parser = cli.build_parser()
+
+    assert parser.parse_args(["sources", "--kind", "jira"]).kind == "jira"
+    assert parser.parse_args(["propose", "--source-kind", "jira"]).source_kind == "jira"

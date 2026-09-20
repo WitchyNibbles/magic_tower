@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..services.backfill import backfill_promoted_sources
-from ..services.sync import SyncError, status, sync
+from ..services.sync import GRAPH_SOURCE_KIND, SyncError, status, sync
 from ..security import require_local_write_access
 
-router = APIRouter(prefix="/api/sync", tags=["Microsoft Graph sync"])
+router = APIRouter(prefix="/api/sync", tags=["source sync"])
 
 
 @router.get("/status")
@@ -18,9 +18,19 @@ def sync_status() -> dict[str, object]:
 
 
 @router.post("", dependencies=[Depends(require_local_write_access)])
-def run_sync(limit: int = Query(default=50, ge=1, le=100), db: Session = Depends(get_db)) -> dict[str, object]:
+def run_sync(
+    limit: int = Query(default=50, ge=1, le=100),
+    kind: str = Query(default=GRAPH_SOURCE_KIND),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Dispatch a sync for ``kind`` (default: Microsoft Graph, today's only caller-visible behaviour).
+
+    ``kind`` reaches ``sync()`` unchecked; an unregistered one comes back as
+    ``UnknownSourceKindError`` wrapped in ``SyncError`` (``app/services/sync.py``),
+    caught below the same way every other sync failure is -- a 409, never a 500.
+    """
     try:
-        return sync(get_settings(), db, limit=limit)
+        return sync(get_settings(), db, limit=limit, kind=kind)
     except SyncError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
