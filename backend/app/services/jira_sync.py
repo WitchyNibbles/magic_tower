@@ -8,15 +8,21 @@ route.
 
 Reuses the generic pieces the Graph handler already proved: ``persist_signals``
 stores a normalized signal as a ``Source`` idempotently, and ``promote_signals``
-decides which of them belong in the actionable queue. Promotion here is
-deliberately still the *email* heuristic (``app/services/promotion.py``), which
-has nothing Jira-shaped to read on a Jira signal -- no sender, no headers, no
-recipients -- and so promotes every fetched issue unconditionally through its
-last, permissive rule. That is a known, temporary overreach: restricting
-promotion to only the issues actually assigned to the owner is T07's job, not
-this task's (``.companion/plan.md``, T07 depends on T06). This handler's own
-job is narrower: fetch, normalize, store, and dispatch through the same
-envelope every other registered kind returns.
+decides which of them belong in the actionable queue. Every issue the
+participation window returns is stored and browsable; only the ones assigned to
+the owner are promoted (AC7), which ``promotion.should_promote`` decides through
+its Jira rule. Reporter, creator, watcher and voter involvement is followed, not
+owed, so it stays out of the queue.
+
+**Who the owner is.** The account the configured API token belongs to, named by
+its Atlassian ``accountId`` and read from ``GET /rest/api/3/myself`` once per
+sync (:func:`_owner_account_id`). Nothing in this application persists an owner
+identity, and Jira reports an assignee as an ``accountId`` rather than an email,
+so ``JIRA_ACCOUNT_EMAIL`` cannot be compared against ``fields.assignee``. The
+token owner is also what ``currentUser()`` in ``JIRA_PARTICIPATION_JQL`` already
+means, so this recognises the owner by the same account that chose the window.
+The lookup is not a new setting for the owner to fill in, and it fails closed:
+an unreachable or unrecognisable ``/myself`` promotes nothing at all.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..integrations.jira import JiraClient
+from ..integrations.jira import JiraClient, JiraError
 from .graph import persist_signals
 from .promotion import promote_signals
 from .sync import SyncError
@@ -45,6 +51,15 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
     ``external_id`` follows the existing ``"kind:{id}"`` convention (``jira:{id}``,
     parallel to ``outlook:{id}``) -- Jira's numeric ``id`` is used rather than its
     human-editable ``key``, which a project rename or a moved issue can change.
+
+    ``assignee_account_id`` is the one Jira-shaped field promotion reads (AC7). It
+    is carried on the signal and not into a new column: ``sources`` is pinned to
+    its exact column set (``alembic/versions/0001_initial_schema.py``), and the
+    verdict this field produces is already durable in ``source_promotions`` and
+    ``work_items``. The cost is that a backfill, which rebuilds signals from stored
+    rows alone, cannot re-decide a Jira source on its merits and declines it.
+    ``fields.assignee`` is ``null`` on an unassigned issue -- a present, empty key
+    -- so the ``or {}`` is what keeps this from raising on one.
     """
     fields = issue.get("fields") or {}
     key = issue.get("key")
@@ -54,7 +69,28 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
         "title": fields.get("summary") or FALLBACK_TITLE,
         "source_url": f"{base_url}/browse/{key}" if key else None,
         "observed_at": fields.get("updated"),
+        "assignee_account_id": (fields.get("assignee") or {}).get("accountId"),
     }
+
+
+def _owner_account_id(client: JiraClient) -> str | None:
+    """The ``accountId`` of the account the configured API token belongs to, or
+    ``None`` when Jira will not say.
+
+    Errors are swallowed on purpose, and only here. The issues have already been
+    fetched by the time this is called, and ``/myself`` failing is no reason to
+    throw them away or fail the sync -- they are still stored and browsable. It is
+    every reason not to promote any of them: ``should_promote``'s Jira rule reads
+    ``None`` as an unrecognised owner and declines, so a failed lookup costs the
+    queue recall for one sync rather than filling it with issues nobody checked.
+
+    A response with no ``accountId`` needs no handling of its own here: it yields
+    the same ``None`` the failure path returns, and the rule treats it the same.
+    """
+    try:
+        return client.myself().get("accountId")
+    except JiraError:
+        return None
 
 
 def _fetch_issue_signals(client: JiraClient) -> list[dict[str, Any]]:
@@ -91,7 +127,7 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     jira = jira_client or JiraClient.from_settings(settings)
     signals = _fetch_issue_signals(jira)
     created = persist_signals(db, signals) if db is not None else 0
-    promoted = promote_signals(db, signals) if db is not None else 0
+    promoted = promote_signals(db, signals, owner_account_id=_owner_account_id(jira)) if db is not None else 0
     return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals),
             "new_sources": created, "new_work_items": promoted}
 

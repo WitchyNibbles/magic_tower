@@ -93,6 +93,21 @@ def _is_bulk_mail(headers: dict[str, Any]) -> bool:
     return lowered.get(AUTO_SUBMITTED_HEADER, "no") != "no"
 
 
+def _is_assigned_to_owner(signal: dict[str, Any], owner_account_id: str | None) -> bool:
+    """True when this issue's assignee is the account the owner is recognised by.
+
+    Compared as opaque values: an Atlassian ``accountId`` carries no case or
+    punctuation rules this code may normalize it by, unlike the mail addresses
+    every other rule handles.
+
+    The emptiness check is the fail-closed half and it is not redundant with the
+    comparison. An unrecognised owner and an unassigned issue are both absent, and
+    absent equals absent: without it, ``None == None`` promotes every unassigned
+    issue in the window on exactly the sync where the owner could not be named.
+    """
+    return bool(owner_account_id) and signal.get("assignee_account_id") == owner_account_id
+
+
 def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) -> bool:
     """True when the owner is known, there is a To list, and none of the owner's addresses is in it."""
     recipients = signal.get("to_recipients") or []
@@ -103,11 +118,20 @@ def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) ->
 
 
 def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = (),
-                   allowlisted_senders: Collection[str] = ()) -> bool:
+                   allowlisted_senders: Collection[str] = (),
+                   owner_account_id: str | None = None) -> bool:
     """Decide whether one normalized signal belongs in the triage queue.
 
     The rules, in order; the first that matches decides:
 
+    A. A Jira signal (``source_kind`` is ``jira``) is decided by one question --
+       is the issue assigned to the owner -- and by nothing else (AC7). Everything
+       else the participation window returns (reported, created, watched, voted on)
+       is something being followed, not owed, and is stored and browsable without
+       ever reaching the queue. The rule sits ahead of every rule below because
+       each of those reads a mail field -- sender, headers, recipients -- that a
+       Jira signal does not carry: left to them, an issue falls through to rule 5
+       and promotes unconditionally, which is what this rule replaces.
     0. Promote an allowlisted sender, whatever every later rule would say. This is
        the owner naming a mailbox the rules get wrong -- an internal robot whose
        output they act on -- and it overrides even rule 4, because such mail often
@@ -145,7 +169,20 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
     name and the mail address, since alias-domain tenants hand out different ones.
     Without any, rule 4 is skipped rather than guessed at, so a missing profile
     costs recall, never silence.
+
+    ``owner_account_id`` is the Atlassian ``accountId`` of the account the
+    configured Jira API token belongs to, read from ``GET /rest/api/3/myself``
+    by the caller (``app/services/jira_sync.py``). That account is what
+    ``currentUser()`` in ``JIRA_PARTICIPATION_JQL`` already means, so recognising
+    the owner by it keeps the fetch and the promotion decision speaking of one
+    identity. ``JIRA_ACCOUNT_EMAIL`` is not usable here: Jira reports an assignee
+    as an ``accountId`` and does not put an email in ``fields.assignee``. Rule A
+    is the mirror image of rule 4's tolerance: without a recognised owner it
+    promotes nothing rather than everything, because the permissive fallback it
+    exists to remove is exactly the failure a missing identity would restore.
     """
+    if str(signal.get("source_kind") or "") == SourceKind.jira.value:
+        return _is_assigned_to_owner(signal, owner_account_id)
     sender = signal.get("sender")
     if _is_allowlisted(sender, allowlisted_senders):
         return True
@@ -240,7 +277,7 @@ def promote_source(db: Session, source: Source) -> WorkItem:
 
 
 def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = (),
-                    allowlisted_senders: Collection[str] = ()) -> int:
+                    allowlisted_senders: Collection[str] = (), owner_account_id: str | None = None) -> int:
     """Create a pending work item for every actionable signal; return how many are new.
 
     Idempotent through ``work_items.source_external_id``: a signal already promoted
@@ -259,7 +296,7 @@ def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses:
     for signal in signals:
         external_id = str(signal["external_id"])
         _record_considered(db, external_id)
-        if not should_promote(signal, owner_addresses, allowlisted_senders):
+        if not should_promote(signal, owner_addresses, allowlisted_senders, owner_account_id):
             continue
         if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == external_id)) is not None:
             continue

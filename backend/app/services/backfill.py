@@ -40,6 +40,15 @@ subject line. ``judged_without_context`` counts these rows, so an operator knows
 which promotions in a run were a real decision and which were a coin that only
 ever lands heads.
 
+A Jira ``Source`` misses in the opposite direction. Its rule (rule A, AC7) needs
+the issue's assignee and the owner's Atlassian ``accountId``, and this module has
+neither: the assignee is carried on the live signal rather than stored, and no
+setting or table holds the account ID. So a Jira row is declined here whoever it
+is assigned to -- never promoted on a guess -- and the owner's manual promote
+(T08) is how one enters the queue outside a live sync. These rows are not counted
+by ``judged_without_context``: ``persist_signals`` writes them a context row like
+any other, and the count is about the row, not about which rule could fire on it.
+
 *No owner addresses.* Rule 4 skips mail the owner was only copied on, and it needs
 the owner's own addresses to do that. They exist only in the live Graph profile a
 sync fetches (``sync._owner_addresses``); nothing persists them and no setting

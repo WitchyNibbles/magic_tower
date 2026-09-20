@@ -4,8 +4,11 @@ returns (``app/services/sync.py:sync``).
 
 Dropping the enum member, the registration call, or any line of the normalization
 step reddens exactly the test that pins it. That is not yet true of every line
-here -- ``synced_at``, the ``new_work_items`` count and the two ``db is not None``
-guards survive mutation, mirroring gaps ``_sync_graph``'s own tests have (B128).
+here -- ``synced_at`` and the two ``db is not None`` guards survive mutation,
+mirroring gaps ``_sync_graph``'s own tests have (B128). The ``new_work_items``
+count was listed among them until T07; it is pinned now, measured by replacing
+``promoted`` with ``0`` in the envelope and watching the assigned-issue test below
+fail. Which issues that count may include is pinned in ``test_jira_promotion.py``.
 No test here reaches the network -- everything goes through the injectable
 ``jira_client`` kwarg, the same seam ``test_jira_query.py`` and
 ``test_jira_client.py`` use.
@@ -44,7 +47,13 @@ def _configured_settings(**overrides: str) -> Settings:
 
 
 def _client_with(issues: list[dict[str, Any]]) -> JiraClient:
+    """Answers the two calls a sync makes: the participation search, and the
+    ``/myself`` lookup promotion recognises the owner by
+    (``tests/test_jira_promotion.py`` owns what that identity decides)."""
+
     def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        if url.endswith("/myself"):
+            return {"accountId": OWNER_ACCOUNT_ID}
         return {"issues": issues}
 
     return JiraClient.from_settings(_configured_settings(), transport=transport)
@@ -65,7 +74,13 @@ def _paging_client_with(pages: list[list[dict[str, Any]]]) -> JiraClient:
     return JiraClient.from_settings(_configured_settings(), transport=transport)
 
 
+OWNER_ACCOUNT_ID = "5b10a2844c20165700ede21g"
 ISSUE = {"id": "10001", "key": "OPS-1", "fields": {"summary": "Fix the thing", "updated": "2026-09-18T08:30:00.000+0000"}}
+# The same issue with the owner named as its assignee -- the only shape promotion
+# accepts (AC7), so it is what a test about reaching the queue has to use.
+ASSIGNED_ISSUE = {"id": "10002", "key": "OPS-2",
+                  "fields": {"summary": "Fix the thing", "updated": "2026-09-18T08:30:00.000+0000",
+                             "assignee": {"accountId": OWNER_ACCOUNT_ID}}}
 
 
 def test_jira_sync_is_registered_under_the_generic_dispatch() -> None:
@@ -178,19 +193,21 @@ def test_jira_sync_returns_the_same_envelope_shape_every_registered_kind_returns
     assert result["count"] == 1
 
 
-def test_jira_sync_promotes_fetched_issues_via_the_shared_heuristic() -> None:
-    """T06's known, temporary behaviour: the email heuristic
-    (``app/services/promotion.py``) has nothing Jira-shaped to reject on a
-    signal with no sender, headers or recipients, so it promotes every fetched
-    issue unconditionally today. Restricting promotion to issues actually
-    assigned to the owner is T07's job (``.companion/plan.md``), not this one's."""
+def test_jira_sync_promotes_an_assigned_issue_via_the_shared_heuristic() -> None:
+    """The handler reaches the queue through ``promote_signals``, not around it.
+
+    Only the assignment rule decides which issues arrive there; what that rule
+    accepts and refuses is pinned in ``tests/test_jira_promotion.py``. This one
+    holds the wiring shut: the work item carries the Jira kind, so a promotion
+    that went through some other path would be visible here.
+    """
     settings = _configured_settings()
 
     with Session(engine) as session:
-        result = _sync_jira(settings, db=session, jira_client=_client_with([ISSUE]))
+        result = _sync_jira(settings, db=session, jira_client=_client_with([ASSIGNED_ISSUE]))
 
         assert result["new_work_items"] == 1
-        work_item = session.query(WorkItem).filter_by(source_external_id="jira:10001").one()
+        work_item = session.query(WorkItem).filter_by(source_external_id="jira:10002").one()
         assert work_item.source_kind == SourceKind.jira
 
 
