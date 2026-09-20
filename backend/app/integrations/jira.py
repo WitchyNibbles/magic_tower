@@ -23,7 +23,7 @@ import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
@@ -31,6 +31,29 @@ if TYPE_CHECKING:
 
 JIRA_API_ROOT = "/rest/api/3"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
+
+# AC8: the participation query -- every issue the token owner is assigned,
+# reported, created, watches or voted on, bounded to a 15-minute relative
+# window. The search index is eventually consistent (seconds to minutes) and
+# ``updated`` is relative to the token owner's Jira profile timezone rather
+# than UTC, so a relative window is safe where an absolute watermark would
+# need a timezone conversion this connector does not do.
+JIRA_PARTICIPATION_JQL = (
+    "(assignee = currentUser() OR reporter = currentUser() OR creator = currentUser() "
+    "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -15m "
+    "ORDER BY updated DESC"
+)
+
+# ``GET /rest/api/3/search/jql`` defaults ``fields`` to ``id`` alone; everything
+# the queue needs to render a Jira issue must be named here explicitly.
+JIRA_SEARCH_FIELDS = ("summary", "status", "priority", "assignee", "reporter", "updated", "project")
+
+JIRA_SEARCH_PAGE_SIZE = 100
+# Cap on how many ``nextPageToken`` pages a single call follows. This endpoint
+# returns no ``total``, so nothing else stops a server that always returns a
+# token (buggy, or worse) from paging forever; 20 pages of 100 issues each is
+# far beyond what one account's 15-minute participation window will ever hold.
+JIRA_SEARCH_MAX_PAGES = 20
 
 
 class JiraError(RuntimeError):
@@ -106,3 +129,53 @@ class JiraClient:
 
     def myself(self) -> dict[str, Any]:
         return self._get(f"{JIRA_API_ROOT}/myself")
+
+    def search_participation_issues(self) -> list[dict[str, Any]]:
+        """Fetch every issue in the caller's participation window (``JIRA_PARTICIPATION_JQL``)
+        via ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
+        (CHANGE-2046) and stays removed. Requests ``JIRA_SEARCH_FIELDS`` explicitly, since this
+        endpoint otherwise returns only ``id``. Follows ``nextPageToken`` cursor pagination:
+        there is no ``total``/``startAt`` on this endpoint, so an absent token is the only
+        signal that the last page was reached, and paging is capped at ``JIRA_SEARCH_MAX_PAGES``
+        so a server that always returns a token cannot loop forever."""
+        issues: list[dict[str, Any]] = []
+        next_page_token: str | None = None
+        for _ in range(JIRA_SEARCH_MAX_PAGES):
+            params: dict[str, str] = {
+                "jql": JIRA_PARTICIPATION_JQL,
+                "fields": ",".join(JIRA_SEARCH_FIELDS),
+                "maxResults": str(JIRA_SEARCH_PAGE_SIZE),
+            }
+            if next_page_token is not None:
+                params["nextPageToken"] = next_page_token
+            response = self._get(f"{JIRA_API_ROOT}/search/jql?{urlencode(params)}")
+            issues.extend(response.get("issues", []))
+            next_page_token = response.get("nextPageToken")
+            if not next_page_token:
+                break
+        return issues
+
+
+def extract_adf_plain_text(document: dict[str, Any] | None) -> str | None:
+    """Extract plain text from an Atlassian Document Format issue description.
+
+    No formatting fidelity: headings, lists and marks all collapse to their
+    words, joined by single spaces -- this is not a non-goal Markdown renderer,
+    just enough to show a description as readable text. ``None`` in, ``None``
+    out: an issue with no description carries no ADF document at all.
+    """
+    if document is None:
+        return None
+    return " ".join(_adf_text_nodes(document))
+
+
+def _adf_text_nodes(node: Any) -> list[str]:
+    if not isinstance(node, dict):
+        return []
+    if node.get("type") == "text":
+        text = node.get("text", "")
+        return [text] if text else []
+    texts: list[str] = []
+    for child in node.get("content") or []:
+        texts.extend(_adf_text_nodes(child))
+    return texts
