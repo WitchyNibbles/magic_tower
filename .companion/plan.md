@@ -183,7 +183,7 @@ Probe note: `jira_dedupe.py` is the load-bearing file; the migration reverts VAC
 its whole change is a docstring.
 
 ## T09 — Browse a whole project without flooding the queue
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T07
 - done-when: `cd backend && uv run pytest tests -q -k jira_project_visibility`
@@ -193,6 +193,25 @@ management visibility cannot flood the actionable queue. Scope cannot be a `sour
 `0001_initial_schema.py:31` pins the set and `backend/tests/test_migrations.py:247` fails on any
 addition; use the `SourceSignalContext` side table or configuration, and say which. An issue both
 assigned to the owner and inside the visible project must still promote, once.
+**Verified 2026-09-20.** Attempt 1 (sonnet) shipped the second fetch and 6 tests; the opus reviewer
+blocked on four findings and I reproduced all four before ordering the repair. Two mattered: the one
+test named for this task's own exception passed with the **entire project fetch deleted** (1 failed
+of 6, and the failure was the storage test), and the JQL quote-escaping was both untested (the whole
+backend suite stayed at 351 passed with it removed) and wrong -- escaping the quote without first
+escaping the backslash emits an unterminated literal that fails the whole sync, participation window
+included. The opus repair fixed the escape, added the only-project test and corrected two stale
+sentences; round 2 (fable) returned **revise** on two more stale sentences and nothing else -- it
+called the code and tests sound -- so I fixed those myself under the textual exception, after
+reproducing both.
+The scope carrier is **configuration** -- the management-project setting drives a second bounded JQL
+fetch -- with no new `sources` column and no `SourceSignalContext` field. **Browse-only is inherited
+from T07's assignee rule rather than enforced by anything this task adds**; the round-1 reviewer
+checked every other door (the backfill, the mail merge, the ticket-sender markers) and found none
+that promotes a project-fetched issue. The fetch is capped at 2000 issues and truncates silently,
+which is recorded rather than fixed.
+Probe note: `backend/app/integrations/jira.py` and `backend/app/services/jira_sync.py` each redden
+when reverted in round 1; in the repair round `backend/app/services/jira_sync.py` reverts VACUOUS by
+design, its whole increment being prose.
 
 ## T10 — Sync a chosen source
 - status: todo
