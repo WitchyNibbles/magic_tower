@@ -236,7 +236,7 @@ because leaving the Graph-only label would have been this contract's twelfth sta
 Probe note: `backend/app/api/sync.py` and `scripts/pending-work` each redden when reverted.
 
 ## T11 — Jira in the GUI
-- status: todo
+- status: blocked(the done-when and AC13 resolve the vitest report against `frontend/` and can never exit 0 for any implementation; the code is merged, reviewed and green)
 - complexity: normal
 - deps: T10
 - done-when: `cd frontend && npx vitest run -t "jira" --reporter=json --outputFile=../.companion/scratch/t11.json >/dev/null 2>&1; python3 -c "import json,sys; d=json.load(open('.companion/scratch/t11.json')); sys.exit(0 if d.get('numPassedTests',0)>=2 and d.get('numFailedTests',0)==0 else 1)"`
@@ -246,6 +246,18 @@ labels (`frontend/src/lib/work-items.ts:7`) and the hardcoded filter list
 (`frontend/src/components/mail-nav.tsx:8`). Add Jira to all three, show the issue key and link back
 to the browse URL, and make the source filter select Jira items. Gate note: `-t` exits 0 on zero
 matches, hence the counted assertion above.
+**Blocked 2026-09-20 on the gate alone, not on the code.** The done-when above, and AC13, which is
+the same line, can never exit 0: `cd frontend` persists into the `python3 -c` after the `;`, so
+python resolves the report against the frontend directory while vitest wrote it to the repo root.
+I ran it verbatim at base before any work — exit 1, `FileNotFoundError` — and again at HEAD, where
+the artifact that same invocation writes reads 2 passed / 0 failed. No worker change alters that,
+and the only way to pass it as written is to fabricate the file python looks for, so no repair round
+was spent. Correcting it needs `/companion:contract`, which is the owner's call — B152.
+The implementation is merged and kept: probe RED, reviewer `approve`, backend 372 passed, frontend
+25 passed (23 at base), build clean, gate 3 against baseline 7, leave-no-trace 0/0/0/0.
+Probe note: the detail pane, the nav and the work-items module each redden the frontend suite when
+reverted one at a time; the API module is VACUOUS under vitest, a type-only union change it never
+typechecks, and RED under `tsc -b`, which the build runs — so AC3 is what pins that site.
 
 ## T12 — Prove it against the owner's real Jira
 - status: todo
