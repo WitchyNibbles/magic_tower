@@ -196,10 +196,11 @@ def test_jira_project_visibility_escapes_backslashes_and_quotes_in_the_project_k
     the JQL it lands in has to survive whatever it holds.
 
     JQL's string escapes are ``\\\\`` and ``\\"``, so a backslash must be doubled
-    *before* quotes are escaped -- otherwise the backslash the escaper emits is
-    consumed by the one already in the value and the quoting is undone. Both keys
-    here must come back as one quoted literal that ends where the escaper put its
-    closing quote, leaving no unquoted JQL the key controls.
+    *before* quotes are escaped -- otherwise the second pass doubles the backslash
+    the escaper itself emitted, an embedded quote reopens the literal, and the
+    quoting is undone. Both keys here must come back as one quoted literal that
+    ends where the escaper put its closing quote, leaving no unquoted JQL the key
+    controls.
     """
     calls: list[str] = []
 

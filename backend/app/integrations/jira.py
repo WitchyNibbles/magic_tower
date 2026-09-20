@@ -197,9 +197,11 @@ class JiraClient:
         returns promotes only when it is also assigned to the owner.
 
         ``project_key`` is quoted in the JQL, with backslashes doubled before
-        quotes are escaped (JQL's string escapes are ``\\\\`` and ``\\"``, and
-        escaping quotes first lets a trailing backslash in the value consume the
-        escape and break out of the literal). This matters because -- unlike
+        quotes are escaped (JQL's string escapes are ``\\\\`` and ``\\"``; escaping
+        quotes first would let the second pass double the escaper's own
+        backslash, so an embedded quote reopens the literal, and escaping quotes
+        alone would let a trailing backslash consume the closing quote). This
+        matters because -- unlike
         ``JIRA_PARTICIPATION_JQL`` -- the clause is built from
         ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather than a fixed
         literal; ``test_jira_project_visibility.py`` pins both replacements with

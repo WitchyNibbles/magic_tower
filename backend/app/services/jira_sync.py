@@ -118,8 +118,10 @@ def _owner_account_id(client: JiraClient) -> str | None:
 
 
 def _fetch_issue_signals(client: JiraClient, project_key: str | None = None) -> list[dict[str, Any]]:
-    """Every participation issue, plus every issue in ``project_key`` when one is
-    configured (T09, AC10), normalized and de-duplicated by ``external_id`` --
+    """Every participation issue, plus the capped project fetch
+    (:meth:`JiraClient.search_project_issues`, at most the 2000 most recently
+    updated issues) when ``project_key`` is configured (T09, AC10), normalized
+    and de-duplicated by ``external_id`` --
     mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
     clauses are a set union and cannot themselves yield a duplicate. What is not
     ruled out is the cursor walk in ``search_participation_issues``: ``/search/jql``
