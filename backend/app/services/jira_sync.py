@@ -14,6 +14,18 @@ the owner are promoted (AC7), which ``promotion.should_promote`` decides through
 its Jira rule. Reporter, creator, watcher and voter involvement is followed, not
 owed, so it stays out of the queue.
 
+**Management visibility (T09, AC10).** ``JIRA_MANAGEMENT_PROJECT_KEY`` -- read
+here from ``Settings.jira_management_project_key``, never a new column on
+``sources`` (``alembic/versions/0001_initial_schema.py`` pins that set) -- names
+one project a sync also fetches whole, through
+``JiraClient.search_project_issues``, alongside the participation window. Every
+issue that query returns is stored and browsable the same way, and never
+promoted on that ground alone: the assignee rule above is the only thing that
+decides a Jira signal either way, so an issue assigned to the owner still
+promotes once even when the project fetch is what found it. The setting is
+optional; when it is unset, this call is skipped and nothing about the
+participation-only sync changes.
+
 **Who the owner is.** The account the configured API token belongs to, named by
 its Atlassian ``accountId`` and read from ``GET /rest/api/3/myself`` once per
 sync (:func:`_owner_account_id`). Nothing in this application persists an owner
@@ -103,16 +115,28 @@ def _owner_account_id(client: JiraClient) -> str | None:
         return None
 
 
-def _fetch_issue_signals(client: JiraClient) -> list[dict[str, Any]]:
-    """Every participation issue, normalized and de-duplicated by ``external_id``
-    -- mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
+def _fetch_issue_signals(client: JiraClient, project_key: str | None = None) -> list[dict[str, Any]]:
+    """Every participation issue, plus every issue in ``project_key`` when one is
+    configured (T09, AC10), normalized and de-duplicated by ``external_id`` --
+    mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
     clauses are a set union and cannot themselves yield a duplicate. What is not
     ruled out is the cursor walk in ``search_participation_issues``: ``/search/jql``
     offers no cross-page consistency guarantee, and the ``updated >= -15m`` window
     is re-evaluated per request, so the same ``id`` can arrive on two pages. Which
     pagination mechanism would do that is not established here -- the dedup is
-    defensive, and the test pins the handling, not the cause."""
-    rows = [_normalize_issue(issue, client.base_url) for issue in client.search_participation_issues()]
+    defensive, and the test pins the handling, not the cause.
+
+    An issue both assigned to the owner and inside the visible project is fetched
+    from the participation query too -- ``assignee = currentUser()`` is one of its
+    clauses -- so ``setdefault`` here keeps that copy and the project fetch never
+    shadows it; either copy carries the same ``assignee_account_id``, and
+    ``promotion.should_promote``'s Jira rule is what actually decides to promote it,
+    not which query this function merged it from.
+    """
+    issues = list(client.search_participation_issues())
+    if project_key:
+        issues.extend(client.search_project_issues(project_key))
+    rows = [_normalize_issue(issue, client.base_url) for issue in issues]
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:
         deduped.setdefault(row["external_id"], row)
@@ -135,7 +159,7 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     if errors:
         raise SyncError(f"Jira is not configured: missing {', '.join(errors)}")
     jira = jira_client or JiraClient.from_settings(settings)
-    signals = _fetch_issue_signals(jira)
+    signals = _fetch_issue_signals(jira, settings.jira_management_project_key)
     created = persist_signals(db, signals) if db is not None else 0
     promoted = promote_signals(db, signals, owner_account_id=_owner_account_id(jira)) if db is not None else 0
     return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals),

@@ -136,19 +136,25 @@ class JiraClient:
     def myself(self) -> dict[str, Any]:
         return self._get(f"{JIRA_API_ROOT}/myself")
 
-    def search_participation_issues(self) -> list[dict[str, Any]]:
-        """Fetch up to ``JIRA_SEARCH_MAX_PAGES`` pages of the caller's participation
-        window (``JIRA_PARTICIPATION_JQL``) via ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
+    def _search(self, jql: str) -> list[dict[str, Any]]:
+        """Fetch up to ``JIRA_SEARCH_MAX_PAGES`` pages of ``jql`` via
+        ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
         (CHANGE-2046) and stays removed. Requests ``JIRA_SEARCH_FIELDS`` explicitly, since this
         endpoint otherwise returns only ``id``. Follows ``nextPageToken`` cursor pagination:
         there is no ``total``/``startAt`` on this endpoint, so an absent token is the only
         signal that the last page was reached, and paging is capped at ``JIRA_SEARCH_MAX_PAGES``
-        so a server that always returns a token cannot loop forever."""
+        so a server that always returns a token cannot loop forever.
+
+        Shared by :meth:`search_participation_issues` and
+        :meth:`search_project_issues` (T09) -- the two differ only in which JQL
+        they hand this method, and every pagination rule ``test_jira_query.py``
+        pins applies identically to both.
+        """
         issues: list[dict[str, Any]] = []
         next_page_token: str | None = None
         for _ in range(JIRA_SEARCH_MAX_PAGES):
             params: dict[str, str] = {
-                "jql": JIRA_PARTICIPATION_JQL,
+                "jql": jql,
                 "fields": ",".join(JIRA_SEARCH_FIELDS),
                 "maxResults": str(JIRA_SEARCH_PAGE_SIZE),
             }
@@ -164,6 +170,26 @@ class JiraClient:
             if not next_page_token:
                 break
         return issues
+
+    def search_participation_issues(self) -> list[dict[str, Any]]:
+        """Every issue in the caller's participation window
+        (``JIRA_PARTICIPATION_JQL``); see :meth:`_search`."""
+        return self._search(JIRA_PARTICIPATION_JQL)
+
+    def search_project_issues(self, project_key: str) -> list[dict[str, Any]]:
+        """Every issue in one named project (T09, AC10) -- the management
+        visibility sync, unbounded by participation. Its issues are stored and
+        browsable through the same :meth:`_search` pagination, and never
+        promoted on that ground alone: ``promotion.should_promote``'s Jira rule
+        (rule A) decides Jira signals by assignee, not by which query found them,
+        so an issue this call returns promotes only when it is also assigned to
+        the owner. ``project_key`` is quoted in the JQL and any embedded quote is
+        escaped, because -- unlike ``JIRA_PARTICIPATION_JQL`` -- this clause is
+        built from ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather
+        than a fixed literal.
+        """
+        escaped_key = project_key.replace('"', '\\"')
+        return self._search(f'project = "{escaped_key}" ORDER BY updated DESC')
 
 
 def extract_adf_plain_text(document: dict[str, Any] | None) -> str | None:
