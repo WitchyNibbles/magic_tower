@@ -83,7 +83,7 @@ Probe note: `backend/app/integrations/jira.py` is the one revertible implementat
 repair round is pure deletion, so falsify it by grepping the tree for the removed endpoint.
 
 ## T05 — The participation query
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T04
 - done-when: `cd backend && uv run pytest tests -q -k jira_query`
