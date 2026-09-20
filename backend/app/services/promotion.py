@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..models import Source, SourceKind, SourcePromotion, WorkItem
 from ..schemas import EvidenceInput, WorkItemCreate
 from .graph import parse_observed_at
+from .jira_dedupe import issue_key, link_issue, merge_into, work_item_for_issue
 from .work_items import conflict, create_work_item
 
 # Matched against the local part with separators removed, so ``no-reply@``,
@@ -284,6 +285,12 @@ def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses:
     is skipped, so re-running a sync over the same inbox window adds nothing and the
     unique constraint is never reached.
 
+    A signal naming a Jira issue some other work item already holds is folded into
+    that item instead of creating a second one (AC9, ``app/services/jira_dedupe.py``);
+    a merge is not counted as new, because no row was added. Everything else is
+    linked to its issue as it is created, so the arrival that comes second can find
+    it.
+
     Every signal whose source is stored is also recorded as judged (see
     ``_record_considered``), so the backfill can later tell a source this function
     rejected from one it was never shown. That record is committed here rather than
@@ -300,7 +307,14 @@ def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses:
             continue
         if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == external_id)) is not None:
             continue
-        create_work_item(db, _work_item(signal))
+        key = issue_key(signal)
+        already_queued = work_item_for_issue(db, key) if key else None
+        if already_queued is not None:
+            merge_into(db, already_queued, _work_item(signal))
+            continue
+        item = create_work_item(db, _work_item(signal))
+        if key:
+            link_issue(db, item, key)
         created += 1
     db.commit()
     return created

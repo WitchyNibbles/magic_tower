@@ -131,6 +131,30 @@ class SourcePromotion(Base):
     considered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class WorkItemIssueKey(Base):
+    """The Jira issue one work item is about, named by its issue key (AC9).
+
+    A Jira issue reaches the queue by two doors -- its notification mail, which
+    ``promotion.TICKET_SENDER_MARKERS`` lets through, and the participation query
+    -- and the two carry different ``external_id``s (``outlook:{id}`` and
+    ``jira:{id}``), so nothing in ``work_items`` alone can tell that they are the
+    same ticket. The issue key is the one name both doors can produce: the API
+    reports it on the issue, and ``app/services/jira_dedupe.py`` extracts it from
+    notification mail.
+
+    Its own table rather than a ``work_items`` column, following
+    ``source_promotions``: only Jira-derived items have a key, and the queue never
+    renders it. ``issue_key`` is unique, so "one issue, one work item" is a
+    constraint the database holds and not only a query the promoter remembers to
+    run.
+    """
+
+    __tablename__ = "work_item_issue_keys"
+
+    work_item_id: Mapped[UUID] = mapped_column(ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True)
+    issue_key: Mapped[str] = mapped_column(String(255), unique=True)
+
+
 class WorkEvidence(Base):
     """Provenance retained for agent-generated interpretation of a work item."""
 

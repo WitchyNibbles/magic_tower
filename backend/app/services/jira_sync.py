@@ -60,6 +60,11 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
     rows alone, cannot re-decide a Jira source on its merits and declines it.
     ``fields.assignee`` is ``null`` on an unassigned issue -- a present, empty key
     -- so the ``or {}`` is what keeps this from raising on one.
+
+    ``issue_key`` carries the human-readable key alongside, for the same reason
+    ``assignee_account_id`` rides here rather than in a column: it is what matches
+    this issue against the notification mail announcing it
+    (``app/services/jira_dedupe.py``), and mail knows the key, never the numeric id.
     """
     fields = issue.get("fields") or {}
     key = issue.get("key")
@@ -70,6 +75,7 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
         "source_url": f"{base_url}/browse/{key}" if key else None,
         "observed_at": fields.get("updated"),
         "assignee_account_id": (fields.get("assignee") or {}).get("accountId"),
+        "issue_key": key,
     }
 
 
