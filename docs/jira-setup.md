@@ -134,7 +134,7 @@ A healthy response reports how many Jira issues were seen and how many reached
 the queue, followed by the status code `-w` prints:
 
 ```
-{"mode": "read-only", "synced_at": "...", "count": 1, "new_sources": 1, "new_work_items": 0}
+{"mode":"read-only","synced_at":"...","count":1,"new_sources":1,"new_work_items":0}
 200
 ```
 
