@@ -1,4 +1,4 @@
-"""Read-only Graph ingestion endpoints for local UI and installed agent clients."""
+"""Read-only source ingestion endpoints for local UI and installed agent clients."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -23,11 +23,14 @@ def run_sync(
     kind: str = Query(default=GRAPH_SOURCE_KIND),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    """Dispatch a sync for ``kind`` (default: Microsoft Graph, today's only caller-visible behaviour).
+    """Dispatch a sync for ``kind``, defaulting to Microsoft Graph so an omitted
+    parameter behaves exactly as this route did before it accepted one.
 
     ``kind`` reaches ``sync()`` unchecked; an unregistered one comes back as
     ``UnknownSourceKindError`` wrapped in ``SyncError`` (``app/services/sync.py``),
-    caught below the same way every other sync failure is -- a 409, never a 500.
+    so *that* path answers 409 rather than 500. Only ``SyncError`` is caught here:
+    a handler raising anything else -- ``GraphError``, say -- still escapes as a
+    500, which is pre-existing behaviour this route does not change.
     """
     try:
         return sync(get_settings(), db, limit=limit, kind=kind)
