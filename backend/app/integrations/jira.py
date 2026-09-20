@@ -177,18 +177,35 @@ class JiraClient:
         return self._search(JIRA_PARTICIPATION_JQL)
 
     def search_project_issues(self, project_key: str) -> list[dict[str, Any]]:
-        """Every issue in one named project (T09, AC10) -- the management
-        visibility sync, unbounded by participation. Its issues are stored and
-        browsable through the same :meth:`_search` pagination, and never
-        promoted on that ground alone: ``promotion.should_promote``'s Jira rule
-        (rule A) decides Jira signals by assignee, not by which query found them,
-        so an issue this call returns promotes only when it is also assigned to
-        the owner. ``project_key`` is quoted in the JQL and any embedded quote is
-        escaped, because -- unlike ``JIRA_PARTICIPATION_JQL`` -- this clause is
-        built from ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather
-        than a fixed literal.
+        """The most recently updated issues in one named project (T09, AC10) --
+        the management visibility sync, unbounded by participation.
+
+        **Capped, and the truncation is silent.** The clause orders by ``updated
+        DESC`` and :meth:`_search` follows at most ``JIRA_SEARCH_MAX_PAGES`` pages
+        of ``JIRA_SEARCH_PAGE_SIZE``, so this returns at most the 2000 most
+        recently updated issues in the project; anything past that is dropped with
+        no error and no marker on the result. Measured against a stub that always
+        returns a ``nextPageToken``: 2000 issues, 20 pages, no raise. The cap's
+        justification where it is defined is about one account's 15-minute
+        participation window, and that reasoning does not carry here -- a
+        management project holding more than 2000 issues is ordinary, so this
+        call's callers get a recent-issues view of a project, not the whole of it.
+
+        Its issues are stored and browsable, and never promoted on that ground
+        alone: ``promotion.should_promote``'s Jira rule (rule A) decides Jira
+        signals by assignee, not by which query found them, so an issue this call
+        returns promotes only when it is also assigned to the owner.
+
+        ``project_key`` is quoted in the JQL, with backslashes doubled before
+        quotes are escaped (JQL's string escapes are ``\\\\`` and ``\\"``, and
+        escaping quotes first lets a trailing backslash in the value consume the
+        escape and break out of the literal). This matters because -- unlike
+        ``JIRA_PARTICIPATION_JQL`` -- the clause is built from
+        ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather than a fixed
+        literal; ``test_jira_project_visibility.py`` pins both replacements with
+        keys that carry a backslash and a quote.
         """
-        escaped_key = project_key.replace('"', '\\"')
+        escaped_key = project_key.replace("\\", "\\\\").replace('"', '\\"')
         return self._search(f'project = "{escaped_key}" ORDER BY updated DESC')
 
 

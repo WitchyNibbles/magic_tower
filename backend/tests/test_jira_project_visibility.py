@@ -4,9 +4,10 @@ the actionable queue.
 
 **Mechanism.** ``Settings.jira_management_project_key`` (configuration, read by
 ``app/services/jira_sync.py``), not a per-source flag in ``SourceSignalContext``.
-Every issue in the configured project is fetched through
-``JiraClient.search_project_issues`` (T09) alongside the existing participation
-window and stored the same way ``_normalize_issue`` already stores any other Jira
+Issues in the configured project are fetched through
+``JiraClient.search_project_issues`` (T09) -- the 2000 most recently updated of
+them, which is where that call's pagination cap falls -- alongside the existing
+participation window, and stored the same way ``_normalize_issue`` already stores any other Jira
 issue. No new rule decides whether a project-fetched issue is promoted: the
 assignee rule ``promotion.should_promote`` already pins (``test_jira_promotion.py``)
 is the only thing that ever promotes a Jira signal, and it does not read which
@@ -22,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -117,6 +119,29 @@ def test_jira_project_visibility_still_promotes_an_issue_assigned_to_the_owner_i
         assert session.query(WorkItem).filter(WorkItem.source_external_id == "jira:30004").count() == 1
 
 
+def test_jira_project_visibility_promotes_an_owner_assigned_issue_only_the_project_fetch_returns() -> None:
+    """The same exception, with the project fetch as the *only* query that finds
+    the issue -- which is what makes it load-bearing.
+
+    ``JIRA_PARTICIPATION_JQL`` bounds every one of its clauses, ``assignee =
+    currentUser()`` included, with ``AND updated >= -15m``
+    (``app/integrations/jira.py``). An issue assigned to the owner but last
+    updated before that window is therefore absent from the participation
+    response and present only in the project one, so the copy that reaches
+    ``promote_signals`` is the project copy. It must still promote, once.
+
+    The sibling test above hands the same issue back from both calls, which the
+    participation copy alone satisfies; this one stubs participation empty, so
+    deleting the project fetch reddens it.
+    """
+    with SessionLocal() as session:
+        result = _sync_jira(_configured_settings(), db=session,
+                            jira_client=_client([], [_issue("30005", OWNER_ACCOUNT_ID)]))
+
+        assert result["new_work_items"] == 1
+        assert session.query(WorkItem).filter(WorkItem.source_external_id == "jira:30005").count() == 1
+
+
 def test_jira_project_visibility_is_skipped_entirely_when_no_project_is_configured() -> None:
     """Without ``JIRA_MANAGEMENT_PROJECT_KEY`` set, the project search must never
     be called at all -- a sync that only wants the participation window pays no
@@ -150,3 +175,39 @@ def test_jira_project_visibility_quotes_the_configured_project_key_in_the_jql() 
 
     query = parse_qs(urlparse(calls[0]).query)
     assert query["jql"] == [f'project = "{MANAGEMENT_PROJECT_KEY}" ORDER BY updated DESC']
+
+
+@pytest.mark.parametrize(
+    ("project_key", "expected_jql"),
+    [
+        # A trailing backslash. Escaping the quote alone would emit
+        # ``project = "OPS\" ORDER BY updated DESC``, where the closing quote is
+        # itself escaped and the string never terminates.
+        ("OPS\\", 'project = "OPS\\\\" ORDER BY updated DESC'),
+        # An embedded quote, spelled to break out of the clause if it survives.
+        ('OPS" OR assignee is not EMPTY OR project = "X',
+         'project = "OPS\\" OR assignee is not EMPTY OR project = \\"X" ORDER BY updated DESC'),
+    ],
+)
+def test_jira_project_visibility_escapes_backslashes_and_quotes_in_the_project_key(
+    project_key: str, expected_jql: str
+) -> None:
+    """``JIRA_MANAGEMENT_PROJECT_KEY`` is configuration, not a fixed literal, so
+    the JQL it lands in has to survive whatever it holds.
+
+    JQL's string escapes are ``\\\\`` and ``\\"``, so a backslash must be doubled
+    *before* quotes are escaped -- otherwise the backslash the escaper emits is
+    consumed by the one already in the value and the quoting is undone. Both keys
+    here must come back as one quoted literal that ends where the escaper put its
+    closing quote, leaving no unquoted JQL the key controls.
+    """
+    calls: list[str] = []
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        calls.append(url)
+        return {"issues": []}
+
+    JiraClient("https://example.atlassian.net", "owner@example.com", "token",
+               transport=transport).search_project_issues(project_key)
+
+    assert parse_qs(urlparse(calls[0]).query)["jql"] == [expected_jql]

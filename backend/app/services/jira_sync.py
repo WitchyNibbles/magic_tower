@@ -17,14 +17,16 @@ owed, so it stays out of the queue.
 **Management visibility (T09, AC10).** ``JIRA_MANAGEMENT_PROJECT_KEY`` -- read
 here from ``Settings.jira_management_project_key``, never a new column on
 ``sources`` (``alembic/versions/0001_initial_schema.py`` pins that set) -- names
-one project a sync also fetches whole, through
-``JiraClient.search_project_issues``, alongside the participation window. Every
-issue that query returns is stored and browsable the same way, and never
-promoted on that ground alone: the assignee rule above is the only thing that
-decides a Jira signal either way, so an issue assigned to the owner still
-promotes once even when the project fetch is what found it. The setting is
-optional; when it is unset, this call is skipped and nothing about the
-participation-only sync changes.
+one project a sync also fetches from, through
+``JiraClient.search_project_issues``, alongside the participation window. That
+fetch is not the whole project: it is capped at the 2000 most recently updated
+issues and truncates silently past that, for the reasons its own docstring
+records. Every issue it does return is stored and browsable the same way, and
+never promoted on that ground alone: the assignee rule above is the only thing
+that decides a Jira signal either way, so an issue assigned to the owner still
+promotes once even when the project fetch is the only query that found it. The
+setting is optional; when it is unset, this call is skipped and nothing about
+the participation-only sync changes.
 
 **Who the owner is.** The account the configured API token belongs to, named by
 its Atlassian ``accountId`` and read from ``GET /rest/api/3/myself`` once per
@@ -126,12 +128,19 @@ def _fetch_issue_signals(client: JiraClient, project_key: str | None = None) -> 
     pagination mechanism would do that is not established here -- the dedup is
     defensive, and the test pins the handling, not the cause.
 
-    An issue both assigned to the owner and inside the visible project is fetched
-    from the participation query too -- ``assignee = currentUser()`` is one of its
-    clauses -- so ``setdefault`` here keeps that copy and the project fetch never
-    shadows it; either copy carries the same ``assignee_account_id``, and
-    ``promotion.should_promote``'s Jira rule is what actually decides to promote it,
-    not which query this function merged it from.
+    An issue both assigned to the owner and inside the visible project may arrive
+    from either query, or from only one. ``JIRA_PARTICIPATION_JQL`` bounds all of
+    its clauses, ``assignee = currentUser()`` included, with ``AND updated >= -15m``
+    (``app/integrations/jira.py``); the project clause carries no such window. So an
+    owner-assigned issue last updated outside that window is returned by the project
+    fetch alone, and the copy ``setdefault`` keeps is then the project copy -- the
+    project fetch is not merely a duplicate of something participation already found.
+    That costs the promotion decision nothing either way: both queries ask ``_search``
+    for the same ``JIRA_SEARCH_FIELDS``, so both copies normalize to the same
+    ``assignee_account_id``, and ``promotion.should_promote``'s Jira rule reads that
+    field on whichever copy survives dedup rather than which query merged it.
+    Dedup is what keeps it to one promotion; the assignee is what makes it a
+    promotion at all (``backend/tests/test_jira_project_visibility.py``).
     """
     issues = list(client.search_participation_issues())
     if project_key:
