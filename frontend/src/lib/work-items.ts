@@ -21,9 +21,10 @@ export const sourceTone: Record<SourceKind, string> = {
 }
 
 // The `.../browse/{KEY}` path segment jira_sync.py's `_normalize_issue` builds `source_url`
-// from — the human-readable issue key is never persisted as its own field
-// (backend/app/models.py's `sources`/`work_items` column set is pinned), so this is the only
-// place it can still be read back.
+// from. The backend does persist the key as its own field — `work_item_issue_keys.issue_key`,
+// added so one issue cannot become two work items — but no API response exposes it: a work item
+// arrives carrying `source_url` and a `source_external_id` of `jira:{numeric id}`, never the key.
+// So the URL is the only place the browser can read it back.
 export const jiraIssueKey = (item: Pick<WorkItem, 'source_kind' | 'source_url'>): string | null => {
   if (item.source_kind !== 'jira' || !item.source_url) return null
   return item.source_url.match(/\/browse\/([^/?#]+)/)?.[1] ?? null
