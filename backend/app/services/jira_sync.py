@@ -59,8 +59,11 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
 
 def _fetch_issue_signals(client: JiraClient) -> list[dict[str, Any]]:
     """Every participation issue, normalized and de-duplicated by ``external_id``
-    -- mirrors ``app/services/graph.py:fetch_signals``'s dedup, in case the same
-    issue reaches the window through more than one participation clause."""
+    -- mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
+    clauses are a set union and cannot themselves yield a duplicate; what can is
+    the cursor walk in ``search_participation_issues``, whose pages are ordered
+    by ``updated`` -- an issue updated between two page reads moves back to the
+    front of that ordering and is handed out on both."""
     rows = [_normalize_issue(issue, client.base_url) for issue in client.search_participation_issues()]
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -80,8 +83,9 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     Tests inject a stub transport through ``jira_client`` instead, the same seam
     ``JiraClient.from_settings``'s own ``transport`` parameter offers.
     """
-    if settings.jira_configuration_errors():
-        raise SyncError("Jira is not configured")
+    errors = settings.jira_configuration_errors()
+    if errors:
+        raise SyncError(f"Jira is not configured: missing {', '.join(errors)}")
     jira = jira_client or JiraClient.from_settings(settings)
     signals = _fetch_issue_signals(jira)
     created = persist_signals(db, signals) if db is not None else 0
