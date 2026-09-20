@@ -99,7 +99,7 @@ as ADF JSON: extract plain text, no fidelity work. The search index is eventuall
 absolute watermark is not without conversion.
 
 ## T06 — Jira sync handler
-- status: todo
+- status: verified
 - complexity: normal
 - deps: T05
 - done-when: `cd backend && uv run pytest tests -q -k jira_sync`
@@ -111,6 +111,21 @@ marks the connector retired and every "Jira" in the docs becomes dead documentat
 one import that triggers registration (`backend/app/main.py:1-11`). The handler signature must
 accept and ignore the Graph-only `client` kwarg (`backend/app/services/sync.py:79`) and return the
 same envelope (`sync.py:63`). `external_id` follows the existing `"kind:{id}"` convention.
+**Verified 2026-09-20.** Attempt 1 (sonnet) shipped the handler and 9 tests; the reviewer blocked
+because the worker's "every behavioural line falsified individually" claim was false — six mutations
+survived the whole 328-test suite, including deleting the `observed_at` mapping, which silently
+stamps every Jira issue as "arrived now" because `parse_observed_at` falls back to `datetime.now()`.
+I reproduced that before ordering the repair. The opus repair added four tests and one behaviour fix
+(the `SyncError` now names the missing env var instead of discarding what
+`jira_configuration_errors()` returns). All six mutations now redden under my own matrix, each `sed`
+verified to have applied, with a comment-only control green at 13. Gate **3** against baseline 7,
+unchanged in every category. **Five of T05's seven explicitly-requested fields are dropped by the
+normalization** — status, priority, assignee, reporter and project are fetched and discarded. Both
+reviewers and I judged that outside T06, whose body and AC6 ask only that an issue become a
+`Source`; it is B127, and it matters because no remaining task T07–T12 owns status or priority while
+the contract's Result promises them.
+Probe note: `backend/app/services/jira_sync.py` is the load-bearing file; RED on all four
+implementation files reverted one at a time, and RED again on the repair increment.
 
 ## T07 — Promote only what is assigned to you
 - status: todo
