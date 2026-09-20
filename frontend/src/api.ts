@@ -1,5 +1,5 @@
 export type WorkStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'dismissed'
-export type SourceKind = 'outlook_email' | 'manual'
+export type SourceKind = 'outlook_email' | 'manual' | 'jira'
 
 export interface WorkItem { id: string; title: string; summary: string | null; status: WorkStatus; source_kind: SourceKind; source_external_id: string | null; source_url: string | null; assigned_agent: string | null; due_at: string | null; created_at: string; updated_at: string; evidence?: Evidence[] }
 export interface Evidence { id?: string; source_kind: SourceKind; external_id: string; excerpt: string | null; observed_at: string }

@@ -4,7 +4,7 @@ import type { SourceKind, WorkItem, WorkStatus } from '@/api'
 // through the dismiss action (B51), never picked from a filter or a status dropdown.
 export const statuses: WorkStatus[] = ['pending', 'in_progress', 'blocked', 'done']
 export const statusLabels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done', dismissed: 'Dismissed' }
-export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual' }
+export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual', jira: 'Jira' }
 
 export const statusTone: Record<WorkStatus, string> = {
   pending: 'bg-secondary text-secondary-foreground',
@@ -17,6 +17,16 @@ export const statusTone: Record<WorkStatus, string> = {
 export const sourceTone: Record<SourceKind, string> = {
   outlook_email: 'bg-sky-400',
   manual: 'bg-muted-foreground',
+  jira: 'bg-indigo-400',
+}
+
+// The `.../browse/{KEY}` path segment jira_sync.py's `_normalize_issue` builds `source_url`
+// from — the human-readable issue key is never persisted as its own field
+// (backend/app/models.py's `sources`/`work_items` column set is pinned), so this is the only
+// place it can still be read back.
+export const jiraIssueKey = (item: Pick<WorkItem, 'source_kind' | 'source_url'>): string | null => {
+  if (item.source_kind !== 'jira' || !item.source_url) return null
+  return item.source_url.match(/\/browse\/([^/?#]+)/)?.[1] ?? null
 }
 
 export const demoItems: WorkItem[] = [

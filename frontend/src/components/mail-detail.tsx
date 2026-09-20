@@ -4,7 +4,7 @@ import type { WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
+import { jiraIssueKey, sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
 export function MailDetail({ item, demo, onStatus, onToast, onHandoff, onDismiss }: {
   item: WorkItem
@@ -32,6 +32,11 @@ export function MailDetail({ item, demo, onStatus, onToast, onHandoff, onDismiss
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-5">
         <span className={cn('size-2 rounded-full', sourceTone[item.source_kind])} />
         <Badge>{sourceLabels[item.source_kind]}</Badge>
+        {jiraIssueKey(item) && (
+          <a href={item.source_url ?? undefined} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary hover:underline">
+            {jiraIssueKey(item)}
+          </a>
+        )}
         {item.assigned_agent && <Badge className="bg-transparent text-muted-foreground">Assigned to {item.assigned_agent}</Badge>}
         <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onDismiss(item)}>Dismiss</Button>
         <label className="text-xs text-muted-foreground">
