@@ -39,3 +39,6 @@ pythonpath = ["."]
 # method is the only one that can interrupt a test blocked in a C-level call.
 timeout = 30
 timeout_method = "thread"
+# Naive-UTC timestamps are deprecated and ambiguous; any return of
+# ``datetime.utcnow()`` fails the suite instead of adding to the warning count.
+filterwarnings = ["error:datetime.datetime.utcnow\\(\\) is deprecated:DeprecationWarning"]

@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
@@ -7,6 +7,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 from .services.field_crypto import EncryptedText
+
+
+def _utc_now() -> datetime:
+    """Timezone-aware UTC now; ``_utc_now()`` is deprecated and returns a naive value."""
+    return datetime.now(UTC)
 
 
 class WorkStatus(str, enum.Enum):
@@ -57,8 +62,8 @@ class WorkItem(Base):
     # gap -- ``0006`` indexed status/source_kind/updated_at but missed this column).
     assigned_agent: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now, onupdate=_utc_now, index=True)
 
     evidence: Mapped[list["WorkEvidence"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
     dispatches: Mapped[list["AgentDispatch"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
@@ -77,9 +82,9 @@ class Source(Base):
     # Real mail bodies land here, so the column -- and only the column -- holds
     # ciphertext; readers still see cleartext. Stays ``TEXT`` on disk.
     excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now, onupdate=_utc_now)
 
     signal_context: Mapped["SourceSignalContext | None"] = relationship(back_populates="source", uselist=False, cascade="all, delete-orphan")
 
@@ -128,7 +133,7 @@ class SourcePromotion(Base):
     __tablename__ = "source_promotions"
 
     source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
-    considered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    considered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
 
 
 class WorkItemIssueKey(Base):
@@ -167,7 +172,7 @@ class WorkEvidence(Base):
     # Promotion carries the source excerpt across into this column, so it holds the
     # same real mail bodies and is sealed the same way. Stays ``TEXT``.
     excerpt: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
 
     work_item: Mapped[WorkItem] = relationship(back_populates="evidence")
 
@@ -190,8 +195,8 @@ class AgentDispatch(Base):
     instruction: Mapped[str] = mapped_column(Text)
     status: Mapped[DispatchStatus] = mapped_column(Enum(DispatchStatus), default=DispatchStatus.queued)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now, onupdate=_utc_now)
 
     work_item: Mapped[WorkItem] = relationship(back_populates="dispatches")
 
