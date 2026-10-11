@@ -1,5 +1,7 @@
 # Magic Tower
 
+[![CI](https://github.com/WitchyNibbles/magic_tower/actions/workflows/ci.yml/badge.svg)](https://github.com/WitchyNibbles/magic_tower/actions/workflows/ci.yml)
+
 ![Magic Tower, surrounded by floating runic particles](assets/magic-tower-logo.png)
 
 *A quiet, local-first tower for tending the work that finds you.*

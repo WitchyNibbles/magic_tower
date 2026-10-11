@@ -156,12 +156,13 @@ echo "stray /tmp task files: $stray_tmp"
 total=$((total + stray_tmp))
 
 # --- Repo-pointing processes -------------------------------------------------
-# "Points inside this repository" is checked against the MAIN worktree's
-# absolute path, not this script's own (possibly linked) worktree: every
-# linked worktree this project creates lives underneath the main tree
-# (`<main>/.claude/worktrees/...`), so matching the main tree's path alone
-# still catches a leaked dev server or container regardless of which
-# worktree started it.
+# "Points inside this repository" is checked against EVERY path `git worktree
+# list` reports, not the main tree's alone: linked worktrees are not
+# guaranteed to live underneath the main tree (Claude puts them in
+# `<main>/.claude/worktrees/...`, but Traycer puts them in
+# `~/.traycer/worktrees/...`), so a leaked dev server or container is caught
+# regardless of which worktree started it. A process naming several worktree
+# paths is still counted once.
 #
 # The process running this script itself, and every one of its ancestors up
 # to PID 1 (the shell that invoked it, `uv run pytest` when a test in
@@ -169,9 +170,9 @@ total=$((total + stray_tmp))
 # those are legitimately alive right now and are not "left behind". Anything
 # else whose command line mentions the main tree's path is counted, matching
 # the retro's example of a vite dev server left running for hours.
-main_worktree="$(printf '%s\n' "$worktree_raw" | awk '/^worktree /{print substr($0, 10); exit}')"
-[ -n "$main_worktree" ] || \
-    fail "could not determine the main worktree path -- treating as a crash, not zero findings"
+worktree_paths="$(printf '%s\n' "$worktree_raw" | awk '/^worktree /{print substr($0, 10)}')"
+[ -n "$worktree_paths" ] || \
+    fail "could not determine any worktree path -- treating as a crash, not zero findings"
 
 ppid_of() {
     local stat
@@ -204,9 +205,11 @@ for cmdline_file in /proc/[0-9]*/cmdline; do
     esac
     cmd="$(tr '\0' ' ' <"$cmdline_file" 2>/dev/null)"
     [ -z "$cmd" ] && continue
-    case "$cmd" in
-        *"$main_worktree"*) repo_processes=$((repo_processes + 1)) ;;
-    esac
+    while IFS= read -r wt_path; do
+        case "$cmd" in
+            *"$wt_path"*) repo_processes=$((repo_processes + 1)); break ;;
+        esac
+    done <<<"$worktree_paths"
 done
 [ "$proc_scan_ran" -eq 1 ] || \
     fail "no /proc/<pid>/cmdline entries were readable -- treating as a crash, not zero findings"
