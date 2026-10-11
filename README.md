@@ -8,6 +8,10 @@ Magic Tower is a local-first task queue built from the work that arrives in your
 
 Everything runs on your own machine. Nothing is fetched until you connect a source, nothing is ever sent or changed in Microsoft 365 or Jira, and message content is encrypted at rest.
 
+![The Magic Tower review queue: sources and status filters on the left, triaged work items in the middle, and the selected email's source evidence and agent handoff on the right](assets/dashboard.png)
+
+*The review queue with sample data. Every item shows the evidence that put it there.*
+
 ## Features
 
 - **Outlook ingestion** over Microsoft Graph with delegated, read-only OAuth (authorization code + PKCE, `offline_access`, automatic token refresh, `@odata.nextLink` paging, and `Retry-After` backoff on 429/503).
