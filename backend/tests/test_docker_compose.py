@@ -95,8 +95,8 @@ def test_readme_documents_the_web_port_variable() -> None:
     """
     readme = (REPO_ROOT / "README.md").read_text()
 
-    section = re.search(r"\n## Raise the tower locally\n(.*?)(?=\n## )", readme, re.DOTALL)
-    assert section, "README.md no longer has a 'Raise the tower locally' section"
+    section = re.search(r"\n## Quick start\n(.*?)(?=\n## )", readme, re.DOTALL)
+    assert section, "README.md no longer has a 'Quick start' section"
     assert "WEB_PORT" in section.group(1)
 
 
@@ -113,11 +113,11 @@ def test_readme_web_port_paragraph_points_at_the_redirect_uri() -> None:
     """
     readme = (REPO_ROOT / "README.md").read_text()
 
-    section = re.search(r"\n## Raise the tower locally\n(.*?)(?=\n## )", readme, re.DOTALL)
-    assert section, "README.md no longer has a 'Raise the tower locally' section"
+    section = re.search(r"\n## Quick start\n(.*?)(?=\n## )", readme, re.DOTALL)
+    assert section, "README.md no longer has a 'Quick start' section"
 
     paragraphs = [p for p in section.group(1).split("\n\n") if "WEB_PORT" in p]
-    assert paragraphs, "the 'Raise the tower locally' section no longer mentions WEB_PORT"
+    assert paragraphs, "the 'Quick start' section no longer mentions WEB_PORT"
     assert any("MICROSOFT_REDIRECT_URI" in p for p in paragraphs), (
         "the WEB_PORT paragraph must tell the reader to move MICROSOFT_REDIRECT_URI too"
     )

@@ -1,13 +1,13 @@
 # Architecture
 
-Workboard is a local Docker application exposed at `127.0.0.1:8787`.
+Magic Tower is a local Docker application exposed at `127.0.0.1:8787`.
 
 ```text
 Browser → nginx/React web (8787) → FastAPI (internal :8000) → SQLite volume
                                       ↓
                              Microsoft Graph (opt-in, read-only)
                                       ↓
-                       Codex / Claude Code intake and dispatch adapters
+                     local agent clients (loopback API, LOCAL_API_TOKEN)
 ```
 
 The API owns the durable work queue. `WorkItem` describes a task and `WorkEvidence` preserves the minimum provenance needed to audit an agent's interpretation. Microsoft tokens are stored as AES-GCM ciphertext in the local data volume; access and refresh token values are never returned by the API. A sync refreshes the access token itself, five minutes before its recorded expiry or once when Graph answers 401, and saves the new token encrypted in place of the old one; if Microsoft refuses the refresh token, the sync fails with 409 and the owner reconnects. Inbox reads follow `@odata.nextLink` pages up to the requested limit, and only while the link stays on `https://graph.microsoft.com/v1.0/`, since following it sends the bearer token. A 429 or 503 is retried up to three times, waiting for Graph's `Retry-After` (capped at 30 seconds) or 1, 2 and 4 seconds when it sends none; throttling that outlasts the retries fails the sync with 409.
