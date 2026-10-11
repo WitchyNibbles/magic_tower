@@ -7,6 +7,7 @@ import binascii
 import hashlib
 import hmac
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -95,19 +96,20 @@ def authorization_url(settings: Settings) -> str:
     return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?{urlencode(params)}"
 
 
-def exchange_code(settings: Settings, code: str, verifier: str) -> dict[str, object]:
-    """Exchange an authorization code. Token data stays inside the backend."""
+def _request_token(settings: Settings, grant: dict[str, str]) -> dict[str, object]:
+    """POST one grant to the token endpoint and stamp the result with ``expires_at``.
+
+    ``expires_in`` is relative to the response, so it is converted to an absolute
+    Unix time here, before the token is stored and the moment is lost.
+    """
     errors = settings.graph_configuration_errors()
     if errors:
         raise OAuthError("Graph configuration is incomplete: " + ", ".join(errors))
     body = urlencode({
         "client_id": settings.microsoft_client_id,
         "client_secret": settings.microsoft_client_secret.get_secret_value() if settings.microsoft_client_secret else "",
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": settings.microsoft_redirect_uri,
         "scope": " ".join(GRAPH_SCOPES),
-        "code_verifier": verifier,
+        **grant,
     }).encode()
     request = Request(
         f"https://login.microsoftonline.com/{settings.microsoft_tenant_id}/oauth2/v2.0/token",
@@ -115,6 +117,7 @@ def exchange_code(settings: Settings, code: str, verifier: str) -> dict[str, obj
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
+    requested_at = time.time()
     try:
         with urlopen(request, timeout=15) as response:  # nosec B310: fixed Microsoft identity endpoint
             token = json.loads(response.read())
@@ -122,4 +125,27 @@ def exchange_code(settings: Settings, code: str, verifier: str) -> dict[str, obj
         raise OAuthError("Microsoft token exchange failed") from error
     if not isinstance(token, dict) or not token.get("access_token"):
         raise OAuthError("Microsoft token exchange returned no access token")
+    if isinstance(token.get("expires_in"), (int, float)):
+        token["expires_at"] = requested_at + token["expires_in"]
+    return token
+
+
+def exchange_code(settings: Settings, code: str, verifier: str) -> dict[str, object]:
+    """Exchange an authorization code. Token data stays inside the backend."""
+    return _request_token(settings, {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": settings.microsoft_redirect_uri,
+        "code_verifier": verifier,
+    })
+
+
+def refresh_access_token(settings: Settings, refresh_token: str) -> dict[str, object]:
+    """Redeem a refresh token for a new access token.
+
+    Microsoft usually rotates the refresh token, but the response may omit it; the
+    old one then stays valid and is carried forward so the next refresh still works.
+    """
+    token = _request_token(settings, {"grant_type": "refresh_token", "refresh_token": refresh_token})
+    token.setdefault("refresh_token", refresh_token)
     return token

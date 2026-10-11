@@ -10,7 +10,7 @@ Browser → nginx/React web (8787) → FastAPI (internal :8000) → SQLite volum
                        Codex / Claude Code intake and dispatch adapters
 ```
 
-The API owns the durable work queue. `WorkItem` describes a task and `WorkEvidence` preserves the minimum provenance needed to audit an agent's interpretation. Microsoft tokens are stored as AES-GCM ciphertext in the local data volume; access and refresh token values are never returned by the API.
+The API owns the durable work queue. `WorkItem` describes a task and `WorkEvidence` preserves the minimum provenance needed to audit an agent's interpretation. Microsoft tokens are stored as AES-GCM ciphertext in the local data volume; access and refresh token values are never returned by the API. A sync refreshes the access token itself, five minutes before its recorded expiry or once when Graph answers 401, and saves the new token encrypted in place of the old one; if Microsoft refuses the refresh token, the sync fails with 409 and the owner reconnects.
 
 The frontend never receives Microsoft credentials and talks only to same-origin `/api/*`. Nginx proxies API requests to the private Compose network. The browser dashboard is intentionally local-only. Installed agent operations require a distinct `LOCAL_API_TOKEN` Bearer credential; Graph tokens are never made available to an agent. A future non-local deployment needs a separately reviewed browser-auth, CSRF, secret-manager, and database-migration design.
 

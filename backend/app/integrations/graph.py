@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -15,6 +16,10 @@ class GraphError(RuntimeError):
     pass
 
 
+class GraphAuthError(GraphError):
+    """Graph answered 401: the access token is expired or revoked."""
+
+
 def default_transport(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> dict[str, Any]:
     if method != "GET":
         raise GraphError("Graph connector permits read-only GET requests")
@@ -23,6 +28,10 @@ def default_transport(method: str, url: str, headers: dict[str, str], payload: d
         import json
         with urlopen(request, timeout=15) as response:  # nosec B310: fixed Microsoft endpoint
             return json.loads(response.read())
+    except HTTPError as error:
+        if error.code == 401:
+            raise GraphAuthError("Microsoft Graph rejected the access token") from error
+        raise GraphError("Microsoft Graph request failed") from error
     except Exception as error:  # transport details can contain sensitive request metadata
         raise GraphError("Microsoft Graph request failed") from error
 
