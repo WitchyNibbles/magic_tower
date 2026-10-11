@@ -25,6 +25,9 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 
 from app.database import Base
+# Registers every table on ``Base.metadata``, as ``alembic/env.py`` does; without it
+# this module compares the chain against an empty metadata whenever it runs alone.
+from app import models  # noqa: F401
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TESTS_DIR = Path(__file__).resolve().parent

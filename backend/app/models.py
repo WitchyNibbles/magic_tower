@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -194,3 +194,20 @@ class AgentDispatch(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     work_item: Mapped[WorkItem] = relationship(back_populates="dispatches")
+
+
+class BrowserSession(Base):
+    """A signed-in browser, kept in the database so an API restart does not end it.
+
+    ``id_hash`` is the SHA-256 of the cookie value, never the value itself, so a
+    copy of the database cannot be replayed as a session. The CSRF token is stored
+    as issued: ``GET /api/session`` has to hand it back after a page reload, and
+    it is worthless without the cookie. ``expires_at`` is Unix time, not
+    ``time.monotonic()``, which restarts with the process.
+    """
+
+    __tablename__ = "browser_sessions"
+
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    csrf_token: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[float] = mapped_column(Float, index=True)

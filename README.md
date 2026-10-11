@@ -76,7 +76,7 @@ Magic Tower is designed for a trusted local host, not for exposure to a network.
 - **Encryption at rest.** Graph tokens and stored message excerpts are AES-GCM encrypted under `APP_ENCRYPTION_KEY`, with separate associated data so one can never be decrypted as the other. Writes fail closed (503) without a key.
 - **Least-privilege Graph access.** Exactly three delegated scopes (`offline_access`, `User.Read`, `Mail.Read`), `/me` endpoints only, and a sign-in whose object ID differs from `MICROSOFT_TARGET_USER_ID` is rejected. The connector never sends mail or writes to Microsoft 365.
 - **No credentials in the browser or agents.** OAuth uses PKCE with a one-time encrypted state; tokens never leave the backend. Agents get a separate `LOCAL_API_TOKEN`, never a Graph token.
-- **Browser session hardening.** An HttpOnly session cookie, CSRF protection on cookie-backed writes, `no-store` caching, `nosniff`, `X-Frame-Options: DENY`, and a JSON body size limit.
+- **Browser session hardening.** An HttpOnly session cookie stored only as a SHA-256 hash in SQLite (so sessions survive an API restart but a copy of the database cannot be replayed), CSRF protection on cookie-backed writes, `no-store` caching, `nosniff`, `X-Frame-Options: DENY`, and a JSON body size limit.
 - **Hardened containers.** The API container runs read-only with all capabilities dropped and `no-new-privileges`.
 
 This does not protect against a compromised browser profile, Docker host, or local administrator. Keep `.env` local, and retain only the source excerpts needed to explain a work suggestion.
