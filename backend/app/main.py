@@ -11,7 +11,7 @@ from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
 
-app = FastAPI(title="Workboard API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 @app.middleware("http")
