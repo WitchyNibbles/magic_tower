@@ -13,10 +13,9 @@ says exactly which of these commands were run on the machine this document was
 written on, which one could not be, and why -- so what is proven here stays
 separable from what is merely written down.
 
-This file owns the full ordered walkthrough. The README's "Configure the Graph
-familiar" and "Measure the heuristic against real mail" sections stay as
-reference material -- what the Graph scopes mean, why the two-machine split
-exists -- and point here for the runnable sequence, so the steps live in one
+This file owns the full ordered walkthrough. [`microsoft-graph.md`](microsoft-graph.md)
+keeps the reference material -- what the Graph scopes mean, why the two-machine split
+exists -- and points here for the runnable sequence, so the steps live in one
 place instead of two copies that can drift apart.
 
 ## Prerequisites
@@ -45,8 +44,8 @@ Before touching a keyboard on the second PC, have on hand:
   secrets.
 - [`uv`](https://docs.astral.sh/uv/). Only [step 7](#7-evaluate) (scoring the
   labeled sample) runs standalone with `uv`, since it reads nothing but the
-  JSON file the export step wrote; the README's
-  [Develop the API with uv](../README.md#develop-the-api-with-uv) section covers
+  JSON file the export step wrote;
+  [Develop the API with uv](development.md#develop-the-api-with-uv) covers
   installing it and what the backend project expects.
 
 Docker on its own is not enough. `git`, `python3` and `uv` are all pasted before

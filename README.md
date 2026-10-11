@@ -64,7 +64,7 @@ All settings live in `.env`; [`.env.example`](.env.example) lists every one with
 | --- | --- |
 | `LOCAL_API_TOKEN` | Signing in to the UI and authenticating agent clients. Generate a random value. |
 | `APP_ENCRYPTION_KEY` | Encrypting the Graph token store and stored message excerpts. Without it the API refuses to store or serve them. |
-| `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI` | Outlook sync. See [Configure the Graph familiar](#configure-the-graph-familiar). |
+| `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI` | Outlook sync. See [`docs/microsoft-graph.md`](docs/microsoft-graph.md). |
 | `JIRA_SITE_URL`, `JIRA_ACCOUNT_EMAIL`, `JIRA_API_TOKEN`, `JIRA_MANAGEMENT_PROJECT_KEY` | Jira sync. See [`docs/jira-setup.md`](docs/jira-setup.md). |
 | `PROMOTION_ALLOWLISTED_SENDERS` | Optional senders whose mail is always treated as work. |
 
@@ -96,11 +96,7 @@ npm run dev
 npm run test -- --run
 ```
 
-CI (`.github/workflows/ci.yml`) runs the backend suite, the frontend suite, and a Docker Compose build on every push and pull request. Interactive API docs are served at `/api/docs`.
-
-## License
-
-Magic Tower is released under the [MIT License](LICENSE).
+Migrations, the uv tool install, and pre-Alembic databases are covered in [`docs/development.md`](docs/development.md). CI (`.github/workflows/ci.yml`) runs the backend suite, the frontend suite, and a Docker Compose build on every push and pull request. Interactive API docs are served at `/api/docs`.
 
 ---
 
@@ -108,104 +104,15 @@ Magic Tower is released under the [MIT License](LICENSE).
 
 *A quiet, local-first tower for tending the work that finds you.*
 
-Microsoft Graph ingestion and agent-driven work extraction are deliberately opt-in: nothing crosses the threshold until you invite it in. The sections below are the longer grimoire: every detail of running, migrating, and measuring the tower.
+Nothing crosses the threshold until you invite it in. The rest of the grimoire lives in `docs/`:
 
-## Develop the API with uv
+- **[Raising the tower from source](docs/development.md)**: uv, Alembic, and the old databases that predate the migrations.
+- **[Binding the Graph familiar](docs/microsoft-graph.md)**: the Entra registration, the first sync, and the backfill that offers older mail to the heuristic.
+- **[Testing the heuristic on real mail](docs/second-pc.md)**: the two-machine ritual that ends in a precision/recall number, without real mail ever touching this repository.
+- **[Summoning Jira](docs/jira-setup.md)**: connecting a real Jira Cloud site and checking what comes back.
+- **[The agent's pact](docs/agent-protocol.md)**: what a local agent may read, propose, and report.
+- **[The tower's plan](docs/architecture.md)**: components, boundaries, and how a sync moves through them.
 
-The backend is a standalone [uv](https://docs.astral.sh/uv/) project pinned to Python 3.12. From the repository root:
+## License
 
-```sh
-cd backend
-uv sync
-DATABASE_URL=sqlite:///./workboard.db uv run alembic upgrade head
-DATABASE_URL=sqlite:///./workboard.db uv run uvicorn app.main:app --reload
-```
-
-`/data` is the Docker data directory, so the `DATABASE_URL` override gives a
-local checkout a writable SQLite database. If you enable Microsoft Graph,
-also set `TOKEN_STORE_PATH` and `OAUTH_STATE_STORE_PATH` to writable local
-paths.
-
-Run the backend test command from `backend/`:
-
-```sh
-cd backend
-uv run pytest
-```
-
-The suite must run from `backend/` because `app/config.py:13` sets
-`env_file=".env"`, which is resolved relative to the current working
-directory. From the repository root, pytest would load the root `.env`
-instead, whose empty `MICROSOFT_*` values fail Settings validation and abort
-collection.
-
-When dependencies move, update the committed lockfile with `uv lock`.
-
-## Migrate the schema with Alembic
-
-Alembic owns every table. The application creates none of its own at startup, so a
-database must be migrated before it can serve a request. `backend/alembic.ini`
-holds no URL: `backend/alembic/env.py` reads `DATABASE_URL` through the same
-`app.config.get_settings` the API uses, so both always open the same file.
-
-```sh
-cd backend
-DATABASE_URL=sqlite:///./workboard.db uv run alembic upgrade head                            # apply
-DATABASE_URL=sqlite:///./workboard.db uv run alembic revision --autogenerate -m "what changed"
-```
-
-Commit the generated revision together with the `app/models.py` change that motivated
-it; `tests/test_migrations.py` fails if the chain and the models drift apart.
-
-**A database created before Alembic existed** (a `workboard.db` or `workboard-data`
-volume left by the old `create_all` startup hook) already holds the baseline
-tables. Revision `0001` detects that -- by column as well as by table name, so a
-schema altered by hand since cannot pass as an untouched one -- and records itself
-without recreating them, so plain `alembic upgrade head` -- which the API container
-now runs before serving -- works unchanged on such a database. Marking it
-explicitly is equivalent:
-
-```sh
-cd backend
-DATABASE_URL=sqlite:///./workboard.db uv run alembic stamp 0001
-```
-
-If those tables are present but their columns are not the ones `0001` creates, the
-upgrade fails and names the difference, leaving the database unstamped. No later
-revision recreates a column `0001` skipped, so stamping over such a database would
-strand it: repair the schema by hand, or recreate the database, before migrating.
-
-## Install the API command with uv
-
-To install the API command into uv's tool environment from a local checkout:
-
-```sh
-cd backend
-uv tool install --editable .
-magic-tower-api app.main:app --reload
-```
-
-Set `DATABASE_URL=sqlite:///./workboard.db` before starting the command if you
-want a writable SQLite database in the checkout.
-
-## Configure the Graph familiar
-
-Register a Microsoft Entra application for the intended work/school account. Add the exact redirect URI `http://localhost:8787/api/auth/callback` (matching `MICROSOFT_REDIRECT_URI`, so use your own port if you changed `WEB_PORT`), configure delegated read-only scopes `User.Read`, `Mail.Read`, and `offline_access`, then set the tenant, client, target object ID, and separately generated `APP_ENCRYPTION_KEY` in `.env`. The connector uses `/me` only and rejects a sign-in whose object ID does not match `MICROSOFT_TARGET_USER_ID`.
-
-Use `GET /api/auth/microsoft/start` to begin sign-in, then `POST /api/sync` to import bounded Outlook metadata. It never sends messages or acts in Microsoft 365.
-
-If the database holds `sources` rows written before the promotion heuristic existed, call `POST /api/sync/backfill` once to offer them to it; it never runs on its own (not at startup, not from `POST /api/sync`), reaches no network, and is safe to call again -- a source it has already judged, promoted or not, is never re-judged. Its response reports `considered`, `new_work_items`, `judged_without_context` and `promoted_without_owner_check` separately, because a bare `new_work_items` count cannot tell "nothing left to backfill" apart from "backfilled some and the heuristic declined all of it".
-
-The backfill judges slightly less well than a live sync does, and the last two counts are how it says so. `judged_without_context` counts rows stored before the sender and headers were kept at all, which can only be promoted unconditionally. `promoted_without_owner_check` counts rows promoted without the "skip mail you were only copied on" rule: that rule needs your own addresses, only the live Graph profile has them, and nothing stores them -- so **mail you were merely Cc'd on is promoted by the backfill even though a sync would decline it**. Both counts are rows worth reviewing in the queue, not errors; dismiss what does not belong.
-
-## Measure the heuristic against real mail
-
-The promotion heuristic in `app/services/promotion.py` can only be trusted once it has been checked against real mail, but real mail must never enter this repository. This is a two-machine workflow: sign in and sync on the machine with Outlook access, then hand-label and evaluate.
-
-`heuristic_export` reads the database a sync wrote to and never talks to Microsoft Graph. `heuristic_eval` reads only the labeled-sample JSON file it produces -- no database, no Graph credentials -- so it also runs safely on a machine that has never synced real mail: with no sample file present it prints a message and exits 0, and `MAGIC_TOWER_REQUIRE_SAMPLE=1` turns that (and an exported-but-never-labeled sample) into a hard failure instead, for the one run that is meant to prove the heuristic was actually checked. See `app/tools/labeled-sample.example.json` for the (entirely synthetic) row shape.
-
-See [`docs/second-pc.md`](docs/second-pc.md) for the full, ordered, pasteable sequence -- from `git clone` to a printed precision/recall number -- including every prerequisite (the five `MICROSOFT_*` settings, `APP_ENCRYPTION_KEY`, and `LOCAL_API_TOKEN`) and exactly how far it runs without real Microsoft credentials.
-
-## Summon an agent
-
-Set a separate random `LOCAL_API_TOKEN` in `.env` and give it to the local agent client, which sends it as a Bearer header to the loopback API. It is a Magic Tower-only credential, never an Azure or Graph token. See [the agent protocol](docs/agent-protocol.md) for the intake and dispatch contracts.
+Magic Tower is released under the [MIT License](LICENSE).
