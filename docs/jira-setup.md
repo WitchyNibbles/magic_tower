@@ -30,8 +30,8 @@ could not be.
     the actionable queue. Leave it blank to skip that fetch entirely.
 - [`uv`](https://docs.astral.sh/uv/) for the connectivity check below; Docker
   and Docker Compose for a first real sync into the running application. See
-  the README's [Develop the API with uv](../README.md#develop-the-api-with-uv)
-  section for installing `uv` and what the backend project expects.
+  [Develop the API with uv](development.md#develop-the-api-with-uv)
+  for installing `uv` and what the backend project expects.
 
 ## 1. Configure `.env`
 

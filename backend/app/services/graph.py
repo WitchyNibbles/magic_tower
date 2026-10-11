@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,11 +27,11 @@ def _heuristic_headers(headers: Any) -> dict[str, str]:
 
 
 def parse_observed_at(value: Any) -> datetime:
-    """Graph's ISO-8601 timestamp, or now if it is missing or unparseable."""
+    """Graph's ISO-8601 timestamp, or the current UTC time if it is missing or unparseable."""
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else datetime.now()
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else datetime.now(UTC)
     except ValueError:
-        return datetime.now()
+        return datetime.now(UTC)
 
 
 def _address(entry: Any) -> str | None:
