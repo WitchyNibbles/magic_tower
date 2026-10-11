@@ -1,26 +1,18 @@
 import { useState } from 'react'
-import { CopyIcon } from 'lucide-react'
 import type { WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { jiraIssueKey, sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
-export function MailDetail({ item, demo, onStatus, onToast, onHandoff, onDismiss }: {
+export function MailDetail({ item, demo, onStatus, onHandoff, onDismiss }: {
   item: WorkItem
   demo: boolean
   onStatus: (status: WorkStatus) => void
-  onToast: (message: string) => void
   onHandoff: (item: WorkItem, client: 'codex' | 'claude-code') => void
   onDismiss: (item: WorkItem) => void
 }) {
   const [agent, setAgent] = useState<'codex' | 'claude-code' | null>(null)
-  const command = `scripts/pending-work context ${item.id}`
-
-  const copy = async () => {
-    await navigator.clipboard?.writeText(command)
-    onToast('Safe context command copied. Paste it into your agent terminal.')
-  }
 
   const chooseAgent = (client: 'codex' | 'claude-code') => {
     setAgent(client)
@@ -72,18 +64,12 @@ export function MailDetail({ item, demo, onStatus, onToast, onHandoff, onDismiss
         <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-5">
           <p className="text-xs font-semibold tracking-[0.16em] text-primary">AGENT HANDOFF</p>
           <h3 className="text-sm font-semibold">Invite an agent to take this on</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">Magic Tower records a bounded handoff and copies only the task ID. It never puts mailbox text in a shell command.</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">Magic Tower records a bounded handoff that a local agent client picks up through the API. It never puts mailbox text in a shell command.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => chooseAgent('codex')}>Use Codex</Button>
             <Button size="sm" variant="secondary" onClick={() => chooseAgent('claude-code')}>Use Claude Code</Button>
           </div>
-          {agent && (
-            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-input bg-background p-3">
-              <code className="flex-1 overflow-auto text-xs">{command}</code>
-              <Button size="sm" variant="secondary" onClick={copy}><CopyIcon />Copy command</Button>
-              {demo && <small className="w-full text-xs text-muted-foreground">Sample item only — nothing will be dispatched.</small>}
-            </div>
-          )}
+          {agent && demo && <small className="mt-2 text-xs text-muted-foreground">Sample item only — nothing will be dispatched.</small>}
         </section>
       </div>
     </div>

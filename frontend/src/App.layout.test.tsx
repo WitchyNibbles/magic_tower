@@ -47,15 +47,13 @@ describe('Mail layout', () => {
     expect(screen.queryByText('Send the revised project estimate')).toBeNull()
   })
 
-  it('layout still copies the bounded dispatch command to the clipboard', async () => {
+  it('layout records an agent handoff without offering a shell command', async () => {
     offline()
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
 
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Use Codex' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy command' }))
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('scripts/pending-work context demo-email'))
+    expect(await screen.findByText('Sample item only — nothing will be dispatched.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Copy command' })).toBeNull()
   })
 })

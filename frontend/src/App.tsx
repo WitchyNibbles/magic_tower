@@ -178,7 +178,7 @@ export default function App() {
         <ResizablePanel defaultSize="48" minSize="30">
           <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
             {selected
-              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onToast={setToast} onHandoff={handoff} onDismiss={dismiss} />
+              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onHandoff={handoff} onDismiss={dismiss} />
               : locked
                 ? <UnlockPanel onUnlock={unlock} />
                 : <div className="m-auto max-w-sm p-8 text-center">

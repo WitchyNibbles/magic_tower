@@ -20,10 +20,8 @@ Integrations must:
 - treat source excerpts as sensitive and minimize them in prompts/logs;
 - report uncertainty rather than silently marking work complete.
 
-## Installation
+## Clients
 
-- Codex: install this repository's `.codex-plugin/plugin.json`; it exposes `skills/pending-work/SKILL.md`.
-- Claude Code: copy or symlink `agent-plugin/claude-code/commands/pending-work.md` into `.claude/commands/`.
-- Both: run `scripts/pending-work`, set `PENDING_WORK_API_TOKEN` from Workboard's distinct `LOCAL_API_TOKEN`, and optionally set `PENDING_WORK_API_BASE` (default: `http://127.0.0.1:8787/api`).
+This repository ships the API side of the protocol only. A client talks to `http://127.0.0.1:8787/api` and authenticates with Workboard's distinct `LOCAL_API_TOKEN`.
 
 The token is sent only as a Bearer header to loopback. It is never a Graph token. `health` and `status` are uncredentialed; agent context, proposals, updates, and dispatches require the token.

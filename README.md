@@ -28,7 +28,7 @@ Run the backend test command from `backend/`:
 
 ```sh
 cd backend
-uv run pytest tests ../tests/agent_protocol
+uv run pytest
 ```
 
 The suite must run from `backend/` because `app/config.py:13` sets
@@ -108,7 +108,7 @@ On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to
 - A clean local dashboard can filter, inspect, update, and dispatch pending work with source evidence.
 - SQLite-backed work items, sources, evidence, agent proposals, and auditable dispatch records.
 - Delegated Microsoft OAuth with PKCE, `/me`-only Outlook ingestion, bounded excerpts, and encrypted local token storage.
-- An installable Codex plugin/skill plus a Claude Code command and loopback-only JSON CLI in `scripts/pending-work`.
+- A loopback-only agent API: local clients read context, propose work, and record progress with the separate `LOCAL_API_TOKEN` (see `docs/agent-protocol.md`).
 
 ## Configure the Graph familiar
 
@@ -130,7 +130,7 @@ See [`docs/second-pc.md`](docs/second-pc.md) for the full, ordered, pasteable se
 
 ## Agent integration
 
-Set a separate random `LOCAL_API_TOKEN` in `.env`, then expose it to the agent process as `PENDING_WORK_API_TOKEN`. It is a Magic Tower-only credential, never an Azure or Graph token. See [the agent protocol](docs/agent-protocol.md) for installation and exact commands.
+Set a separate random `LOCAL_API_TOKEN` in `.env` and give it to the local agent client, which sends it as a Bearer header to the loopback API. It is a Magic Tower-only credential, never an Azure or Graph token. See [the agent protocol](docs/agent-protocol.md) for the intake and dispatch contracts.
 
 ## The warding circle
 

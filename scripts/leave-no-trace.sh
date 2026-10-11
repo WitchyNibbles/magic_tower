@@ -34,8 +34,7 @@
 # project, so "every /tmp entry" is not a usable signal. This project's own
 # sessions name their scratch files after the task or acceptance-criterion ID
 # they belong to -- `/tmp/ac13.json`, `/tmp/t11.json`, `/tmp/ac4-alembic.db`,
-# `/tmp/t03-clone-test`, all visible in `.companion/runs/*/verification.md`
-# history -- so the category matches top-level `/tmp` entry basenames
+# `/tmp/t03-clone-test` -- so the category matches top-level `/tmp` entry basenames
 # case-insensitively against `ac<digits>` or `t<digits>`, and the ID has to
 # END there: at a `.`, `-`, `_`, or the end of the name. The terminator is
 # not decoration. Several unrelated tools name their /tmp entries with
