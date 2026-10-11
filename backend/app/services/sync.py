@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..integrations.graph import GraphAuthError, GraphClient
+from ..integrations.graph import GraphAuthError, GraphClient, GraphThrottledError
 from .crypto import EncryptedTokenStore, TokenStoreError
 from .graph import fetch_signals, persist_signals
 from .oauth import OAuthError, refresh_access_token
@@ -114,10 +114,14 @@ def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, 
         raise SyncError("Stored Graph credentials are unavailable") from error
     if not token or not isinstance(token.get("access_token"), str):
         raise SyncError("Microsoft Graph is not connected")
-    if client is not None:
-        profile, signals = _read_graph(settings, client, limit)
-    else:
-        profile, signals = _read_graph_with_refresh(settings, store, token, limit)
+    try:
+        if client is not None:
+            profile, signals = _read_graph(settings, client, limit)
+        else:
+            profile, signals = _read_graph_with_refresh(settings, store, token, limit)
+    except GraphThrottledError as error:
+        # ``GraphClient`` has already waited and retried; this is throttling that outlasted it.
+        raise SyncError("Microsoft Graph is throttling requests; try the sync again in a few minutes") from error
     created = persist_signals(db, signals) if db is not None else 0
     # Every signal is kept as a ``Source``; only the actionable ones reach the queue.
     promoted = promote_signals(db, signals, _owner_addresses(profile), settings.allowlisted_senders()) if db is not None else 0
