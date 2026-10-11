@@ -1,16 +1,17 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import inspect, text
+from sqlalchemy.exc import StatementError
 
 from .contracts import HealthResponse
 from .config import get_settings
-from .database import Base, engine
+from .services.field_crypto import FieldEncryptionError
+from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
 
-app = FastAPI(title="Workboard API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 @app.middleware("http")
@@ -43,17 +44,32 @@ async def add_local_security_headers_and_limit_json(request: Request, call_next)
     return response
 
 
-@app.on_event("startup")
-def create_schema() -> None:
-    # Alembic migrations replace this bootstrap once persistent schema changes begin.
-    Base.metadata.create_all(bind=engine)
-    # Preserve existing local development volumes while this greenfield app uses
-    # SQLAlchemy bootstrap before it has an Alembic migration history.
-    if engine.dialect.name == "sqlite":
-        columns = {column["name"] for column in inspect(engine).get_columns("work_items")}
-        if "priority" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE work_items ADD COLUMN priority VARCHAR(6) NOT NULL DEFAULT 'medium'"))
+def _encryption_failure(error: BaseException) -> FieldEncryptionError | None:
+    """The encryption failure behind ``error``, if that is what it is.
+
+    SQLAlchemy raises the column type's error from inside a statement, so it
+    arrives wrapped in a ``StatementError`` carrying the original on ``.orig``.
+    """
+    if isinstance(error, FieldEncryptionError):
+        return error
+    original = getattr(error, "orig", None)
+    return original if isinstance(original, FieldEncryptionError) else None
+
+
+@app.exception_handler(FieldEncryptionError)
+@app.exception_handler(StatementError)
+async def encrypted_content_unavailable(request: Request, error: Exception) -> JSONResponse:
+    """Fail closed, like the other unusable-credential paths: 503, never cleartext.
+
+    Reached when ``APP_ENCRYPTION_KEY`` is absent or does not open a stored excerpt.
+    Both mean the deployment is misconfigured, not that the request was bad, and
+    neither may be answered by writing or serving message content unencrypted. Any
+    other statement failure is none of this handler's business and is re-raised.
+    """
+    failure = _encryption_failure(error)
+    if failure is None:
+        raise error
+    return JSONResponse(status_code=503, content={"detail": str(failure)})
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])

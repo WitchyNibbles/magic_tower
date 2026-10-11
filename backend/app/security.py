@@ -7,16 +7,20 @@ must never be reused as a Microsoft Graph credential.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import time
 from dataclasses import dataclass
-from threading import Lock
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Header, HTTPException, status
+from sqlalchemy import delete
+from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
+from .database import get_db
+from .models import BrowserSession
 
 SESSION_COOKIE = "workboard_session"
 
@@ -26,10 +30,6 @@ class LocalAccess:
     via_bearer: bool
     csrf_token: str | None = None
     session_id: str | None = None
-
-
-_sessions: dict[str, tuple[str, float]] = {}
-_sessions_lock = Lock()
 
 
 def _configured_token(settings: Settings) -> str:
@@ -57,37 +57,49 @@ def require_local_agent_token(authorization: Annotated[str | None, Header()] = N
                             headers={"WWW-Authenticate": "Bearer"})
 
 
-def create_browser_session(settings: Settings) -> tuple[str, str]:
-    """Return an opaque session id and CSRF token; neither is persisted to disk."""
+def _session_key(session_id: str) -> str:
+    """The stored form of a session id: its SHA-256, so the database never holds the cookie value."""
+    return hashlib.sha256(session_id.encode()).hexdigest()
+
+
+def create_browser_session(db: Session, settings: Settings) -> tuple[str, str]:
+    """Return an opaque session id and CSRF token, storing only the id's hash.
+
+    Sessions that have already expired are deleted first, so the table holds no
+    more than the browsers signed in during the last session lifetime.
+    """
     session_id, csrf_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-    with _sessions_lock:
-        _sessions[session_id] = (csrf_token, time.monotonic() + settings.local_session_ttl_seconds)
+    now = time.time()
+    db.execute(delete(BrowserSession).where(BrowserSession.expires_at <= now))
+    db.add(BrowserSession(id_hash=_session_key(session_id), csrf_token=csrf_token,
+                          expires_at=now + settings.local_session_ttl_seconds))
+    db.commit()
     return session_id, csrf_token
 
 
-def clear_browser_session(session_id: str | None) -> None:
+def clear_browser_session(db: Session, session_id: str | None) -> None:
     if session_id:
-        with _sessions_lock:
-            _sessions.pop(session_id, None)
+        db.execute(delete(BrowserSession).where(BrowserSession.id_hash == _session_key(session_id)))
+        db.commit()
 
 
-def _session_csrf(session_id: str | None) -> str | None:
+def _session_csrf(db: Session, session_id: str | None) -> str | None:
     if not session_id:
         return None
-    with _sessions_lock:
-        stored = _sessions.get(session_id)
-        if not stored:
-            return None
-        csrf_token, expires_at = stored
-        if expires_at <= time.monotonic():
-            _sessions.pop(session_id, None)
-            return None
-        return csrf_token
+    stored = db.get(BrowserSession, _session_key(session_id))
+    if stored is None:
+        return None
+    if stored.expires_at <= time.time():
+        db.delete(stored)
+        db.commit()
+        return None
+    return stored.csrf_token
 
 
 def require_local_access(authorization: Annotated[str | None, Header()] = None,
                          session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-                         settings: Settings = Depends(get_settings)) -> LocalAccess:
+                         settings: Settings = Depends(get_settings),
+                         db: Session = Depends(get_db)) -> LocalAccess:
     """Allow either an installed-agent bearer token or an opaque browser session."""
     expected = _configured_token(settings)
     if authorization:
@@ -95,7 +107,7 @@ def require_local_access(authorization: Annotated[str | None, Header()] = None,
             return LocalAccess(via_bearer=True)
         raise HTTPException(status_code=401, detail="A valid local API bearer token is required",
                             headers={"WWW-Authenticate": "Bearer"})
-    csrf_token = _session_csrf(session_id)
+    csrf_token = _session_csrf(db, session_id)
     if csrf_token:
         return LocalAccess(via_bearer=False, csrf_token=csrf_token, session_id=session_id)
     raise HTTPException(status_code=401, detail="A local browser session or bearer token is required",

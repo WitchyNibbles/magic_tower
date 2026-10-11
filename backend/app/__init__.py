@@ -1,1 +1,1 @@
-"""Workboard API package."""
+"""Magic Tower API package."""

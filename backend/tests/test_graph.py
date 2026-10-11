@@ -59,11 +59,25 @@ def test_sync_uses_me_and_deduplicates_mocked_messages(tmp_path: Path) -> None:
             return {"id": "expected-oid"}
         if "/me/mailFolders/" in url:
             return {"value": [{"id": "m1", "subject": "Do task", "bodyPreview": "please", "webLink": "https://x"}, {"id": "m1", "subject": "duplicate"}]}
-        if "/me/chats" in url:
-            return {"value": [{"id": "chat-1", "topic": "Project"}]}
-        if "/chats/chat-1/messages" in url:
-            return {"value": [{"id": "t1", "body": {"content": "Follow up"}}]}
         raise AssertionError(url)
     result = sync(settings, client=GraphClient("token", transport))
-    assert result["count"] == 2
+    assert result["count"] == 1
     assert all("/users/" not in call for call in calls)
+
+
+def test_graph_client_has_no_chat_fetch_path() -> None:
+    """The Graph chat fetch path is gone, not merely unused by ``fetch_signals``."""
+    assert not hasattr(GraphClient, "chat_messages")
+
+
+def test_graph_scopes_no_longer_request_chat_read() -> None:
+    """Chat.Read asks the owner for a consent the Teams source no longer needs.
+
+    Requesting a scope nothing uses asks for admin consent on a mailbox where it
+    cannot be granted -- exactly the reason the Teams source was removed -- so
+    this pins the OAuth scope list, not just the connector code.
+    """
+    from app.services.oauth import GRAPH_SCOPES
+
+    assert "Chat.Read" not in GRAPH_SCOPES
+    assert GRAPH_SCOPES == ("offline_access", "User.Read", "Mail.Read")
