@@ -50,7 +50,7 @@ from ..integrations.freshservice import (
     is_int,
     ticket_matches_field,
 )
-from .graph import persist_signals
+from .graph import persist_signals, single_line_excerpt
 from .promotion import promote_signals
 from .sync import SyncError
 from .sync_cursor import last_success, record_success
@@ -112,6 +112,7 @@ def _normalize_ticket(ticket: dict[str, Any], base_url: str) -> dict[str, Any]:
         "external_id": f"{FRESHSERVICE_SOURCE_KIND}:{ticket_id}",
         "source_kind": FRESHSERVICE_SOURCE_KIND,
         "title": subject.strip() if isinstance(subject, str) and subject.strip() else FALLBACK_TITLE,
+        "excerpt": single_line_excerpt(ticket.get("description_text")),
         "source_url": f"{base_url}/a/tickets/{ticket_id}",
         "observed_at": ticket.get("updated_at"),
         "responder_id": responder_id if is_int(responder_id) else None,

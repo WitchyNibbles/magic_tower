@@ -322,6 +322,40 @@ def test_freshservice_normalize_ticket_builds_the_signal_promotion_reads(ticket:
     assert {key: signal[key] for key in expected} == expected
 
 
+@pytest.mark.parametrize(
+    ("fields", "excerpt"),
+    [
+        ({"description_text": "Printer on  floor 3\r\nis offline.\n\nInvented request."},
+         "Printer on floor 3 is offline. Invented request."),
+        ({"description_text": "   \n "}, None),
+        ({"description_text": None}, None),
+        ({"description_text": 42}, None),
+        ({"description": "<div>html only</div>"}, None),
+        ({}, None),
+    ],
+)
+def test_freshservice_normalize_ticket_takes_the_excerpt_from_the_plain_text_description(
+    fields: dict[str, Any], excerpt: str | None,
+) -> None:
+    """Only ``description_text`` is read (the HTML ``description`` would put markup in
+    the queue); a ticket without it, as the filter endpoint may return, has no excerpt."""
+    assert _normalize_ticket(_ticket(5, **fields), BASE)["excerpt"] == excerpt
+
+
+def test_freshservice_sync_stores_the_description_as_the_source_and_evidence_excerpt() -> None:
+    ticket = _ticket(111, description_text="Reset the invented VPN token\nfor the demo account.")
+
+    with Session(engine) as session:
+        _sync_freshservice(_configured_settings(), db=session, freshservice_client=_client_with([ticket]))
+
+        source = session.query(Source).filter_by(external_id="freshservice:111").one()
+        item = session.query(WorkItem).filter_by(source_external_id="freshservice:111").one()
+        evidence_excerpts = [evidence.excerpt for evidence in item.evidence]
+
+    assert source.excerpt == "Reset the invented VPN token for the demo account."
+    assert evidence_excerpts == [source.excerpt]
+
+
 # --- the owner -----------------------------------------------------------------------------
 
 
