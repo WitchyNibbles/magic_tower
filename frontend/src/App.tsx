@@ -108,7 +108,7 @@ export default function App() {
     try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
   }
   const showDemo = () => {
-    setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items. Connect the API to see your own queue.')
+    setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items, not your queue.')
   }
   const choose = async (item: WorkItem) => {
     setSelected(item)
@@ -171,7 +171,7 @@ export default function App() {
           </Button>
           <span className={cn('flex items-center gap-1.5 text-xs', state === 'ready' ? 'text-emerald-300' : 'text-muted-foreground')}>
             {state !== 'checking' && <span aria-hidden className={cn('size-1.5 rounded-full', state === 'ready' ? 'bg-emerald-300' : 'bg-muted-foreground')} />}
-            {state === 'ready' ? 'API connected' : state === 'checking' ? 'Connecting…' : 'API offline'}
+            {state === 'ready' ? 'API connected' : state === 'checking' ? 'Connecting…' : locked ? 'Locked' : 'API offline'}
           </span>
           <Button variant="ghost" size="icon" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon /></Button>
         </div>
@@ -195,7 +195,7 @@ export default function App() {
                 ? <UnlockPanel onUnlock={unlock} />
                 : <div className="m-auto max-w-sm p-8 text-center">
                     <h2 className="font-serif text-xl">No work items</h2>
-                    <p className="mt-2 text-sm text-muted-foreground">Connect Microsoft Graph to pull in mail, or load the sample queue.</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Set up Jira or connect Outlook, then press Sync now. Or load the sample items.</p>
                     <Button className="mt-4" onClick={showDemo}>Load sample items</Button>
                   </div>}
           </section>
