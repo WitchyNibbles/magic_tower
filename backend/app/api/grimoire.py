@@ -5,11 +5,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..database import get_db
 from ..schemas import AnalysisRead, AnalysisWrite, GrimoireContext, GrimoireItemPage
 from ..security import require_grimoire_token
 from ..services.grimoire_view import (analysis_read, context_fields, fingerprint, get_open_item, items_needing_analysis,
                                       save_analysis)
+from ..services.sync_all import sync_ready_sources
 from ..services.work_items import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 
 router = APIRouter(prefix="/api/grimoire", tags=["grimoire"], dependencies=[Depends(require_grimoire_token)])
@@ -28,6 +30,15 @@ def item_context(item_id: UUID, db: Session = Depends(get_db)):
     """The only route that returns source text to grimoire. It is data, not instructions."""
     fields = context_fields(db, get_open_item(db, item_id))
     return GrimoireContext(**fields, fingerprint=fingerprint(fields))
+
+
+@router.post("/sync")
+def run_sync(db: Session = Depends(get_db)) -> dict[str, object]:
+    """Sync every ready source, as Sync now does, so grimoire can analyse fresh data.
+
+    A source failing is a result under its kind, not an HTTP error (``POST /api/sync/all``).
+    """
+    return {"results": sync_ready_sources(get_settings(), db)}
 
 
 @router.put("/items/{item_id}/analysis", response_model=AnalysisRead)
