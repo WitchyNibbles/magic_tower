@@ -12,17 +12,18 @@ transport from ``app/integrations/jira.py`` (mirrors ``app/integrations/graph.py
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 import app.integrations.jira as jira_module
 from app.integrations.jira import (
-    JIRA_PARTICIPATION_JQL,
     JIRA_SEARCH_FIELDS,
     JIRA_SEARCH_MAX_PAGES,
     JiraClient,
     extract_adf_plain_text,
+    participation_jql,
 )
 
 
@@ -31,7 +32,7 @@ def _client(transport):
 
 
 def test_jira_query_participation_jql_is_the_bounded_five_clause_query() -> None:
-    assert JIRA_PARTICIPATION_JQL == (
+    assert participation_jql(15) == (
         "(assignee = currentUser() OR reporter = currentUser() OR creator = currentUser() "
         "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -15m "
         "ORDER BY updated DESC"
@@ -49,17 +50,34 @@ def test_jira_query_participation_jql_is_the_bounded_five_clause_query() -> None
     ],
 )
 def test_jira_query_participation_jql_contains_each_user_clause(clause: str) -> None:
-    assert clause in JIRA_PARTICIPATION_JQL
+    assert clause in participation_jql(15)
 
 
-def test_jira_query_participation_jql_is_bounded_by_a_relative_updated_window() -> None:
+@pytest.mark.parametrize("window_minutes", [1, 15, 35, 20_160])
+def test_jira_query_participation_jql_is_bounded_by_a_relative_updated_window(window_minutes: int) -> None:
     """An absolute watermark would need the token owner's Jira profile timezone
-    (not UTC) to compare correctly; a relative window sidesteps that entirely."""
-    assert "updated >= -15m" in JIRA_PARTICIPATION_JQL
+    (not UTC) to compare correctly; a relative ``-{N}m`` window sidesteps that
+    entirely, whatever N the sync cursor or the lookback setting asks for."""
+    assert f"updated >= -{window_minutes}m " in participation_jql(window_minutes)
 
 
 def test_jira_query_participation_jql_orders_by_updated_descending() -> None:
-    assert JIRA_PARTICIPATION_JQL.endswith("ORDER BY updated DESC")
+    assert participation_jql(15).endswith("ORDER BY updated DESC")
+
+
+@pytest.mark.parametrize("window_minutes", [0, -1, -15])
+def test_jira_query_participation_jql_refuses_a_window_below_one_minute(window_minutes: int) -> None:
+    """``updated >= -0m`` and a positive offset (``-(-5)m``) are not windows into the
+    past; refuse them here rather than send Jira a query that means something else."""
+    with pytest.raises(ValueError):
+        participation_jql(window_minutes)
+
+
+@pytest.mark.parametrize("window_minutes", [1.5, "15", None, True])
+def test_jira_query_participation_jql_refuses_a_window_that_is_not_an_int(window_minutes: Any) -> None:
+    """A string would be spliced into the JQL as written, so only an int may be."""
+    with pytest.raises(ValueError):
+        participation_jql(window_minutes)
 
 
 def test_jira_query_requests_the_search_jql_endpoint_not_the_removed_one() -> None:
@@ -69,7 +87,7 @@ def test_jira_query_requests_the_search_jql_endpoint_not_the_removed_one() -> No
         calls.append(url)
         return {"issues": []}
 
-    _client(transport).search_participation_issues()
+    _client(transport).search_participation_issues(15)
 
     assert len(calls) == 1
     parsed = urlparse(calls[0])
@@ -83,10 +101,10 @@ def test_jira_query_sends_the_participation_jql_as_a_query_parameter() -> None:
         calls.append(url)
         return {"issues": []}
 
-    _client(transport).search_participation_issues()
+    _client(transport).search_participation_issues(45)
 
     query = parse_qs(urlparse(calls[0]).query)
-    assert query["jql"] == [JIRA_PARTICIPATION_JQL]
+    assert query["jql"] == [participation_jql(45)]
 
 
 def test_jira_query_requests_fields_explicitly_instead_of_the_id_only_default() -> None:
@@ -98,7 +116,7 @@ def test_jira_query_requests_fields_explicitly_instead_of_the_id_only_default() 
         calls.append(url)
         return {"issues": []}
 
-    _client(transport).search_participation_issues()
+    _client(transport).search_participation_issues(15)
 
     query = parse_qs(urlparse(calls[0]).query)
     assert query["fields"] == [",".join(JIRA_SEARCH_FIELDS)]
@@ -115,7 +133,7 @@ def test_jira_query_follows_next_page_token_to_a_second_request() -> None:
         assert query["nextPageToken"] == ["page-2"]
         return {"issues": [{"id": "2"}]}
 
-    issues = _client(transport).search_participation_issues()
+    issues = _client(transport).search_participation_issues(15)
 
     assert len(calls) == 2
     assert [issue["id"] for issue in issues] == ["1", "2"]
@@ -128,7 +146,7 @@ def test_jira_query_stops_paging_once_a_response_has_no_next_page_token() -> Non
         calls.append(url)
         return {"issues": [{"id": "only"}]}
 
-    issues = _client(transport).search_participation_issues()
+    issues = _client(transport).search_participation_issues(15)
 
     assert len(calls) == 1
     assert [issue["id"] for issue in issues] == ["only"]
@@ -144,7 +162,7 @@ def test_jira_query_ignores_total_and_start_at_and_uses_only_the_page_token() ->
         calls.append(url)
         return {"issues": [{"id": "1"}], "total": 999999, "startAt": 50}
 
-    issues = _client(transport).search_participation_issues()
+    issues = _client(transport).search_participation_issues(15)
 
     assert len(calls) == 1
     assert [issue["id"] for issue in issues] == ["1"]
@@ -160,7 +178,7 @@ def test_jira_query_pagination_is_bounded_against_an_endless_next_page_token() -
         call_count += 1
         return {"issues": [], "nextPageToken": "always-more"}
 
-    _client(transport).search_participation_issues()
+    _client(transport).search_participation_issues(15)
 
     assert call_count == JIRA_SEARCH_MAX_PAGES
 
@@ -171,7 +189,7 @@ def test_jira_query_search_never_reaches_the_network(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(jira_module, "urlopen", forbidden)
 
-    _client(lambda *_: {"issues": []}).search_participation_issues()
+    _client(lambda *_: {"issues": []}).search_participation_issues(15)
 
 
 def test_jira_query_extracts_plain_text_from_nested_adf_content() -> None:
@@ -209,6 +227,6 @@ def test_jira_query_treats_a_null_issues_array_as_empty_instead_of_erroring() ->
     def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
         return {"issues": None}
 
-    issues = _client(transport).search_participation_issues()
+    issues = _client(transport).search_participation_issues(15)
 
     assert issues == []

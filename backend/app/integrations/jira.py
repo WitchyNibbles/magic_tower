@@ -33,16 +33,39 @@ JIRA_API_ROOT = "/rest/api/3"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
 
 # AC8: the participation query -- every issue the token owner is assigned,
-# reported, created, watches or voted on, bounded to a 15-minute relative
-# window. The search index is eventually consistent (seconds to minutes) and
-# ``updated`` is relative to the token owner's Jira profile timezone rather
-# than UTC, so a relative window is safe where an absolute watermark would
-# need a timezone conversion this connector does not do.
-JIRA_PARTICIPATION_JQL = (
+# reported, created, watches or voted on, bounded to a relative window of the
+# last N minutes. The sync works out N from its cursor (the start of the last
+# successful sync, ``app/services/sync_cursor.py``): the gap since then plus a
+# small overlap, or the configured lookback when there is no cursor or the gap
+# is longer.
+#
+# The window is *relative* on purpose. ``updated`` is evaluated in the token
+# owner's Jira profile timezone rather than UTC, so an absolute ``updated >=
+# "2026-10-24 09:00"`` built from the cursor would need a timezone conversion
+# this connector does not do, and would be wrong by the profile's UTC offset
+# whenever it guessed. Jira measures ``-{N}m`` back from its own "now", so the
+# cursor only ever has to supply a duration, which is the same in every zone.
+# The search index is also eventually consistent (seconds to minutes), which is
+# why the sync pads the gap with an overlap instead of asking for exactly it.
+_PARTICIPATION_JQL = (
     "(assignee = currentUser() OR reporter = currentUser() OR creator = currentUser() "
-    "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -15m "
+    "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -{window_minutes}m "
     "ORDER BY updated DESC"
 )
+
+
+def participation_jql(window_minutes: int) -> str:
+    """The participation query over the last ``window_minutes`` minutes.
+
+    Refuses anything but a positive ``int``: the value is spliced into the JQL
+    text, so a string would be injected as written, and zero or a negative number
+    would not be a window into the past at all. ``bool`` is an ``int`` subclass
+    and is refused too, since ``True`` is never a duration anyone meant.
+    """
+    if isinstance(window_minutes, bool) or not isinstance(window_minutes, int) or window_minutes < 1:
+        raise ValueError(f"window_minutes must be an int of at least 1, got {window_minutes!r}")
+    return _PARTICIPATION_JQL.format(window_minutes=window_minutes)
+
 
 # ``GET /rest/api/3/search/jql`` defaults ``fields`` to ``id`` alone; everything
 # the queue needs to render a Jira issue must be named here explicitly.
@@ -52,7 +75,7 @@ JIRA_SEARCH_PAGE_SIZE = 100
 # Cap on how many ``nextPageToken`` pages a single call follows. This endpoint
 # returns no ``total``, so nothing else stops a server that always returns a
 # token (buggy, or worse) from paging forever; 20 pages of 100 issues each is
-# far beyond what one account's 15-minute participation window will ever hold.
+# far beyond what one account's participation window will ever hold.
 JIRA_SEARCH_MAX_PAGES = 20
 
 
@@ -171,10 +194,10 @@ class JiraClient:
                 break
         return issues
 
-    def search_participation_issues(self) -> list[dict[str, Any]]:
-        """Every issue in the caller's participation window
-        (``JIRA_PARTICIPATION_JQL``); see :meth:`_search`."""
-        return self._search(JIRA_PARTICIPATION_JQL)
+    def search_participation_issues(self, window_minutes: int) -> list[dict[str, Any]]:
+        """Every issue in the caller's participation window over the last
+        ``window_minutes`` minutes (:func:`participation_jql`); see :meth:`_search`."""
+        return self._search(participation_jql(window_minutes))
 
     def search_project_issues(self, project_key: str) -> list[dict[str, Any]]:
         """The most recently updated issues in one named project (T09, AC10) --
@@ -186,8 +209,8 @@ class JiraClient:
         recently updated issues in the project; anything past that is dropped with
         no error and no marker on the result. Measured against a stub that always
         returns a ``nextPageToken``: 2000 issues, 20 pages, no raise. The cap's
-        justification where it is defined is about one account's 15-minute
-        participation window, and that reasoning does not carry here -- a
+        justification where it is defined is about one account's participation
+        window, and that reasoning does not carry here -- a
         management project holding more than 2000 issues is ordinary, so this
         call's callers get a recent-issues view of a project, not the whole of it.
 
@@ -202,7 +225,7 @@ class JiraClient:
         backslash, so an embedded quote reopens the literal, and escaping quotes
         alone would let a trailing backslash consume the closing quote). This
         matters because -- unlike
-        ``JIRA_PARTICIPATION_JQL`` -- the clause is built from
+        the participation query -- the clause is built from
         ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather than a fixed
         literal; ``test_jira_project_visibility.py`` pins both replacements with
         keys that carry a backslash and a quote.

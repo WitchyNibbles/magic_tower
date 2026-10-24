@@ -174,7 +174,7 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
     ``owner_account_id`` is the Atlassian ``accountId`` of the account the
     configured Jira API token belongs to, read from ``GET /rest/api/3/myself``
     by the caller (``app/services/jira_sync.py``). That account is what
-    ``currentUser()`` in ``JIRA_PARTICIPATION_JQL`` already means, so recognising
+    ``currentUser()`` in ``participation_jql`` already means, so recognising
     the owner by it keeps the fetch and the promotion decision speaking of one
     identity. ``JIRA_ACCOUNT_EMAIL`` is not usable here: Jira reports an assignee
     as an ``accountId`` and does not put an email in ``fields.assignee``. Rule A

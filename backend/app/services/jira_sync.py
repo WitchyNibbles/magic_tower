@@ -33,7 +33,7 @@ its Atlassian ``accountId`` and read from ``GET /rest/api/3/myself`` once per
 sync (:func:`_owner_account_id`). Nothing in this application persists an owner
 identity, and Jira reports an assignee as an ``accountId`` rather than an email,
 so ``JIRA_ACCOUNT_EMAIL`` cannot be compared against ``fields.assignee``. The
-token owner is also what ``currentUser()`` in ``JIRA_PARTICIPATION_JQL`` already
+token owner is also what ``currentUser()`` in the participation query already
 means, so this recognises the owner by the same account that chose the window.
 The lookup is not a new setting for the owner to fill in, and it fails closed:
 an unreachable or unrecognisable ``/myself`` promotes nothing at all.
@@ -41,7 +41,7 @@ an unreachable or unrecognisable ``/myself`` promotes nothing at all.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -51,10 +51,42 @@ from ..integrations.jira import JiraClient, JiraError
 from .graph import persist_signals
 from .promotion import promote_signals
 from .sync import SyncError
+from .sync_cursor import last_success, record_success
 from .sync_registry import register_sync_handler
 
 JIRA_SOURCE_KIND = "jira"
 FALLBACK_TITLE = "(no summary)"
+# Extra minutes searched beyond the gap since the last success. Jira's search index
+# is eventually consistent (seconds to minutes), so an issue updated just before the
+# previous sync started may only have become searchable after it ran; the overlap
+# lets the next sync catch it. Re-fetching an issue is harmless (``persist_signals``
+# is idempotent).
+WINDOW_OVERLAP_MINUTES = 5
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def participation_window_minutes(last_success_at: datetime | None, now: datetime, lookback_days: int) -> int:
+    """How many minutes back the participation search should look.
+
+    The whole lookback with no cursor (the first sync). Otherwise the minutes since
+    the last successful sync started, rounded up, plus :data:`WINDOW_OVERLAP_MINUTES`
+    -- but never more than the lookback, so a long outage cannot ask Jira for years
+    of history. A cursor in the future (the clock stepped back) counts as no gap
+    rather than yielding a window of zero or fewer minutes.
+
+    The result is a *duration*, not a timestamp: ``participation_jql`` sends it as
+    ``updated >= -{N}m``, which Jira measures from its own clock in the owner's
+    profile timezone, so nothing here depends on the timezone of either side.
+    """
+    lookback_minutes = lookback_days * 1440
+    if last_success_at is None:
+        return lookback_minutes
+    gap = max(now - last_success_at, timedelta(0))
+    minutes_since = -(-gap // timedelta(minutes=1))
+    return min(minutes_since + WINDOW_OVERLAP_MINUTES, lookback_minutes)
 
 
 def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -117,22 +149,22 @@ def _owner_account_id(client: JiraClient) -> str | None:
         return None
 
 
-def _fetch_issue_signals(client: JiraClient, project_key: str | None = None) -> list[dict[str, Any]]:
-    """Every participation issue, plus the capped project fetch
+def _fetch_issue_signals(client: JiraClient, window_minutes: int, project_key: str | None = None) -> list[dict[str, Any]]:
+    """Every participation issue in the last ``window_minutes`` minutes, plus the capped project fetch
     (:meth:`JiraClient.search_project_issues`, at most the 2000 most recently
     updated issues) when ``project_key`` is configured (T09, AC10), normalized
     and de-duplicated by ``external_id`` --
     mirrors ``app/services/graph.py:fetch_signals``'s dedup. The JQL's ``OR``
     clauses are a set union and cannot themselves yield a duplicate. What is not
     ruled out is the cursor walk in ``search_participation_issues``: ``/search/jql``
-    offers no cross-page consistency guarantee, and the ``updated >= -15m`` window
+    offers no cross-page consistency guarantee, and the ``updated >= -{N}m`` window
     is re-evaluated per request, so the same ``id`` can arrive on two pages. Which
     pagination mechanism would do that is not established here -- the dedup is
     defensive, and the test pins the handling, not the cause.
 
     An issue both assigned to the owner and inside the visible project may arrive
-    from either query, or from only one. ``JIRA_PARTICIPATION_JQL`` bounds all of
-    its clauses, ``assignee = currentUser()`` included, with ``AND updated >= -15m``
+    from either query, or from only one. ``participation_jql`` bounds all of
+    its clauses, ``assignee = currentUser()`` included, with ``AND updated >= -{N}m``
     (``app/integrations/jira.py``); the project clause carries no such window. So an
     owner-assigned issue last updated outside that window is returned by the project
     fetch alone, and the copy ``setdefault`` keeps is then the project copy -- the
@@ -144,7 +176,7 @@ def _fetch_issue_signals(client: JiraClient, project_key: str | None = None) -> 
     Dedup is what keeps it to one promotion; the assignee is what makes it a
     promotion at all (``backend/tests/test_jira_project_visibility.py``).
     """
-    issues = list(client.search_participation_issues())
+    issues = list(client.search_participation_issues(window_minutes))
     if project_key:
         issues.extend(client.search_project_issues(project_key))
     rows = [_normalize_issue(issue, client.base_url) for issue in issues]
@@ -170,11 +202,19 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     if errors:
         raise SyncError(f"Jira is not configured: missing {', '.join(errors)}")
     jira = jira_client or JiraClient.from_settings(settings)
-    signals = _fetch_issue_signals(jira, settings.jira_management_project_key)
+    started = _utc_now()
+    previous = last_success(db, JIRA_SOURCE_KIND) if db is not None else None
+    window_minutes = participation_window_minutes(previous, started, settings.jira_sync_lookback_days)
+    signals = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
     created = persist_signals(db, signals) if db is not None else 0
     promoted = promote_signals(db, signals, owner_account_id=_owner_account_id(jira)) if db is not None else 0
-    return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals),
-            "new_sources": created, "new_work_items": promoted}
+    if db is not None:
+        # The cursor is when this sync *started*, and only a sync that got this far
+        # moves it: anything updated while it ran lands in the next window, and a
+        # raised error above leaves the old cursor so the retry covers the same gap.
+        record_success(db, JIRA_SOURCE_KIND, started)
+    return {"mode": "read-only", "synced_at": _utc_now().isoformat(), "count": len(signals),
+            "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes}
 
 
 register_sync_handler(JIRA_SOURCE_KIND, _sync_jira)

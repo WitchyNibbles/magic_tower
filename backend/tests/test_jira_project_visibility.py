@@ -123,8 +123,8 @@ def test_jira_project_visibility_promotes_an_owner_assigned_issue_only_the_proje
     """The same exception, with the project fetch as the *only* query that finds
     the issue -- which is what makes it load-bearing.
 
-    ``JIRA_PARTICIPATION_JQL`` bounds every one of its clauses, ``assignee =
-    currentUser()`` included, with ``AND updated >= -15m``
+    ``participation_jql`` bounds every one of its clauses, ``assignee =
+    currentUser()`` included, with ``AND updated >= -{N}m``
     (``app/integrations/jira.py``). An issue assigned to the owner but last
     updated before that window is therefore absent from the participation
     response and present only in the project one, so the copy that reaches
