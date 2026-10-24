@@ -37,7 +37,7 @@ from app.main import app
 from app.integrations.jira import JiraClient, JiraError
 from app.models import Source, SourceKind, WorkItem
 from app.services import jira_sync
-from app.services.jira_sync import JIRA_SOURCE_KIND, _sync_jira, participation_window_minutes
+from app.services.jira_sync import JIRA_SOURCE_KIND, _sync_jira, lookback_window_minutes, participation_window_minutes
 from app.services.sync_cursor import last_success, record_success
 from app.services.sync import SyncError, sync
 from app.services.sync_all import sync_ready_sources
@@ -321,6 +321,11 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 )
 def test_participation_window_is_the_gap_plus_overlap_capped_at_the_lookback(gap: timedelta, expected_minutes: int) -> None:
     assert participation_window_minutes(NOW - gap, NOW, lookback_days=14) == expected_minutes
+
+
+def test_the_lookback_window_is_the_configured_days_in_minutes() -> None:
+    assert lookback_window_minutes(3) == 4320
+    assert participation_window_minutes(None, NOW, lookback_days=3) == lookback_window_minutes(3)
 
 
 def test_participation_window_without_a_cursor_is_the_whole_lookback() -> None:

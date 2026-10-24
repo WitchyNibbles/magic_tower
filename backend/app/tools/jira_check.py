@@ -43,6 +43,7 @@ import sys
 
 from ..config import Settings, get_settings
 from ..integrations.jira import JiraClient, JiraError, Transport, default_transport
+from ..services.jira_sync import lookback_window_minutes
 
 
 def run_check(settings: Settings, transport: Transport = default_transport) -> dict[str, object]:
@@ -54,7 +55,7 @@ def run_check(settings: Settings, transport: Transport = default_transport) -> d
     """
     client = JiraClient.from_settings(settings, transport=transport)
     me = client.myself()
-    participation = client.search_participation_issues(settings.jira_sync_lookback_days * 1440)
+    participation = client.search_participation_issues(lookback_window_minutes(settings.jira_sync_lookback_days))
     report: dict[str, object] = {
         "site": client.base_url,
         "account_id": me.get("accountId"),

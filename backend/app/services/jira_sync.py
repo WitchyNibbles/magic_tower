@@ -69,6 +69,11 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def lookback_window_minutes(lookback_days: int) -> int:
+    """The whole lookback, in minutes: what a first sync (and ``jira_check``) searches."""
+    return lookback_days * 1440
+
+
 def participation_window_minutes(last_success_at: datetime | None, now: datetime, lookback_days: int) -> int:
     """How many minutes back the participation search should look.
 
@@ -83,7 +88,7 @@ def participation_window_minutes(last_success_at: datetime | None, now: datetime
     ``updated >= -{N}m``, which Jira measures from its own clock in the owner's
     profile timezone, so nothing here depends on the timezone of either side.
     """
-    lookback_minutes = lookback_days * 1440
+    lookback_minutes = lookback_window_minutes(lookback_days)
     if last_success_at is None:
         return lookback_minutes
     gap = now - last_success_at
