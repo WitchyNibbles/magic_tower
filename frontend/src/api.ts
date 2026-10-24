@@ -1,7 +1,11 @@
 export type WorkStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'dismissed'
 export type SourceKind = 'outlook_email' | 'manual' | 'jira' | 'freshservice'
 
-export interface WorkItem { id: string; title: string; summary: string | null; status: WorkStatus; source_kind: SourceKind; source_external_id: string | null; source_url: string | null; assigned_agent: string | null; due_at: string | null; created_at: string; updated_at: string; evidence?: Evidence[] }
+// grimoire's analysis of a work item (backend/app/schemas.py AnalysisRead). Its text is plain text: render it as text, never as markup.
+interface AnalysisDetails { asked: string; systems: string[]; known: string; next_step: string; open_questions: string[] }
+export interface Analysis { summary: string; details: AnalysisDetails; analyzed_at: string; analyzer: string; stale: boolean }
+
+export interface WorkItem { id: string; title: string; summary: string | null; status: WorkStatus; source_kind: SourceKind; source_external_id: string | null; source_url: string | null; assigned_agent: string | null; due_at: string | null; created_at: string; updated_at: string; evidence?: Evidence[]; analysis?: Analysis | null }
 export interface Evidence { id?: string; source_kind: SourceKind; external_id: string; excerpt: string | null; observed_at: string }
 export interface Health { status: string; service: string }
 // The envelope every paginated list endpoint returns (backend/app/schemas.py WorkItemPage) — never a bare array.
@@ -40,7 +44,6 @@ export const beginMicrosoftConnect = async () => {
 // One entry per configured source: its sync envelope, or { error } when that source failed (backend/app/services/sync_all.py).
 export interface SyncResult { count?: number; new_sources?: number; new_work_items?: number; mode?: string; synced_at?: string; window_minutes?: number; error?: string }
 export const syncNow = () => request<{ results: Record<string, SyncResult> }>('/api/sync/all', { method: 'POST' })
-export const createDispatch = (id: string, client: 'codex' | 'claude-code', instruction: string) => request(`/api/work-items/${id}/dispatch`, { method: 'POST', body: JSON.stringify({ client, instruction }) })
 
 export const getHealth = () => request<Health>('/api/health')
 export const getWorkItems = (params: { limit?: number; offset?: number; status?: WorkStatus; source_kind?: SourceKind } = {}) => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
-import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
+import { ApiError, beginMicrosoftConnect, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
 import { CommandPalette } from '@/components/command-palette'
 import { MailDetail } from '@/components/mail-detail'
 import { MailList } from '@/components/mail-list'
@@ -103,9 +103,6 @@ export default function App() {
   const runSync = async () => {
     try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
-  const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
-    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
-  }
   const showDemo = () => {
     setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items — connect the API for your work queue.')
   }
@@ -189,7 +186,7 @@ export default function App() {
         <ResizablePanel defaultSize="48" minSize="30">
           <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
             {selected
-              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onHandoff={handoff} onDismiss={dismiss} />
+              ? <MailDetail item={selected} onStatus={changeStatus} onDismiss={dismiss} />
               : locked
                 ? <UnlockPanel onUnlock={unlock} />
                 : <div className="m-auto max-w-sm p-8 text-center">
