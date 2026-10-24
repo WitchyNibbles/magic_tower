@@ -125,12 +125,15 @@ def test_stop_before_start_is_harmless() -> None:
 
 
 def test_starting_twice_does_not_start_a_second_thread() -> None:
-    before = threading.active_count()
+    def scheduler_threads() -> int:
+        return sum(1 for thread in threading.enumerate() if thread.name == scheduler_module.THREAD_NAME)
+
+    before = scheduler_threads()
     scheduler = SyncScheduler(interval_seconds=3600, run=lambda: None, initial_delay_seconds=3600)
     scheduler.start()
     scheduler.start()
     try:
-        assert threading.active_count() == before + 1
+        assert scheduler_threads() == before + 1
     finally:
         scheduler.stop()
 
