@@ -21,7 +21,7 @@ function syncPart(kind: string, result: SyncResult): string {
   return `${SYNC_LABELS[kind] ?? kind}: ${result.error ?? describeNewItems(result.new_work_items ?? 0)}`
 }
 function syncSummary(results: Record<string, SyncResult>): string {
-  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
+  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or Freshservice, or connect Outlook.'
 }
 
 export default function App() {

@@ -75,13 +75,13 @@ describe('Sync now', () => {
     expect(await screen.findByText('Freshservice: 2 new items')).toBeTruthy()
   })
 
-  it('points the owner to Jira and Outlook setup when nothing is configured', async () => {
+  it('points the owner to Jira, Freshservice and Outlook setup when nothing is configured', async () => {
     stubApi(() => ({ results: {} }))
 
     render(<App />)
     await pressSync()
 
-    expect(await screen.findByText('Nothing to sync yet. Set up Jira or connect Outlook.')).toBeTruthy()
+    expect(await screen.findByText('Nothing to sync yet. Set up Jira or Freshservice, or connect Outlook.')).toBeTruthy()
   })
 
   it('keeps the generic message when the request fails', async () => {
