@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from .models import DispatchStatus, SourceKind, WorkItemAnalysis, WorkPriority, WorkStatus
+from .services.timeutil import as_utc
 
 
 class APIModel(BaseModel):
@@ -63,9 +64,8 @@ class AnalysisRead(APIModel):
     def from_row(cls, row: WorkItemAnalysis) -> "AnalysisRead":
         """The stored analysis as the API shows it. SQLite hands ``analyzed_at`` back naive;
         it was written as UTC, so say so."""
-        analyzed_at = row.analyzed_at if row.analyzed_at.tzinfo else row.analyzed_at.replace(tzinfo=UTC)
         return cls(summary=row.summary, details=AnalysisDetails.model_validate_json(row.details),
-                   analyzed_at=analyzed_at, analyzer=row.analyzer, stale=row.stale)
+                   analyzed_at=as_utc(row.analyzed_at), analyzer=row.analyzer, stale=row.stale)
 
 
 class WorkItemBase(APIModel):

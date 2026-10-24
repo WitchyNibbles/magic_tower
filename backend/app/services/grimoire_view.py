@@ -25,15 +25,11 @@ from sqlalchemy.orm import Session, selectinload
 from ..models import GrimoireProjectSnapshot, Source, WorkEvidence, WorkItem, WorkItemAnalysis, WorkStatus
 from ..schemas import AnalysisWrite, GrimoireItemRef, ProjectSnapshot, ProjectSnapshotRead, ProjectSnapshotWritten
 from .http_errors import conflict, not_found
+from .timeutil import as_utc
 
 logger = logging.getLogger(__name__)
 
 _Row = TypeVar("_Row", WorkItemAnalysis, GrimoireProjectSnapshot)
-
-
-def as_utc(moment: datetime) -> datetime:
-    """SQLite hands timezone-aware columns back naive; everything stored here was written as UTC."""
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _evidence_fields(rows: Sequence[WorkEvidence]) -> list[dict[str, Any]]:
