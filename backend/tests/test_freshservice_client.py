@@ -14,6 +14,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import date
 from email.message import Message
 from typing import Any
@@ -147,7 +150,7 @@ def test_freshservice_default_transport_handles_429_with_retry_after(monkeypatch
     def fake_urlopen(request: object, **_: object) -> object:
         raise HTTPError(f"{BASE}/api/v2/tickets/filter", 429, "Too Many Requests", headers, None)
 
-    monkeypatch.setattr(freshservice_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(freshservice_module._opener, "open", fake_urlopen)
 
     with pytest.raises(FreshserviceRateLimitError) as error:
         default_transport("GET", f"{BASE}/api/v2/tickets/filter", {}, None)
@@ -160,7 +163,7 @@ def test_freshservice_default_transport_429_without_retry_after_still_raises_the
     def fake_urlopen(request: object, **_: object) -> object:
         raise HTTPError(f"{BASE}/api/v2/tickets/filter", 429, "Too Many Requests", Message(), None)
 
-    monkeypatch.setattr(freshservice_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(freshservice_module._opener, "open", fake_urlopen)
 
     with pytest.raises(FreshserviceRateLimitError) as error:
         default_transport("GET", f"{BASE}/api/v2/tickets/filter", {}, None)
@@ -172,7 +175,7 @@ def test_freshservice_default_transport_wraps_other_http_errors_with_only_the_st
     def fake_urlopen(request: object, **_: object) -> object:
         raise HTTPError(f"{BASE}/api/v2/tickets/filter?query=secret", 403, "Forbidden", Message(), None)
 
-    monkeypatch.setattr(freshservice_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(freshservice_module._opener, "open", fake_urlopen)
 
     with pytest.raises(FreshserviceError) as error:
         default_transport("GET", f"{BASE}/api/v2/tickets/filter", {}, None)
@@ -187,12 +190,82 @@ def test_freshservice_default_transport_hides_the_url_and_headers_of_a_failed_re
     def fake_urlopen(request: object, **_: object) -> object:
         raise OSError(f"connection refused for {BASE}/api/v2/agents Authorization: Basic a-real-key")
 
-    monkeypatch.setattr(freshservice_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(freshservice_module._opener, "open", fake_urlopen)
 
     with pytest.raises(FreshserviceError) as error:
         default_transport("GET", f"{BASE}/api/v2/agents", {"Authorization": "Basic a-real-key"}, None)
 
     assert str(error.value) == "Freshservice request failed"
+
+
+class _RecordingServer:
+    """A throwaway HTTP server on 127.0.0.1 that records the headers of every request."""
+
+    def __init__(self, respond: Any) -> None:
+        self.requests: list[dict[str, str]] = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                outer.requests.append({key.lower(): value for key, value in self.headers.items()})
+                respond(self)
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def __enter__(self) -> "_RecordingServer":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+
+
+@pytest.fixture
+def redirect_target() -> Iterator[_RecordingServer]:
+    def answer(handler: BaseHTTPRequestHandler) -> None:
+        body = b'{"agent": {"id": 7}}'
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    with _RecordingServer(answer) as server:
+        yield server
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_freshservice_default_transport_refuses_a_redirect_and_never_follows_it(redirect_target: _RecordingServer, status: int) -> None:
+    """``urlopen`` would replay the Authorization header at the redirect's target, on any
+    host. The target here must never see a request, and the error must not name it."""
+
+    def redirect(handler: BaseHTTPRequestHandler) -> None:
+        handler.send_response(status)
+        handler.send_header("Location", f"{redirect_target.url}/stolen")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+
+    with _RecordingServer(redirect) as origin:
+        with pytest.raises(FreshserviceError) as error:
+            default_transport("GET", f"{origin.url}/api/v2/agents/me", {"Authorization": "Basic a-real-key"}, None)
+
+    assert str(error.value) == "Freshservice request was redirected"
+    assert len(origin.requests) == 1
+    assert origin.requests[0]["authorization"] == "Basic a-real-key"
+    assert redirect_target.requests == []
+
+
+def test_freshservice_default_transport_still_returns_json_from_a_server_that_does_not_redirect(redirect_target: _RecordingServer) -> None:
+    result = default_transport("GET", f"{redirect_target.url}/api/v2/agents/me", {"Authorization": "Basic a-real-key"}, None)
+
+    assert result == {"agent": {"id": 7}}
 
 
 def test_freshservice_default_transport_returns_parsed_json_with_a_fifteen_second_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,7 +286,7 @@ def test_freshservice_default_transport_returns_parsed_json_with_a_fifteen_secon
         seen["timeout"] = kwargs.get("timeout")
         return FakeResponse()
 
-    monkeypatch.setattr(freshservice_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(freshservice_module._opener, "open", fake_urlopen)
 
     result = default_transport("GET", f"{BASE}/api/v2/agents/me", {}, None)
 
@@ -223,9 +296,9 @@ def test_freshservice_default_transport_returns_parsed_json_with_a_fifteen_secon
 
 def test_freshservice_client_never_reaches_the_network_through_a_stub_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*_: object, **__: object) -> object:
-        raise AssertionError("urlopen must never be called from a test")
+        raise AssertionError("the opener must never be called from a test")
 
-    monkeypatch.setattr(freshservice_module, "urlopen", forbidden)
+    monkeypatch.setattr(freshservice_module._opener, "open", forbidden)
 
     _client(lambda *_: {"tickets": []}).search_assigned_tickets(7, date(2026, 10, 1))
 

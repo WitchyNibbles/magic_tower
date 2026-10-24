@@ -26,7 +26,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -86,13 +86,27 @@ class FreshserviceAgent:
     name: str
 
 
+class _RefuseRedirects(HTTPRedirectHandler):
+    """``urlopen`` follows a 3xx and copies the request's headers, Authorization
+    included, to wherever it points -- any host, even plain http. The API key must
+    only ever go to the configured site, so a redirect is an error, not a hop."""
+
+    def redirect_request(self, *_: object, **__: object) -> None:
+        raise FreshserviceError("Freshservice request was redirected")
+
+
+_opener = build_opener(_RefuseRedirects)
+
+
 def default_transport(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> dict[str, Any]:
     if method != "GET":
         raise FreshserviceError("Freshservice connector permits read-only GET requests")
     request = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(request, timeout=15) as response:
+        with _opener.open(request, timeout=15) as response:
             return json.loads(response.read())
+    except FreshserviceError:
+        raise
     except HTTPError as error:
         if error.code == 429:
             retry_after = error.headers.get("Retry-After") if error.headers is not None else None
