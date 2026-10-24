@@ -53,7 +53,7 @@ describe('Mail layout', () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Use Codex' }))
 
-    expect(await screen.findByText('Sample item only — nothing will be dispatched.')).toBeTruthy()
+    expect(await screen.findByText('Sample item. Nothing will be dispatched.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Copy command' })).toBeNull()
   })
 })

@@ -50,26 +50,25 @@ export function MailDetail({ item, demo, onStatus, onHandoff, onDismiss }: {
         </div>
 
         <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Why this is here <span className="font-normal text-muted-foreground">Source evidence</span></h3>
+          <h3 className="text-sm font-semibold">Source evidence</h3>
           {item.evidence?.length
             ? item.evidence.map((entry, index) => (
-              <blockquote key={index} className="rounded-r-md border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed">
+              <blockquote key={index} className="rounded-md bg-muted px-4 py-3 text-sm leading-relaxed">
                 {entry.excerpt}
                 <footer className="mt-2 text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</footer>
               </blockquote>
             ))
-            : <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">This task was added manually, so no message evidence is available.</p>}
+            : <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">Added by hand, so there is no source message.</p>}
         </section>
 
-        <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-5">
-          <p className="text-xs font-semibold tracking-[0.16em] text-primary">AGENT HANDOFF</p>
-          <h3 className="text-sm font-semibold">Invite an agent to take this on</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">Magic Tower records a bounded handoff that a local agent client picks up through the API. It never puts mailbox text in a shell command.</p>
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+          <h3 className="text-sm font-semibold">Hand off to an agent</h3>
+          <p className="text-sm leading-relaxed text-muted-foreground">This records a handoff request that a local agent client picks up through the API. Mailbox text is never put in a shell command.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => chooseAgent('codex')}>Use Codex</Button>
             <Button size="sm" variant="secondary" onClick={() => chooseAgent('claude-code')}>Use Claude Code</Button>
           </div>
-          {agent && demo && <small className="mt-2 text-xs text-muted-foreground">Sample item only — nothing will be dispatched.</small>}
+          {agent && demo && <small className="mt-2 text-xs text-muted-foreground">Sample item. Nothing will be dispatched.</small>}
         </section>
       </div>
     </div>
