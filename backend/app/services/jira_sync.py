@@ -135,7 +135,9 @@ def _owner_account_id(client: JiraClient) -> str | None:
     browsable. It is every reason not to promote any of them: ``should_promote``'s
     Jira rule reads ``None`` as an unrecognised owner and declines, so a failed
     lookup costs the queue recall for one sync rather than filling it with issues
-    nobody checked.
+    nobody checked. It is also a reason not to move the sync cursor
+    (:func:`_sync_jira`): the window was fetched but never judged, so the next
+    sync must cover it again.
 
     A JSON *object* with no ``accountId`` needs no handling of its own here: it
     yields the same ``None`` the error path returns, and the rule treats it the
@@ -207,11 +209,14 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     window_minutes = participation_window_minutes(previous, started, settings.jira_sync_lookback_days)
     signals = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
     created = persist_signals(db, signals) if db is not None else 0
-    promoted = promote_signals(db, signals, owner_account_id=_owner_account_id(jira)) if db is not None else 0
-    if db is not None:
+    owner_account_id = _owner_account_id(jira) if db is not None else None
+    promoted = promote_signals(db, signals, owner_account_id=owner_account_id) if db is not None else 0
+    if db is not None and owner_account_id is not None:
         # The cursor is when this sync *started*, and only a sync that got this far
         # moves it: anything updated while it ran lands in the next window, and a
         # raised error above leaves the old cursor so the retry covers the same gap.
+        # Without the owner's id nothing could be judged for promotion, so the window
+        # is not covered either: the cursor stays and the next sync re-fetches it.
         record_success(db, JIRA_SOURCE_KIND, started)
     return {"mode": "read-only", "synced_at": _utc_now().isoformat(), "count": len(signals),
             "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes}

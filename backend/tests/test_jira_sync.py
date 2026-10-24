@@ -260,15 +260,19 @@ def _window_of(jql: str) -> int:
 
 class _WindowRecordingTransport:
     """Answers like ``_client_with`` and remembers the window each participation
-    search asked for; ``fail`` makes the search raise a ``JiraError``."""
+    search asked for; ``fail`` makes the search raise a ``JiraError`` and
+    ``myself_fails`` does the same for the ``/myself`` lookup."""
 
-    def __init__(self, issues: list[dict[str, Any]] | None = None, fail: bool = False) -> None:
+    def __init__(self, issues: list[dict[str, Any]] | None = None, fail: bool = False, myself_fails: bool = False) -> None:
         self.windows: list[int] = []
         self._issues = issues or []
         self._fail = fail
+        self._myself_fails = myself_fails
 
     def __call__(self, method: str, url: str, headers: dict[str, str], payload: object) -> dict:
         if url.endswith("/myself"):
+            if self._myself_fails:
+                raise JiraError("Jira request failed with status 503")
             return {"accountId": OWNER_ACCOUNT_ID}
         jql = parse_qs(urlparse(url).query)["jql"][0]
         if jql.startswith("project ="):
@@ -412,3 +416,31 @@ def test_jira_sync_keeps_the_envelope_keys_it_always_had_beside_the_window(clock
         result = _sync_jira(_configured_settings(), db=session, jira_client=_client_with([ISSUE]))
 
     assert set(("mode", "synced_at", "count", "new_sources", "new_work_items", "window_minutes")) <= result.keys()
+
+
+def test_jira_sync_whose_owner_lookup_fails_stores_the_issues_but_leaves_the_cursor(clock) -> None:
+    """Nothing was judged for promotion without the owner's id, so the window is not
+    covered: moving the cursor would make the next sync skip these issues for good."""
+    previous = NOW - timedelta(hours=2)
+    lookup_down = _WindowRecordingTransport(issues=[ASSIGNED_ISSUE], myself_fails=True)
+
+    with Session(engine) as session:
+        record_success(session, JIRA_SOURCE_KIND, previous)
+        result = _sync_jira(_configured_settings(), db=session, jira_client=lookup_down.client())
+
+        assert result["new_sources"] == 1 and result["new_work_items"] == 0
+        assert last_success(session, JIRA_SOURCE_KIND) == previous
+
+        # the next sync, with /myself back, re-covers the same window and promotes
+        recovered = _WindowRecordingTransport(issues=[ASSIGNED_ISSUE])
+        retry = _sync_jira(_configured_settings(), db=session, jira_client=recovered.client())
+        assert last_success(session, JIRA_SOURCE_KIND) == NOW
+
+    assert recovered.windows == [125]
+    assert retry["new_work_items"] == 1
+
+
+def test_jira_sync_whose_owner_lookup_fails_with_no_cursor_does_not_invent_one(clock) -> None:
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport(myself_fails=True).client())
+        assert last_success(session, JIRA_SOURCE_KIND) is None
