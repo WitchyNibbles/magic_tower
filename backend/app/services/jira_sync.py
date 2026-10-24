@@ -217,4 +217,4 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
             "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes}
 
 
-register_sync_handler(JIRA_SOURCE_KIND, _sync_jira)
+register_sync_handler(JIRA_SOURCE_KIND, _sync_jira, ready=lambda settings: not settings.jira_configuration_errors())

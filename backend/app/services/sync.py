@@ -13,7 +13,7 @@ from .crypto import EncryptedTokenStore, TokenStoreError
 from .graph import fetch_signals, persist_signals
 from .oauth import OAuthError, refresh_access_token
 from .promotion import promote_signals
-from .sync_registry import UnknownSourceKindError, get_sync_handler, register_sync_handler
+from .sync_registry import UnknownSourceKindError, get_sync_handler, register_sync_handler, sync_lock
 
 GRAPH_SOURCE_KIND = "graph"
 # Refresh this long before ``expires_at`` so a token cannot lapse mid-sync.
@@ -32,12 +32,28 @@ def token_store(settings: Settings) -> EncryptedTokenStore:
     return EncryptedTokenStore(settings.token_store_path, key.get_secret_value())
 
 
+def _graph_connected(settings: Settings) -> bool:
+    """True when a Graph token is stored; an unusable store counts as not connected."""
+    try:
+        return token_store(settings).load() is not None
+    except (SyncError, TokenStoreError):
+        return False
+
+
+def _graph_ready(settings: Settings) -> bool:
+    """Graph is worth syncing unprompted only when it is configured *and* connected.
+
+    A configured-but-unconnected Graph can only answer "not connected", so
+    scheduling it would turn every tick (and every empty-handed button press) into
+    a standing error for an owner who simply has not signed in. Reading the token
+    store is a local file read, cheap enough to do on every readiness check.
+    """
+    return not settings.graph_configuration_errors() and _graph_connected(settings)
+
+
 def status(settings: Settings) -> dict[str, Any]:
     configured = not settings.graph_configuration_errors()
-    try:
-        connected = token_store(settings).load() is not None
-    except (SyncError, TokenStoreError):
-        connected = False
+    connected = _graph_connected(settings)
     return {"configured": configured, "connected": connected, "mode": "read-only", "last_sync_at": None}
 
 
@@ -128,7 +144,7 @@ def _sync_graph(settings: Settings, db: Session | None = None, limit: int = 50, 
     return {"mode": "read-only", "synced_at": datetime.now(UTC).isoformat(), "count": len(signals), "new_sources": created, "new_work_items": promoted}
 
 
-register_sync_handler(GRAPH_SOURCE_KIND, _sync_graph)
+register_sync_handler(GRAPH_SOURCE_KIND, _sync_graph, ready=_graph_ready)
 
 
 def sync(settings: Settings, db: Session | None = None, client: GraphClient | None = None, limit: int = 50, kind: str = GRAPH_SOURCE_KIND) -> dict[str, Any]:
@@ -136,9 +152,15 @@ def sync(settings: Settings, db: Session | None = None, client: GraphClient | No
 
     Adding a new source kind (Jira, Freshservice, ...) means registering a
     handler for it elsewhere -- nothing here has to change.
+
+    The kind's lock is held for the whole handler call, so a scheduled run and a
+    button press never sync one source at the same time: the later one waits its
+    turn and then sees the cursor the first one recorded.
     """
     try:
         handler = get_sync_handler(kind)
+        lock = sync_lock(kind)
     except UnknownSourceKindError as error:
         raise SyncError(str(error)) from error
-    return handler(settings, db=db, limit=limit, client=client)
+    with lock:
+        return handler(settings, db=db, limit=limit, client=client)
