@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -173,3 +173,25 @@ def test_analysed_item_is_listed_again_once_its_source_changes(client):
 
     assert [(row["id"], row["stale"]) for row in page["items"]] == [(item_id, True)]
     assert page["items"][0]["analyzed_at"] is not None
+
+
+def _loaded_statuses(client: TestClient, query: str) -> list[str]:
+    loaded: list[str] = []
+
+    def record(item: WorkItem, _context) -> None:
+        loaded.append(item.status.value)
+
+    event.listen(WorkItem, "load", record)
+    try:
+        assert client.get(f"/api/grimoire/items?{query}", headers=GRIMOIRE).status_code == 200
+    finally:
+        event.remove(WorkItem, "load", record)
+    return loaded
+
+
+def test_finished_items_are_not_loaded_to_find_those_needing_analysis(client):
+    _create(client, "Pending one")
+    _create(client, "Finished one", status="done")
+
+    assert _loaded_statuses(client, "needs_analysis=true") == ["pending"]
+    assert sorted(_loaded_statuses(client, "needs_analysis=false")) == ["done", "pending"], "the complement still holds done items"

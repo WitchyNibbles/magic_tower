@@ -155,9 +155,10 @@ def items_needing_analysis(db: Session, *, needs_analysis: bool, limit: int,
     needs each analysed item's current text hashed, so the filter runs here and the
     page is cut afterwards; the queue is tens to hundreds of items.
     """
+    excluded = [WorkStatus.dismissed, WorkStatus.done] if needs_analysis else [WorkStatus.dismissed]
     candidates = list(db.scalars(
         select(WorkItem).options(selectinload(WorkItem.evidence), selectinload(WorkItem.analysis))
-        .where(WorkItem.status != WorkStatus.dismissed).order_by(WorkItem.updated_at.desc(), WorkItem.id)))
+        .where(WorkItem.status.not_in(excluded)).order_by(WorkItem.updated_at.desc(), WorkItem.id)))
     stale = staleness(db, candidates)
     wanted = [item for item in candidates
               if (item.status is not WorkStatus.done and (item.analysis is None or stale[item.id])) is needs_analysis]
