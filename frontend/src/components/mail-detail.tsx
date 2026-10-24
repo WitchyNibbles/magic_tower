@@ -63,7 +63,7 @@ export function MailDetail({ item, demo, onStatus, onHandoff, onDismiss }: {
 
         <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
           <h3 className="text-sm font-semibold">Hand off to an agent</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">This records a handoff request that a local agent client picks up through the API. Mailbox text is never put in a shell command.</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">Magic Tower only records the request. Nothing picks it up yet.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => chooseAgent('codex')}>Use Codex</Button>
             <Button size="sm" variant="secondary" onClick={() => chooseAgent('claude-code')}>Use Claude Code</Button>

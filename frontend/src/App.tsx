@@ -105,7 +105,7 @@ export default function App() {
     try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
   const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
-    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
+    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Recorded a ${client} handoff request. Nothing acts on it yet.`) } catch { setToast('Could not record the handoff request.') }
   }
   const showDemo = () => {
     setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items, not your queue.')
