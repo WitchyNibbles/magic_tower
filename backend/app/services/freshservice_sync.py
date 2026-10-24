@@ -26,6 +26,12 @@ assigned ticket updated since :func:`since_date`. The filter compares dates only
 and compares them in the account's timezone rather than UTC, so the cut-off is a
 whole day, backed off by two more to cover both. Re-fetching a ticket is harmless
 (``persist_signals`` is idempotent).
+
+**The field filter.** On a shared team agent, ``FRESHSERVICE_TICKET_FIELD`` and
+``FRESHSERVICE_TICKET_FIELD_VALUE`` narrow the query to the tickets whose custom field
+names the owner. The sync also checks each returned ticket itself and drops the ones
+that do not hold the value before storing anything; the envelope's ``filtered_out``
+counts them (0 with no filter).
 """
 
 from __future__ import annotations
@@ -36,7 +42,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..integrations.freshservice import FreshserviceAgent, FreshserviceClient, FreshserviceError, is_int
+from ..integrations.freshservice import (
+    FreshserviceAgent,
+    FreshserviceClient,
+    FreshserviceError,
+    TicketFieldFilter,
+    is_int,
+    ticket_matches_field,
+)
 from .graph import persist_signals
 from .promotion import promote_signals
 from .sync import SyncError
@@ -124,8 +137,11 @@ def owner_agent(client: FreshserviceClient, settings: Settings) -> FreshserviceA
     return agent
 
 
-def _fetch_ticket_signals(client: FreshserviceClient, owner: FreshserviceAgent, since: date) -> tuple[list[dict[str, Any]], bool]:
-    """The signals, and whether the search hit its page cap.
+def _fetch_ticket_signals(
+    client: FreshserviceClient, owner: FreshserviceAgent, since: date, ticket_filter: TicketFieldFilter | None = None,
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """The signals, whether the search hit its page cap, and how many tickets the
+    custom-field filter dropped.
 
     Normalized and de-duplicated by ``external_id`` -- mirrors
     ``app/services/jira_sync.py:_fetch_issue_signals``. Pages are fetched one request
@@ -134,15 +150,24 @@ def _fetch_ticket_signals(client: FreshserviceClient, owner: FreshserviceAgent, 
 
     A row with no integer ``id`` is skipped: it has no ticket to link to, and every such
     row would otherwise share the external id ``freshservice:None``.
+
+    With a ``ticket_filter`` the query already asks the server for matching tickets;
+    this is the guard in case it ignores the clause. A ticket that does not hold the
+    value is dropped here, before anything is stored or promoted, and counted once
+    however many pages repeat it.
     """
-    tickets = client.search_assigned_tickets(owner.id, since)
+    tickets = client.search_assigned_tickets(owner.id, since, ticket_filter)
     deduped: dict[str, dict[str, Any]] = {}
+    dropped: set[int] = set()
     for ticket in tickets:
         if not isinstance(ticket, dict) or not is_int(ticket.get("id")):
             continue
+        if ticket_filter is not None and not ticket_matches_field(ticket, ticket_filter):
+            dropped.add(ticket["id"])
+            continue
         signal = _normalize_ticket(ticket, client.base_url)
         deduped.setdefault(signal["external_id"], signal)
-    return list(deduped.values()), tickets.truncated
+    return list(deduped.values()), tickets.truncated, len(dropped)
 
 
 def _sync_freshservice(settings: Settings, db: Session | None = None, limit: int = 50, client: Any = None,
@@ -164,16 +189,16 @@ def _sync_freshservice(settings: Settings, db: Session | None = None, limit: int
     persisting and promoting moves it: anything updated while it ran lands in the next
     window, and a raised error leaves the old cursor so the retry covers the same gap.
     """
-    errors = settings.freshservice_configuration_errors()
-    if errors:
-        raise SyncError(f"Freshservice is not configured: missing {', '.join(errors)}")
+    message = settings.freshservice_configuration_message()
+    if message:
+        raise SyncError(message)
     started = _utc_now()
     previous = last_success(db, FRESHSERVICE_SOURCE_KIND) if db is not None else None
     since = since_date(previous, started, settings.freshservice_sync_lookback_days)
     try:
         freshservice = freshservice_client or FreshserviceClient.from_settings(settings)
         owner = owner_agent(freshservice, settings)
-        signals, truncated = _fetch_ticket_signals(freshservice, owner, since)
+        signals, truncated, filtered_out = _fetch_ticket_signals(freshservice, owner, since, settings.freshservice_ticket_filter())
     except FreshserviceError as error:
         raise SyncError(str(error)) from error
     created = promoted = 0
@@ -182,7 +207,8 @@ def _sync_freshservice(settings: Settings, db: Session | None = None, limit: int
         promoted = promote_signals(db, signals, owner_agent_id=owner.id)
         record_success(db, FRESHSERVICE_SOURCE_KIND, started)
     return {"mode": "read-only", "synced_at": _utc_now().isoformat(), "count": len(signals),
-            "new_sources": created, "new_work_items": promoted, "since": since.isoformat(), "truncated": truncated}
+            "new_sources": created, "new_work_items": promoted, "since": since.isoformat(), "truncated": truncated,
+            "filtered_out": filtered_out}
 
 
-register_sync_handler(FRESHSERVICE_SOURCE_KIND, _sync_freshservice, ready=lambda settings: not settings.freshservice_configuration_errors())
+register_sync_handler(FRESHSERVICE_SOURCE_KIND, _sync_freshservice, ready=lambda settings: settings.freshservice_configuration_message() is None)

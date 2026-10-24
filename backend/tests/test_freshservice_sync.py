@@ -188,10 +188,11 @@ def test_freshservice_sync_returns_the_envelope_every_registered_kind_returns(cl
         result = _sync_freshservice(_configured_settings(), db=session, freshservice_client=_client_with([OPEN_TICKET]))
 
     assert result["mode"] == "read-only"
-    assert set(result) == {"mode", "synced_at", "count", "new_sources", "new_work_items", "since", "truncated"}
+    assert set(result) == {"mode", "synced_at", "count", "new_sources", "new_work_items", "since", "truncated", "filtered_out"}
     assert result["count"] == 1
     assert result["since"] == "2026-10-08"
     assert result["truncated"] is False
+    assert result["filtered_out"] == 0
 
 
 def test_freshservice_sync_handler_registers_via_the_main_import_alone() -> None:
@@ -353,6 +354,112 @@ def test_freshservice_sync_searches_for_the_resolved_owners_id() -> None:
         _sync_freshservice(_configured_settings(), db=session, freshservice_client=transport.client())
 
     assert transport.queries[0].startswith("\"agent_id:777 AND (")
+
+
+# --- the optional custom-field filter ---------------------------------------------------
+
+FIELD_SETTINGS = {"freshservice_ticket_field": "technician", "freshservice_ticket_field_value": "Jane Example"}
+
+
+def _owned(ticket_id: int, value: Any = "Jane Example", **fields: Any) -> dict[str, Any]:
+    return _ticket(ticket_id, custom_fields={"technician": value}, **fields)
+
+
+def test_freshservice_sync_with_a_half_set_field_filter_fails_closed_naming_the_missing_one() -> None:
+    transport = _Transport([_owned(1)])
+    settings = _configured_settings(freshservice_ticket_field="technician")
+
+    with pytest.raises(SyncError, match="^Freshservice is not configured: missing FRESHSERVICE_TICKET_FIELD_VALUE$"):
+        _sync_freshservice(settings, db=None, freshservice_client=transport.client())
+
+    assert not transport.searched
+    assert FRESHSERVICE_SOURCE_KIND not in ready_kinds(settings)
+
+
+def test_freshservice_sync_with_an_unusable_field_value_fails_closed_without_echoing_it() -> None:
+    transport = _Transport([_owned(1)])
+    settings = _configured_settings(freshservice_ticket_field="technician", freshservice_ticket_field_value="Jane's Team")
+
+    with pytest.raises(SyncError) as error:
+        _sync_freshservice(settings, db=None, freshservice_client=transport.client())
+
+    assert "FRESHSERVICE_TICKET_FIELD_VALUE" in str(error.value)
+    assert "Jane" not in str(error.value)
+    assert "missing" not in str(error.value)
+    assert not transport.searched
+    assert FRESHSERVICE_SOURCE_KIND not in ready_kinds(settings)
+
+
+def test_freshservice_sync_is_ready_with_a_complete_field_filter() -> None:
+    assert FRESHSERVICE_SOURCE_KIND in ready_kinds(_configured_settings(**FIELD_SETTINGS))
+
+
+def test_freshservice_sync_puts_the_field_clause_in_the_search_query() -> None:
+    transport = _Transport([])
+
+    _sync_freshservice(_configured_settings(**FIELD_SETTINGS), db=None, freshservice_client=transport.client())
+
+    assert transport.queries[0].startswith("\"agent_id:4001 AND technician:'Jane Example' AND (status:2 OR")
+
+
+def test_freshservice_sync_without_a_field_filter_sends_no_field_clause() -> None:
+    transport = _Transport([])
+
+    _sync_freshservice(_configured_settings(), db=None, freshservice_client=transport.client())
+
+    assert "technician" not in transport.queries[0]
+
+
+def test_freshservice_sync_drops_tickets_the_server_returned_that_do_not_hold_the_value() -> None:
+    """The query asks the server to filter; a server that ignores the clause must not
+    get the colleague's tickets stored or promoted."""
+    tickets = [
+        _owned(101),
+        _owned(102, value="  Jane Example "),
+        _owned(103, value="Someone Else"),
+        _ticket(104),
+        _ticket(105, custom_fields=None),
+        _ticket(106, custom_fields="Jane Example"),
+        _owned(107, value=None),
+    ]
+
+    with Session(engine) as session:
+        result = _sync_freshservice(_configured_settings(**FIELD_SETTINGS), db=session, freshservice_client=_client_with(tickets))
+
+        stored = {row.external_id for row in session.query(Source).filter_by(kind=SourceKind.freshservice)}
+        assert stored == {"freshservice:101", "freshservice:102"}
+        assert session.query(WorkItem).count() == 2
+
+    assert result["count"] == 2
+    assert result["new_sources"] == 2
+    assert result["new_work_items"] == 2
+    assert result["filtered_out"] == 5
+
+
+def test_freshservice_sync_counts_a_dropped_ticket_repeated_across_pages_once() -> None:
+    first_page = [_owned(101), _owned(103, value="Someone Else")] + [_owned(200 + index) for index in range(28)]
+    transport = _Transport(pages=[first_page, [_owned(103, value="Someone Else")]])
+
+    result = _sync_freshservice(_configured_settings(**FIELD_SETTINGS), db=None, freshservice_client=transport.client())
+
+    assert result["filtered_out"] == 1
+    assert result["count"] == 29
+
+
+def test_freshservice_sync_does_not_count_a_row_with_no_usable_id_as_filtered_out() -> None:
+    rows: list[Any] = [_owned(101), {"subject": "no id"}, "junk"]
+
+    result = _sync_freshservice(_configured_settings(**FIELD_SETTINGS), db=None, freshservice_client=_client_with(rows))
+
+    assert (result["count"], result["filtered_out"]) == (1, 0)
+
+
+def test_freshservice_sync_without_a_field_filter_keeps_every_ticket_whatever_its_custom_fields() -> None:
+    tickets = [_owned(101, value="Someone Else"), _ticket(102)]
+
+    result = _sync_freshservice(_configured_settings(), db=None, freshservice_client=_client_with(tickets))
+
+    assert (result["count"], result["filtered_out"]) == (2, 0)
 
 
 @pytest.mark.parametrize(
