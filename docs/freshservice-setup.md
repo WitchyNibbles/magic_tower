@@ -1,6 +1,6 @@
 # Connecting Freshservice
 
-The Freshservice connector (`backend/app/integrations/freshservice.py`, `backend/app/services/freshservice_sync.py`) reads the tickets assigned to you and keeps the unresolved ones as work items. It is proven against invented fixtures in the test suite and **has not been run against a real Freshservice site yet**: [What is not verified yet](#what-is-not-verified-yet) lists exactly which parts that leaves open.
+The Freshservice connector (`backend/app/integrations/freshservice.py`, `backend/app/services/freshservice_sync.py`) reads the tickets assigned to you and keeps the unresolved ones as work items. It is proven against invented fixtures in the test suite and its check has run once against a real Freshservice site (2026-10-24): [What is not verified yet](#what-is-not-verified-yet) lists exactly which parts are still open.
 
 Placeholders like `<domain>` stand for your own values. Real values go in `.env` and in your shell only. This repo is public: no company names, hosts, addresses or ticket text go into a commit, an issue or a PR.
 
@@ -90,10 +90,10 @@ Freshservice limits calls per minute by plan and answers `429` with a `Retry-Aft
 
 ## What is not verified yet
 
-These were built from the public API documentation and tested against stubs only. The first run on a real site is the test:
+The first real check (2026-10-24) confirmed the lookup by `FRESHSERVICE_AGENT_EMAIL` (`GET /api/v2/agents?email=<email>`) and the ticket filter with its `agent_id` term. These were built from the public API documentation and are still tested against stubs only:
 
-- The agent lookups: `GET /api/v2/agents?email=<email>` (for `FRESHSERVICE_AGENT_EMAIL`) and `GET /api/v2/agents/me` (for the key's own agent). The first was not found in the documentation we could read; the second is reported to work but is undocumented. Both parsers treat an unexpected shape as "owner unknown", which fails the sync with a `Freshservice agent lookup ... failed` message instead of guessing.
+- The lookup of the key's own agent, `GET /api/v2/agents/me`, used when `FRESHSERVICE_AGENT_EMAIL` is unset: reported to work but undocumented. Its parser, like the email one, treats an unexpected shape as "owner unknown", which fails the sync with a `Freshservice agent lookup ... failed` message instead of guessing.
 - The ticket link `https://<domain>.freshservice.com/a/tickets/<id>`: the agent-portal address is assumed, not confirmed.
-- The `agent_id` and date terms of the ticket filter on a real account, in particular how your account's timezone treats the `updated_at` cut-off.
+- How your account's timezone treats the `updated_at` cut-off of the ticket filter (the sync backs off two days to cover it).
 
 If one of these fails on your site, the check in step 3 shows it, and the fix is a small change in `backend/app/integrations/freshservice.py`.

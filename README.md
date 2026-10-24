@@ -16,7 +16,7 @@ Everything runs on your own machine. Nothing is fetched until you connect a sour
 
 - **Outlook ingestion** over Microsoft Graph with delegated, read-only OAuth (authorization code + PKCE, `offline_access`, automatic token refresh, `@odata.nextLink` paging, and `Retry-After` backoff on 429/503).
 - **Jira ingestion** of issues you are assigned to, reported, created, watch, or voted on, plus an optional browse-only management project (`docs/jira-setup.md`). Each sync picks up where the last good one stopped.
-- **Freshservice ingestion** of the tickets assigned to you, read-only (`docs/freshservice-setup.md`). Only the ones that aren't Resolved or Closed become work items; the connector has not been run against a real site yet.
+- **Freshservice ingestion** of the tickets assigned to you, read-only (`docs/freshservice-setup.md`). Only the ones that aren't Resolved or Closed become work items; its check has run once against a real site, and `docs/freshservice-setup.md` lists what is still unverified.
 - **Scheduled sync** of every ready source every `SYNC_INTERVAL_MINUTES` (default 10), plus a sync button that runs all of them on demand.
 - **Rule-based promotion** (`backend/app/services/promotion.py`): no LLM and no network, so the same message always gets the same decision, and the rules can be scored against a hand-labeled sample of real mail.
 - **Review queue UI** to filter, inspect, update, dismiss, and hand off work items, each with its source evidence.

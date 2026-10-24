@@ -32,7 +32,7 @@ Ranked by how much they block real daily use at work (Jira Cloud, Freshservice, 
 
 PR #4 fixed the two that blocked Jira: each sync now covers the whole gap since the last good one (14 days on a first run, `JIRA_SYNC_LOOKBACK_DAYS`), every ready source syncs every 10 minutes on its own (`SYNC_INTERVAL_MINUTES`), and the UI's Sync now button syncs all of them through `POST /api/sync/all`, with a per-source toast.
 
-1. **Freshservice has never run against a real site.** The connector exists and is tested against stubs. The agent lookup endpoints and the `/a/tickets/<id>` link are unconfirmed. See [Freshservice](#freshservice) below.
+1. **Freshservice is only partly proven on a real site.** The connector exists and is tested against stubs; one real check (2026-10-24) confirmed the lookup by email and the ticket filter. A full sync, the key's own-agent lookup and the `/a/tickets/<id>` link are unconfirmed. See [Freshservice](#freshservice) below.
 2. **Outlook needs IT.** Outlook needs an Entra app registration, and this tenant doesn't let users create one without the Application Developer role (`docs/work-setup.md`, step 5). Once connected, each sync reads only the newest 50 messages in the Inbox folder, so mail that rules file elsewhere is missed.
 3. **Image builds can't trust a company root CA.** The Dockerfiles have no hook for an extra CA, so behind TLS inspection `docker compose build` fails at `npm ci` or `uv sync`. The no-Docker dev loop still works.
 4. **A big Jira can outgrow one sync.** Each query stops at 2000 issues. A first 14-day sync for a busy account, or a large management project, can hit that; the API log then warns and the Jira result says `"truncated": true`, but the oldest issues are skipped.

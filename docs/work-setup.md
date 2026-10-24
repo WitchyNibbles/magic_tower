@@ -185,7 +185,7 @@ Just leave it running:
 3. Triage the queue: update, dismiss, hand off. Note what's missing or noisy. Those notes are the backlog.
 4. `docker compose down` when you're done with it. `down -v` deletes all synced data.
 
-Freshservice tickets don't show up: the connector needs `FRESHSERVICE_URL` and `FRESHSERVICE_API_KEY` set, and it has not been run against a real site yet. Follow `docs/freshservice-setup.md`, run its check, and see "What is not verified yet" there if the check fails.
+Freshservice tickets don't show up: the connector needs `FRESHSERVICE_URL` and `FRESHSERVICE_API_KEY` set, and only parts of it have run against a real site. Follow `docs/freshservice-setup.md`, run its check, and see "What is not verified yet" there if the check fails.
 
 With Outlook, after a week or so, score the promotion rules on your own mail with `docs/second-pc.md` steps 5 to 7. The labeled file holds real mail and stays in `~/.magic-tower/`, outside the repo.
 
