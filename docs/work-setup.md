@@ -2,7 +2,7 @@
 
 How to run Magic Tower on a Windows work PC with WSL2 and Docker Engine inside WSL, so you can develop it and test it against your real Jira. Outlook works only if IT registers an app for you (step 5). Each step ends with a check, so you know it worked before you move on.
 
-Read this first: today a Jira sync only fetches issues updated in the last 15 minutes, and nothing syncs on a schedule (`docs/status.md`, gap 1). The steps below get everything running and prove the connection. Daily use needs that fixed first.
+Once it's running, it syncs Jira on its own every 10 minutes, so after setup there's nothing to press.
 
 `docs/jira-setup.md` and `docs/second-pc.md` have the long versions of the Jira and Outlook steps. This page puts them in order.
 
@@ -103,13 +103,18 @@ python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).de
 
 Paste the two values into `.env`. Behind a proxy, add the same three proxy settings there too, without `export`: Compose passes `.env` into the `api` container, and the app's Jira and Graph calls (stdlib `urllib`) use them. Leave the `MICROSOFT_*` lines blank unless step 5 happens.
 
+Two optional sync settings. Both are fine at their defaults, so only add them to `.env` to change them:
+
+- `SYNC_INTERVAL_MINUTES`: minutes between automatic syncs. Default `10`; `0` turns them off.
+- `JIRA_SYNC_LOOKBACK_DAYS`: how far back the first Jira sync looks. Default `14`. After that, each sync picks up where the last good one stopped.
+
 `.env` is gitignored. Never paste its values into a chat, issue or commit.
 
 ## 4. Connect Jira
 
 1. Create a classic API token at <https://id.atlassian.com/manage-profile/security/api-tokens> (not a scoped one).
 2. Fill in `.env`: `JIRA_SITE_URL=https://<site>.atlassian.net`, `JIRA_ACCOUNT_EMAIL=<you@company>`, `JIRA_API_TOKEN=<token>`.
-3. Optional: `JIRA_MANAGEMENT_PROJECT_KEY=<KEY>` for one project you want to browse but not get tasks from. That fetch has no 15-minute window: it reads up to 2000 of the project's issues, newest first.
+3. Optional: `JIRA_MANAGEMENT_PROJECT_KEY=<KEY>` for one project you want to browse but not get tasks from. That fetch has no time window: every sync reads up to 2000 of the project's issues, newest first.
 4. Check without starting the app:
 
 ```sh
@@ -118,7 +123,7 @@ uv run --env-file ../.env python -m app.tools.jira_check
 cd ..
 ```
 
-Check: it prints `connected to https://<site>.atlassian.net as '<your name>' ...` and an issue count. The count covers only issues you touch that changed in the last 15 minutes, so `0` is normal. `Jira request failed with status 401` means a wrong email or token. Plain `Jira request failed` means DNS, TLS or proxy (see the proxy section).
+Check: it prints `connected to https://<site>.atlassian.net as '<your name>' ...` and an issue count. The count covers issues you touch that changed in the last `JIRA_SYNC_LOOKBACK_DAYS` (14 days by default), the same set the first sync fetches. `Jira request failed with status 401` means a wrong email or token. Plain `Jira request failed` means DNS, TLS or proxy (see the proxy section).
 
 ## 5. Outlook: only through IT
 
@@ -157,30 +162,26 @@ If Windows can't reach the page but `curl -s http://127.0.0.1:8787/api/health` w
 
 ## 7. First real sync
 
-The UI's sync button syncs Outlook only, so with no Outlook it just says "Sync could not be completed." Sync Jira from the repo root. The parentheses keep the `.env` secrets out of your shell afterwards:
+Nothing to do: the app syncs Jira about 30 seconds after it starts. To sync right away, press Sync now in the UI. The toast says what came back for each source, for example "Jira: 3 new items".
 
-```sh
-( set -a; . ./.env; set +a
-  curl -s -w '\n%{http_code}\n' -X POST "http://localhost:8787/api/sync?kind=jira" \
-    -H "Authorization: Bearer $LOCAL_API_TOKEN" )
-```
+Check: filter the UI by source "Jira". Only issues assigned to you become work items. The rest are stored and browsable.
 
-Check: `200` and a JSON body with `count`. To see something come back, update an issue assigned to you (a comment is enough), then sync within 15 minutes. Reload the UI and filter by source "Jira". Only issues assigned to you become work items. The rest are stored and browsable.
+- Toast says "Nothing to sync yet": Jira's three settings aren't set.
+- Toast shows a Jira error (for example `Jira request failed with status 401`): fix that, then press Sync now again.
+- `docker compose logs api` also has one line per scheduled sync.
 
-On a `500`, run `docker compose logs api --tail 50`. The real reason is there.
+With Outlook set up: press connect in the UI and sign in. The sign-in replaces the page, and you end on a "Microsoft Graph connected" page. Go back to <http://localhost:8787> (your session survives). From then on Outlook syncs along with Jira, every 10 minutes and on Sync now. Items show up under source "Outlook". Each sync reads the newest 50 messages in the Inbox folder only.
 
-With Outlook set up: press connect in the UI and sign in. The sign-in replaces the page, and you end on a "Microsoft Graph connected" page. Go back to <http://localhost:8787> (your session survives) and press sync. Items show up under source "Outlook". Each sync reads the newest 50 messages in the Inbox folder only.
+## 8. Daily use
 
-## 8. Daily use (once gap 1 is fixed)
+Just leave it running:
 
-There's no scheduler yet, and the Jira window is 15 minutes, so a manual sync once a day misses almost everything. For now, a day of real testing looks like this:
-
-1. `docker compose up -d` (the data lives in the `workboard-data` volume between runs).
-2. Run the Jira `curl` above every few minutes while you work, or right after touching an issue.
+1. `docker compose up -d` once. The data lives in the `workboard-data` volume between runs.
+2. It syncs every 10 minutes on its own. Press Sync now when you want it right away.
 3. Triage the queue: update, dismiss, hand off. Note what's missing or noisy. Those notes are the backlog.
-4. `docker compose down` when done. `down -v` deletes all synced data.
+4. `docker compose down` when you're done with it. `down -v` deletes all synced data.
 
-Freshservice tickets don't show up: there's no Freshservice connector yet (`docs/status.md`, gap 5).
+Freshservice tickets don't show up: there's no Freshservice connector yet (`docs/status.md`, gap 1).
 
 With Outlook, after a week or so, score the promotion rules on your own mail with `docs/second-pc.md` steps 5 to 7. The labeled file holds real mail and stays in `~/.magic-tower/`, outside the repo.
 
