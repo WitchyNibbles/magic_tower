@@ -36,7 +36,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..integrations.freshservice import FreshserviceAgent, FreshserviceClient, FreshserviceError
+from ..integrations.freshservice import FreshserviceAgent, FreshserviceClient, FreshserviceError, is_int
 from .graph import persist_signals
 from .promotion import promote_signals
 from .sync import SyncError
@@ -75,11 +75,6 @@ def since_date(last_success_at: datetime | None, now: datetime, lookback_days: i
     return start.date() - timedelta(days=SINCE_OVERLAP_DAYS)
 
 
-def _int_or_none(value: Any) -> int | None:
-    """``value`` when it is a real integer (not a ``bool``), else ``None``."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
 def _normalize_ticket(ticket: dict[str, Any], base_url: str) -> dict[str, Any]:
     """One ticket (as ``search_assigned_tickets`` returns it) into the normalized signal
     shape ``persist_signals``/``promote_signals`` know, the same shape
@@ -98,14 +93,16 @@ def _normalize_ticket(ticket: dict[str, Any], base_url: str) -> dict[str, Any]:
     """
     ticket_id = ticket.get("id")
     subject = ticket.get("subject")
+    responder_id = ticket.get("responder_id")
+    status = ticket.get("status")
     return {
         "external_id": f"{FRESHSERVICE_SOURCE_KIND}:{ticket_id}",
         "source_kind": FRESHSERVICE_SOURCE_KIND,
         "title": subject.strip() if isinstance(subject, str) and subject.strip() else FALLBACK_TITLE,
         "source_url": f"{base_url}/a/tickets/{ticket_id}",
         "observed_at": ticket.get("updated_at"),
-        "responder_id": _int_or_none(ticket.get("responder_id")),
-        "ticket_status": _int_or_none(ticket.get("status")),
+        "responder_id": responder_id if is_int(responder_id) else None,
+        "ticket_status": status if is_int(status) else None,
     }
 
 
@@ -140,7 +137,7 @@ def _fetch_ticket_signals(client: FreshserviceClient, owner: FreshserviceAgent, 
     tickets = client.search_assigned_tickets(owner.id, since)
     deduped: dict[str, dict[str, Any]] = {}
     for ticket in tickets:
-        if not isinstance(ticket, dict) or _int_or_none(ticket.get("id")) is None:
+        if not isinstance(ticket, dict) or not is_int(ticket.get("id")):
             continue
         signal = _normalize_ticket(ticket, client.base_url)
         deduped.setdefault(signal["external_id"], signal)

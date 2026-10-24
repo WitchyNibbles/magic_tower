@@ -447,6 +447,16 @@ def test_freshservice_search_stops_on_an_empty_page() -> None:
     assert not tickets.truncated
 
 
+@pytest.mark.parametrize("tickets", [5, 0, True, False, {"id": 1}, {}, "tickets"])
+def test_freshservice_search_refuses_a_tickets_value_that_is_not_a_list(tickets: Any) -> None:
+    """A dict would otherwise be counted by its keys and an int would be a ``TypeError``."""
+    with pytest.raises(FreshserviceError) as error:
+        _client(lambda *_: {"tickets": tickets}).search_assigned_tickets(7, date(2026, 10, 9))
+
+    assert type(error.value) is FreshserviceError
+    assert str(error.value) == "Freshservice returned an unexpected response"
+
+
 @pytest.mark.parametrize("body", [{"tickets": None}, {}, {"tickets": None, "total": None}])
 def test_freshservice_search_treats_a_null_or_missing_tickets_array_as_empty(body: dict[str, Any]) -> None:
     """``{"tickets": null}`` returns ``None`` for a present key, so a bare ``.get``
@@ -494,6 +504,8 @@ def test_freshservice_search_cut_off_by_the_page_cap_warns_naming_the_kind_not_t
     (record,) = caplog.records
     assert record.levelno == logging.WARNING
     assert "assigned" in record.getMessage()
+    assert "not fetched" in record.getMessage()
+    assert "older" not in record.getMessage()
     assert "agent_id" not in record.getMessage()
     assert "42" not in record.getMessage()
 
@@ -536,6 +548,20 @@ def test_freshservice_find_agent_by_email_queries_the_agents_endpoint_with_the_e
     assert parse_qs(parsed.query)["email"] == ["agent+tag@example.com"]
     assert "+" not in parsed.query.split("=", 1)[1]
     assert agent == FreshserviceAgent(id=9, name="Ada Example")
+
+
+def test_freshservice_find_agent_by_email_strips_the_address_before_sending_and_comparing() -> None:
+    calls: list[str] = []
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        calls.append(url)
+        return {"agents": [{"id": 9, "email": "agent@example.com"}]}
+
+    agent = _client(transport).find_agent_by_email("  Agent@Example.com \n")
+
+    assert parse_qs(urlparse(calls[0]).query)["email"] == ["Agent@Example.com"]
+    assert "%20" not in calls[0] and "%0A" not in calls[0]
+    assert agent is not None and agent.id == 9
 
 
 def test_freshservice_find_agent_by_email_matches_the_address_case_insensitively() -> None:

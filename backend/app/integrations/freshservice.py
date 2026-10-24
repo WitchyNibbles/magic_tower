@@ -116,7 +116,7 @@ def default_transport(method: str, url: str, headers: dict[str, str], payload: d
         raise FreshserviceError("Freshservice request failed") from error
 
 
-def _is_int(value: object) -> bool:
+def is_int(value: object) -> bool:
     """An ``int`` that is not a ``bool`` -- ``True`` is never an id or a count anyone meant."""
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -134,7 +134,7 @@ def assigned_tickets_query(agent_id: int, since: date) -> str:
     exactly the type that cannot carry more query: an ``int`` for the id (not a
     ``bool``) and a ``date`` for the cut-off.
     """
-    if not _is_int(agent_id):
+    if not is_int(agent_id):
         raise ValueError(f"agent_id must be an int, got {agent_id!r}")
     if not isinstance(since, date):
         raise ValueError(f"since must be a date, got {since!r}")
@@ -164,7 +164,7 @@ def _agent_from(record: object) -> FreshserviceAgent | None:
     site, and an unrecognised one means "unknown owner" (which the sync reports and
     fails closed on), never a crash.
     """
-    if not isinstance(record, dict) or not _is_int(record.get("id")):
+    if not isinstance(record, dict) or not is_int(record.get("id")):
         return None
     parts = [record.get("first_name"), record.get("last_name")]
     name = " ".join(part.strip() for part in parts if isinstance(part, str) and part.strip())
@@ -213,11 +213,12 @@ class FreshserviceClient:
         did not honour the filter, taking the first agent it listed would make
         somebody else the owner.
         """
+        email = email.strip()
         response = self._get(f"{FRESHSERVICE_API_ROOT}/agents?{urlencode({'email': email}, quote_via=quote)}")
         agents = response.get("agents")
         if not isinstance(agents, list):
             return None
-        wanted = email.strip().lower()
+        wanted = email.lower()
         for record in agents:
             if isinstance(record, dict) and isinstance(record.get("email"), str) and record["email"].strip().lower() == wanted:
                 agent = _agent_from(record)
@@ -241,18 +242,22 @@ class FreshserviceClient:
         for page in range(1, FRESHSERVICE_FILTER_MAX_PAGES + 1):
             params = urlencode({"query": query, "page": page}, quote_via=quote)
             response = self._get(f"{FRESHSERVICE_API_ROOT}/tickets/filter?{params}")
-            # ``or []``, not a bare ``.get(..., [])`` default: ``{"tickets": null}``
-            # returns ``None`` for a present key, so the default alone never fires.
-            page_tickets = response.get("tickets") or []
+            # ``null`` and a missing key are an empty page; anything else that is not a
+            # list is not a ticket list, and is refused rather than counted or iterated.
+            page_tickets = response.get("tickets")
+            if page_tickets is None:
+                page_tickets = []
+            elif not isinstance(page_tickets, list):
+                raise FreshserviceError("Freshservice returned an unexpected response")
             tickets.extend(page_tickets)
             total = response.get("total")
-            tickets.total = total if _is_int(total) else None
+            tickets.total = total if is_int(total) else None
             if len(page_tickets) < FRESHSERVICE_PAGE_SIZE or (tickets.total is not None and len(tickets) >= tickets.total):
                 break
         else:
             tickets.truncated = True
             logger.warning(
-                "Freshservice assigned-tickets search stopped after %s pages; older tickets were not fetched",
+                "Freshservice assigned-tickets search stopped after %s pages; the remaining tickets were not fetched",
                 FRESHSERVICE_FILTER_MAX_PAGES,
             )
         return tickets
