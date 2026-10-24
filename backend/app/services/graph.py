@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..integrations.graph import GraphClient
-from ..models import Source, SourceKind, SourceSignalContext
+from ..models import Source, SourceKind, SourceSignalContext, WorkEvidence
 
 
 def _heuristic_headers(headers: Any) -> dict[str, str]:
@@ -77,12 +77,35 @@ def fetch_signals(client: GraphClient, limit: int = 50) -> list[dict[str, Any]]:
     return list(deduped.values())
 
 
+# The bound on a stored excerpt, ``Source.excerpt`` and the evidence copy promotion makes of it.
+EXCERPT_LIMIT = 2_000
+
+
+def _fill_missing_excerpt(db: Session, source: Source, excerpt: str) -> None:
+    """Give a source stored without text the text a later sync has seen for it.
+
+    Fills only what is empty -- the source's excerpt and the excerpt of the evidence
+    rows promotion copied from it (same ``external_id``) -- so a stored excerpt is
+    never overwritten and no row is added. Both columns are encrypted, and the
+    assignment goes through them like any other write.
+    """
+    if not source.excerpt:
+        source.excerpt = excerpt
+    for evidence in db.scalars(select(WorkEvidence).where(WorkEvidence.external_id == source.external_id)):
+        if not evidence.excerpt:
+            evidence.excerpt = excerpt
+
+
 def persist_signals(db: Session, signals: list[dict[str, Any]]) -> int:
     """Store bounded source metadata idempotently; never persist Graph tokens."""
     created = 0
     for signal in signals:
         external_id = str(signal["external_id"])
-        if db.scalar(select(Source.id).where(Source.external_id == external_id)) is not None:
+        excerpt = str(signal.get("excerpt") or "")[:EXCERPT_LIMIT] or None
+        stored = db.scalar(select(Source).where(Source.external_id == external_id))
+        if stored is not None:
+            if excerpt:
+                _fill_missing_excerpt(db, stored, excerpt)
             continue
         parsed_time = parse_observed_at(signal.get("observed_at"))
         kind = SourceKind(str(signal["source_kind"]))
@@ -91,7 +114,7 @@ def persist_signals(db: Session, signals: list[dict[str, Any]]) -> int:
             external_id=external_id,
             subject=str(signal.get("title") or "")[:500] or None,
             url=str(signal.get("source_url") or "")[:2048] or None,
-            excerpt=str(signal.get("excerpt") or "")[:2_000] or None,
+            excerpt=excerpt,
             observed_at=parsed_time,
         )
         # Carried across so a labeled-sample export can rebuild the exact signal

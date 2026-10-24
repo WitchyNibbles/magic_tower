@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Source, SourceKind, SourcePromotion, WorkItem
 from ..schemas import EvidenceInput, WorkItemCreate
-from .graph import parse_observed_at
+from .graph import EXCERPT_LIMIT, parse_observed_at
 from .jira_dedupe import issue_key, link_issue, merge_into, work_item_for_issue
 from .work_items import conflict, create_work_item
 
@@ -52,9 +52,6 @@ HEURISTIC_HEADERS = frozenset(BULK_HEADERS) | {PRECEDENCE_HEADER, AUTO_SUBMITTED
 FRESHSERVICE_DONE_STATUSES = (4, 5)
 
 TITLE_LIMIT = 500
-# The same bound ``persist_signals`` puts on ``Source.excerpt``; the evidence copy
-# is the same text and should not be able to grow past it.
-EXCERPT_LIMIT = 2_000
 FALLBACK_TITLE = "(no subject)"
 
 # The same validator ``WorkItemCreate.source_url`` applies; a link it would reject

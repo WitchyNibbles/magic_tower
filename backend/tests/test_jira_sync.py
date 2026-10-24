@@ -228,6 +228,23 @@ def test_jira_sync_stores_the_issue_description_as_the_source_and_evidence_excer
     assert evidence_excerpts == [source.excerpt]
 
 
+def test_jira_sync_fills_the_text_of_an_item_stored_before_descriptions_were_carried() -> None:
+    before = _issue_with_description(None, issue_id="10005")
+    after = _issue_with_description(_adf("Added by a later sync."), issue_id="10005")
+
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=_client_with([before]))
+        second = _sync_jira(_configured_settings(), db=session, jira_client=_client_with([after]))
+
+        source = session.query(Source).filter_by(external_id="jira:10005").one()
+        item = session.query(WorkItem).filter_by(source_external_id="jira:10005").one()
+        evidence_excerpts = [evidence.excerpt for evidence in item.evidence]
+
+    assert second["new_sources"] == 0 and second["new_work_items"] == 0
+    assert source.excerpt == "Added by a later sync."
+    assert evidence_excerpts == ["Added by a later sync."]
+
+
 @pytest.mark.parametrize("description", [None, _adf(), _adf("   "), "plain string, not ADF"])
 def test_jira_sync_leaves_the_excerpt_empty_when_the_description_has_no_text(description: Any) -> None:
     issue = _issue_with_description(description, issue_id="10004")
