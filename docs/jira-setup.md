@@ -160,11 +160,9 @@ Jira simply not configured comes back from this endpoint cleanly:
 ```
 
 A Jira that *is* configured but cannot be reached, or that rejects the
-credentials, comes back as a bare `500 Internal Server Error` with the reason
-only in `docker compose logs api` -- `backend/app/api/sync.py` answers `409` for
-a `SyncError` and lets every other exception escape, which that route's own
-docstring records as its pre-existing behaviour. Step 2 is the quicker way to
-read such a failure: it prints the reason straight to your terminal.
+credentials, also answers `409`, with the same message `jira_check` prints in
+step 2 (for example `{"detail":"Jira request failed with status 401"}`). Those
+messages never carry the token or other request detail.
 
 ## 4. Keep it synced
 
@@ -186,9 +184,16 @@ curl -s -X POST "http://localhost:8787/api/sync/all" \
 {"results":{"jira":{"mode":"read-only","synced_at":"...","count":3,"new_sources":3,"new_work_items":1,"window_minutes":15}}}
 ```
 
-Only ready sources appear in `results`. A source that fails shows `{"error": "..."}`
+Only ready sources appear in `results`, and `{}` means none is ready yet. A source that fails shows `{"error": "..."}`
 instead, and never stops the others. A scheduled run and a button press never sync the same source at the
-same time: the second one waits for the first.
+same time: the second one waits for the first. That lock lives in the API
+process, so run the API as a single process (the Docker image does); several
+`uvicorn --workers` would each start their own schedule.
+
+With `JIRA_MANAGEMENT_PROJECT_KEY` set, every run also re-reads that project's
+2000 most recently updated issues, since the project fetch has no time window.
+If a query stops at that cap, the API log says so and the sync result carries
+`"truncated": true`.
 
 ## What actually needs real credentials
 
@@ -217,7 +222,9 @@ started was stopped and its volume removed afterwards.
   with the body quoted above. The same `curl` **without** that line: `401
   {"detail":"A valid local API bearer token is required"}`.
 - Step 3's `curl` with the fake-but-well-formed Jira settings: `500 Internal
-  Server Error`, the unreachable-site case described above.
+  Server Error`. That run predates the change that turns a Jira request failure
+  into a `409` with its reason; the current answer, described above, has not
+  been observed against a real site.
 - `docker compose down -v` afterwards: both containers and the volume gone.
 
 **Not run at all: any request that reaches the owner's real Jira site.** The
