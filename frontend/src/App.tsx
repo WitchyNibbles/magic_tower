@@ -17,7 +17,7 @@ const syncPart = (kind: string, r: SyncResult) => {
   const n = r.new_work_items ?? 0
   return `${SYNC_LABELS[kind] ?? kind}: ${r.error ?? (n ? `${n} new ${n === 1 ? 'item' : 'items'}` : 'no new items')}`
 }
-const syncSummary = (results: Record<string, SyncResult>) => Object.entries(results).map(([kind, r]) => syncPart(kind, r)).join('. ') || 'No sources are set up yet.'
+const syncSummary = (results: Record<string, SyncResult>) => Object.entries(results).map(([kind, r]) => syncPart(kind, r)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
 
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])
