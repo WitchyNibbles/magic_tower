@@ -27,6 +27,13 @@ _BLANKABLE_OPTIONAL_FIELDS = (
 )
 
 
+def _present(value: str | SecretStr | None) -> bool:
+    """True when a required setting is set to something other than whitespace."""
+    if isinstance(value, SecretStr):
+        return bool(value.get_secret_value().strip())
+    return bool(value and value.strip())
+
+
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
@@ -128,11 +135,7 @@ class Settings(BaseSettings):
             "MICROSOFT_TARGET_USER_ID": self.microsoft_target_user_id,
             "APP_ENCRYPTION_KEY": self.app_encryption_key,
         }
-        def present(value: str | SecretStr | None) -> bool:
-            if isinstance(value, SecretStr):
-                return bool(value.get_secret_value().strip())
-            return bool(value and value.strip())
-        return [name for name, value in required.items() if not present(value)]
+        return [name for name, value in required.items() if not _present(value)]
 
     def jira_configuration_errors(self) -> list[str]:
         """Names of missing or blank core Jira settings, fail-closed.
@@ -145,11 +148,7 @@ class Settings(BaseSettings):
             "JIRA_ACCOUNT_EMAIL": self.jira_account_email,
             "JIRA_API_TOKEN": self.jira_api_token,
         }
-        def present(value: str | SecretStr | None) -> bool:
-            if isinstance(value, SecretStr):
-                return bool(value.get_secret_value().strip())
-            return bool(value and value.strip())
-        return [name for name, value in required.items() if not present(value)]
+        return [name for name, value in required.items() if not _present(value)]
 
     def freshservice_configuration_errors(self) -> list[str]:
         """Names of missing or blank core Freshservice settings, fail-closed.
@@ -161,11 +160,7 @@ class Settings(BaseSettings):
             "FRESHSERVICE_URL": self.freshservice_url,
             "FRESHSERVICE_API_KEY": self.freshservice_api_key,
         }
-        def present(value: str | SecretStr | None) -> bool:
-            if isinstance(value, SecretStr):
-                return bool(value.get_secret_value().strip())
-            return bool(value and value.strip())
-        return [name for name, value in required.items() if not present(value)]
+        return [name for name, value in required.items() if not _present(value)]
 
 
 @lru_cache
