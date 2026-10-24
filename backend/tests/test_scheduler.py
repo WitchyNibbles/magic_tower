@@ -144,6 +144,9 @@ class _TrackedSession:
     def __init__(self) -> None:
         type(self).opened += 1
 
+    def rollback(self) -> None:
+        """``sync_ready_sources`` rolls back after a failed source; nothing to undo here."""
+
     def close(self) -> None:
         type(self).closed += 1
 

@@ -11,11 +11,13 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.database import engine
 from app.main import app
+from app.models import Source, SourceKind
 from app.services import sync_registry
 from app.services.sync import SyncError
 from app.services.sync_all import sync_ready_sources
@@ -163,3 +165,39 @@ def test_sync_all_does_not_shadow_the_single_kind_and_backfill_routes() -> None:
     assert single.json() == ENVELOPE
     assert backfill.status_code == 200
     assert "considered" in backfill.json()
+
+
+def _poison_the_session(settings: Settings, db: Session, limit: int = 50, **_: Any) -> dict[str, Any]:
+    """Fail a flush on a duplicate key, which leaves the shared session needing a rollback."""
+    db.add(Source(kind=SourceKind.manual, external_id="dup:1", subject="first"))
+    db.add(Source(kind=SourceKind.manual, external_id="dup:1", subject="second"))
+    db.flush()
+    return {}
+
+
+def _poison_then_report(settings: Settings, db: Session, limit: int = 50, **_: Any) -> dict[str, Any]:
+    try:
+        _poison_the_session(settings, db)
+    except IntegrityError as error:
+        raise SyncError("could not store the fetched sources") from error
+    return {}
+
+
+def _store_one(settings: Settings, db: Session, limit: int = 50, **_: Any) -> dict[str, Any]:
+    db.add(Source(kind=SourceKind.manual, external_id="after:1", subject="stored"))
+    db.commit()
+    return dict(ENVELOPE)
+
+
+@pytest.mark.parametrize("poisoning_handler", [_poison_the_session, _poison_then_report], ids=["unexpected-error", "sync-error"])
+def test_a_source_that_breaks_the_shared_session_does_not_break_the_next_one(poisoning_handler: Any) -> None:
+    _register("poisoner", poisoning_handler)
+    _register("after", _store_one)
+
+    with Session(engine) as db:
+        results = sync_ready_sources(Settings(), db)
+
+    assert "error" in results["poisoner"]
+    assert results["after"] == ENVELOPE
+    with Session(engine) as db:
+        assert db.query(Source).filter_by(external_id="after:1").count() == 1

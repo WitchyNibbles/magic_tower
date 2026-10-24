@@ -27,14 +27,19 @@ def sync_ready_sources(settings: Settings, db: Session) -> dict[str, dict[str, A
     wrote a message for: it is logged with its traceback and the caller gets a
     fixed sentence, because an arbitrary exception's text (a URL, a header) is not
     something to hand to the browser.
+
+    The kinds share ``db``, and a failed flush leaves a session unusable until it is
+    rolled back, so a failing kind rolls back before the next one starts.
     """
     results: dict[str, dict[str, Any]] = {}
     for kind in ready_kinds(settings):
         try:
             results[kind] = sync(settings, db, kind=kind)
         except SyncError as error:
+            db.rollback()
             results[kind] = {"error": str(error)}
         except Exception:
+            db.rollback()
             logger.exception("%s sync failed", kind)
             results[kind] = {"error": f"{kind} sync failed; see the API log"}
     return results
