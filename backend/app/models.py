@@ -2,7 +2,7 @@ import enum
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -69,6 +69,8 @@ class WorkItem(Base):
 
     evidence: Mapped[list["WorkEvidence"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
     dispatches: Mapped[list["AgentDispatch"]] = relationship(back_populates="work_item", cascade="all, delete-orphan")
+    analysis: Mapped["WorkItemAnalysis | None"] = relationship(back_populates="work_item", uselist=False,
+                                                              cascade="all, delete-orphan")
 
 
 class Source(Base):
@@ -177,6 +179,43 @@ class WorkEvidence(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
 
     work_item: Mapped[WorkItem] = relationship(back_populates="evidence")
+
+
+class WorkItemAnalysis(Base):
+    """What the grimoire client wrote about one work item: a summary and structured details.
+
+    Derived from ticket and mail text, so ``summary`` and ``details`` (compact JSON text)
+    are sealed like the excerpts they come from. ``source_fingerprint`` is the hash of the
+    item's source text the analysis was written against (``services/grimoire_view.py``);
+    the item needs analysing again when the current hash differs. One row per item: a
+    second write replaces the first.
+    """
+
+    __tablename__ = "work_item_analyses"
+
+    work_item_id: Mapped[UUID] = mapped_column(ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True)
+    summary: Mapped[str] = mapped_column(EncryptedText)
+    details: Mapped[str] = mapped_column(EncryptedText)
+    source_fingerprint: Mapped[str] = mapped_column(String(64))
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    analyzer: Mapped[str] = mapped_column(String(40))
+
+    work_item: Mapped[WorkItem] = relationship(back_populates="analysis")
+
+
+class GrimoireProjectSnapshot(Base):
+    """The one snapshot of grimoire's projects, replaced whole on each write.
+
+    The ``CHECK (id = 1)`` is what makes it a single row. The JSON is encrypted: it names
+    projects and tasks.
+    """
+
+    __tablename__ = "grimoire_project_snapshot"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_grimoire_project_snapshot_single_row"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    snapshot: Mapped[str] = mapped_column(EncryptedText)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
 
 
 class DispatchStatus(str, enum.Enum):

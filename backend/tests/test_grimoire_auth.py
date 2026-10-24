@@ -16,7 +16,7 @@ from app.main import app
 GRIMOIRE_TOKEN = "g-token"
 LOCAL_TOKEN = "l-token"
 GRIMOIRE_PREFIX = "/api/grimoire"
-PING = f"{GRIMOIRE_PREFIX}/ping"
+PING = f"{GRIMOIRE_PREFIX}/items"  # any guarded grimoire route; the router's placeholder ping is gone
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -58,7 +58,6 @@ def test_grimoire_route_refuses_missing_wrong_and_local_token():
         assert client.get(PING).status_code == 401, "a browser session must not open the grimoire routes"
         ok = client.get(PING, headers=bearer(GRIMOIRE_TOKEN))
     assert ok.status_code == 200
-    assert ok.json() == {"ok": True}
 
 
 def _other_routes() -> list[tuple[str, str]]:

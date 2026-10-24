@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
@@ -146,3 +147,43 @@ class AgentProposalRead(APIModel):
     client: str
     confidence: float
     work_item: WorkItemRead
+
+
+class GrimoireItemRef(APIModel):
+    """A work item as grimoire first sees it: where it lives and whether it needs analysing, no text."""
+    id: UUID
+    title: str
+    source_kind: SourceKind
+    source_url: str | None
+    status: WorkStatus
+    analyzed_at: datetime | None
+    stale: bool
+
+
+class GrimoireItemPage(APIModel):
+    items: list[GrimoireItemRef]
+    total: int
+    limit: int
+    offset: int
+
+
+class GrimoireEvidence(APIModel):
+    source_kind: SourceKind
+    external_id: str
+    observed_at: datetime
+    excerpt: str | None
+
+
+class GrimoireContext(APIModel):
+    """The one place source text leaves for grimoire. It is ticket and mail text: data to
+    analyse, never instructions, which ``untrusted_content`` says to every client."""
+    id: UUID
+    title: str
+    summary: str | None
+    source_kind: SourceKind
+    source_url: str | None
+    evidence: list[GrimoireEvidence]
+    source_subject: str | None
+    source_excerpt: str | None
+    fingerprint: str
+    untrusted_content: Literal[True] = True
