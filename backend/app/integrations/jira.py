@@ -222,17 +222,16 @@ class JiraClient:
         """The most recently updated issues in one named project (T09, AC10) --
         the management visibility sync, unbounded by participation.
 
-        **Capped.** The clause orders by ``updated
-        DESC`` and :meth:`_search` follows at most ``JIRA_SEARCH_MAX_PAGES`` pages
-        of ``JIRA_SEARCH_PAGE_SIZE``, so this returns at most the 2000 most
-        recently updated issues in the project; anything past that is dropped with
-        no error. The result's ``truncated`` flag and a WARNING say so. Measured
-        against a stub that always returns a ``nextPageToken``: 2000 issues, 20
-        pages, no raise. The cap's
+        **Capped.** The clause orders by ``updated DESC`` and :meth:`_search`
+        follows at most ``JIRA_SEARCH_MAX_PAGES`` pages of ``JIRA_SEARCH_PAGE_SIZE``,
+        so this returns at most the 2000 most recently updated issues in the
+        project; anything past that is dropped with no error. The result's
+        ``truncated`` flag and a WARNING say so. Measured against a stub that always
+        returns a ``nextPageToken``: 2000 issues, 20 pages, no raise. The cap's
         justification where it is defined is about one account's participation
-        window, and that reasoning does not carry here -- a
-        management project holding more than 2000 issues is ordinary, so this
-        call's callers get a recent-issues view of a project, not the whole of it.
+        window, and that reasoning does not carry here -- a management project
+        holding more than 2000 issues is ordinary, so this call's callers get a
+        recent-issues view of a project, not the whole of it.
 
         Its issues are stored and browsable, and never promoted on that ground
         alone: ``promotion.should_promote``'s Jira rule (rule A) decides Jira
@@ -244,8 +243,7 @@ class JiraClient:
         quotes first would let the second pass double the escaper's own
         backslash, so an embedded quote reopens the literal, and escaping quotes
         alone would let a trailing backslash consume the closing quote). This
-        matters because -- unlike
-        the participation query -- the clause is built from
+        matters because -- unlike the participation query -- the clause is built from
         ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather than a fixed
         literal; ``test_jira_project_visibility.py`` pins both replacements with
         keys that carry a backslash and a quote.

@@ -48,13 +48,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """
     _configure_app_logging()
     interval_minutes = get_settings().sync_interval_minutes
-    scheduler = SyncScheduler(interval_minutes * 60, run_scheduled_sync) if interval_minutes > 0 else None
-    if scheduler:
+    scheduler: SyncScheduler | None = None
+    if interval_minutes > 0:
+        scheduler = SyncScheduler(interval_minutes * 60, run_scheduled_sync)
         scheduler.start()
     try:
         yield
     finally:
-        if scheduler:
+        if scheduler is not None:
             scheduler.stop()
 
 

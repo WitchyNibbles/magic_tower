@@ -13,11 +13,16 @@ import { demoItems } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
 const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira' }
-const syncPart = (kind: string, r: SyncResult) => {
-  const n = r.new_work_items ?? 0
-  return `${SYNC_LABELS[kind] ?? kind}: ${r.error ?? (n ? `${n} new ${n === 1 ? 'item' : 'items'}` : 'no new items')}`
+function describeNewItems(count: number): string {
+  if (!count) return 'no new items'
+  return `${count} new ${count === 1 ? 'item' : 'items'}`
 }
-const syncSummary = (results: Record<string, SyncResult>) => Object.entries(results).map(([kind, r]) => syncPart(kind, r)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
+function syncPart(kind: string, result: SyncResult): string {
+  return `${SYNC_LABELS[kind] ?? kind}: ${result.error ?? describeNewItems(result.new_work_items ?? 0)}`
+}
+function syncSummary(results: Record<string, SyncResult>): string {
+  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
+}
 
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])

@@ -89,12 +89,10 @@ def participation_window_minutes(last_success_at: datetime | None, now: datetime
     profile timezone, so nothing here depends on the timezone of either side.
     """
     lookback_minutes = lookback_window_minutes(lookback_days)
-    if last_success_at is None:
+    if last_success_at is None or last_success_at > now:
         return lookback_minutes
     gap = now - last_success_at
-    if gap < timedelta(0):
-        return lookback_minutes
-    minutes_since = -(-gap // timedelta(minutes=1))
+    minutes_since = -(-gap // timedelta(minutes=1))  # ceiling division
     return min(minutes_since + WINDOW_OVERLAP_MINUTES, lookback_minutes)
 
 
@@ -233,16 +231,18 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
         # ``JiraError`` messages are written to be shown (no URL, header or token), so
         # the owner gets the reason; as a ``SyncError`` it is a known failure, not a bug.
         raise SyncError(str(error)) from error
-    created = persist_signals(db, signals) if db is not None else 0
-    owner_account_id = _owner_account_id(jira) if db is not None else None
-    promoted = promote_signals(db, signals, owner_account_id=owner_account_id) if db is not None else 0
-    if db is not None and owner_account_id is not None:
-        # The cursor is when this sync *started*, and only a sync that got this far
-        # moves it: anything updated while it ran lands in the next window, and a
-        # raised error above leaves the old cursor so the retry covers the same gap.
-        # Without the owner's id nothing could be judged for promotion, so the window
-        # is not covered either: the cursor stays and the next sync re-fetches it.
-        record_success(db, JIRA_SOURCE_KIND, started)
+    created = promoted = 0
+    if db is not None:
+        created = persist_signals(db, signals)
+        owner_account_id = _owner_account_id(jira)
+        promoted = promote_signals(db, signals, owner_account_id=owner_account_id)
+        if owner_account_id is not None:
+            # The cursor is when this sync *started*, and only a sync that got this far
+            # moves it: anything updated while it ran lands in the next window, and a
+            # raised error above leaves the old cursor so the retry covers the same gap.
+            # Without the owner's id nothing could be judged for promotion, so the window
+            # is not covered either: the cursor stays and the next sync re-fetches it.
+            record_success(db, JIRA_SOURCE_KIND, started)
     return {"mode": "read-only", "synced_at": _utc_now().isoformat(), "count": len(signals),
             "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes, "truncated": truncated}
 

@@ -57,11 +57,15 @@ def unregister_sync_handler(kind: str) -> None:
     _ready_checks.pop(kind, None)
 
 
+def _unknown_kind(kind: str) -> UnknownSourceKindError:
+    return UnknownSourceKindError(f"no sync handler registered for source kind {kind!r}")
+
+
 def get_sync_handler(kind: str) -> SyncHandler:
     try:
         return _handlers[kind]
     except KeyError as error:
-        raise UnknownSourceKindError(f"no sync handler registered for source kind {kind!r}") from error
+        raise _unknown_kind(kind) from error
 
 
 def registered_kinds() -> tuple[str, ...]:
@@ -94,4 +98,4 @@ def sync_lock(kind: str) -> threading.Lock:
     try:
         return _locks[kind]
     except KeyError as error:
-        raise UnknownSourceKindError(f"no sync handler registered for source kind {kind!r}") from error
+        raise _unknown_kind(kind) from error
