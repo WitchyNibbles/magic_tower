@@ -190,7 +190,7 @@ def test_freshservice_sync_returns_the_envelope_every_registered_kind_returns(cl
     assert result["mode"] == "read-only"
     assert set(result) == {"mode", "synced_at", "count", "new_sources", "new_work_items", "since", "truncated"}
     assert result["count"] == 1
-    assert result["since"] == "2026-10-09"
+    assert result["since"] == "2026-10-08"
     assert result["truncated"] is False
 
 
@@ -417,30 +417,30 @@ def test_freshservice_sync_agent_lookup_failure_carries_the_clients_reason() -> 
 @pytest.mark.parametrize(
     ("last_success_at", "expected"),
     [
-        # no cursor: the whole lookback (14 days -> 2026-10-10), minus the day of overlap
-        (None, date(2026, 10, 9)),
-        # a recent cursor: its own date, minus the day of overlap
-        (NOW - timedelta(hours=2), date(2026, 10, 23)),
-        (NOW - timedelta(days=3), date(2026, 10, 20)),
+        # no cursor: the whole lookback (14 days -> 2026-10-10), minus two days of overlap
+        (None, date(2026, 10, 8)),
+        # a recent cursor: its own date, minus two days of overlap
+        (NOW - timedelta(hours=2), date(2026, 10, 22)),
+        (NOW - timedelta(days=3), date(2026, 10, 19)),
         # exactly the lookback old is still inside it
-        (NOW - timedelta(days=14), date(2026, 10, 9)),
+        (NOW - timedelta(days=14), date(2026, 10, 8)),
         # older than the lookback: capped at it, so an outage cannot ask for years
-        (NOW - timedelta(days=14, seconds=1), date(2026, 10, 9)),
-        (NOW - timedelta(days=60), date(2026, 10, 9)),
+        (NOW - timedelta(days=14, seconds=1), date(2026, 10, 8)),
+        (NOW - timedelta(days=60), date(2026, 10, 8)),
         # a cursor in the future means the clock stepped back: search the whole lookback
-        (NOW + timedelta(seconds=1), date(2026, 10, 9)),
-        (NOW + timedelta(days=1), date(2026, 10, 9)),
+        (NOW + timedelta(seconds=1), date(2026, 10, 8)),
+        (NOW + timedelta(days=1), date(2026, 10, 8)),
     ],
 )
-def test_since_date_is_the_cursors_day_minus_one_capped_at_the_lookback(last_success_at: datetime | None, expected: date) -> None:
-    """The filter compares dates only, so ``since`` is a day, and the extra day
-    covers both that granularity and the account's own timezone."""
+def test_since_date_is_the_cursors_day_minus_two_capped_at_the_lookback(last_success_at: datetime | None, expected: date) -> None:
+    """The filter compares dates only, so ``since`` is a day, and two days of overlap
+    cover both that granularity and an account whose timezone is behind UTC."""
     assert since_date(last_success_at, NOW, 14) == expected
 
 
 def test_since_date_honours_the_configured_lookback() -> None:
-    assert since_date(None, NOW, 3) == date(2026, 10, 20)
-    assert since_date(NOW - timedelta(days=5), NOW, 3) == date(2026, 10, 20)
+    assert since_date(None, NOW, 3) == date(2026, 10, 19)
+    assert since_date(NOW - timedelta(days=5), NOW, 3) == date(2026, 10, 19)
 
 
 def test_freshservice_sync_without_a_cursor_searches_the_lookback(clock: dict[str, Any]) -> None:
@@ -449,7 +449,7 @@ def test_freshservice_sync_without_a_cursor_searches_the_lookback(clock: dict[st
     with Session(engine) as session:
         _sync_freshservice(_configured_settings(), db=session, freshservice_client=transport.client())
 
-    assert "updated_at:>'2026-10-09'" in transport.queries[0]
+    assert "updated_at:>'2026-10-08'" in transport.queries[0]
 
 
 def test_freshservice_sync_uses_the_lookback_setting(clock: dict[str, Any]) -> None:
@@ -459,8 +459,8 @@ def test_freshservice_sync_uses_the_lookback_setting(clock: dict[str, Any]) -> N
     with Session(engine) as session:
         result = _sync_freshservice(settings, db=session, freshservice_client=transport.client())
 
-    assert "updated_at:>'2026-10-20'" in transport.queries[0]
-    assert result["since"] == "2026-10-20"
+    assert "updated_at:>'2026-10-19'" in transport.queries[0]
+    assert result["since"] == "2026-10-19"
 
 
 def test_freshservice_sync_searches_from_the_day_of_the_last_success(clock: dict[str, Any]) -> None:
@@ -470,8 +470,8 @@ def test_freshservice_sync_searches_from_the_day_of_the_last_success(clock: dict
         record_success(session, FRESHSERVICE_SOURCE_KIND, NOW - timedelta(days=3))
         result = _sync_freshservice(_configured_settings(), db=session, freshservice_client=transport.client())
 
-    assert "updated_at:>'2026-10-20'" in transport.queries[0]
-    assert result["since"] == "2026-10-20"
+    assert "updated_at:>'2026-10-19'" in transport.queries[0]
+    assert result["since"] == "2026-10-19"
 
 
 def test_freshservice_sync_without_a_database_searches_the_lookback_and_keeps_no_cursor(clock: dict[str, Any]) -> None:
@@ -479,7 +479,7 @@ def test_freshservice_sync_without_a_database_searches_the_lookback_and_keeps_no
 
     _sync_freshservice(_configured_settings(), db=None, freshservice_client=transport.client())
 
-    assert "updated_at:>'2026-10-09'" in transport.queries[0]
+    assert "updated_at:>'2026-10-08'" in transport.queries[0]
 
 
 def test_freshservice_sync_records_the_moment_it_started_as_the_cursor(clock: dict[str, Any]) -> None:
@@ -500,8 +500,8 @@ def test_freshservice_sync_advances_the_cursor_so_the_next_sync_asks_for_less(cl
         clock["now"] = NOW + timedelta(days=5)
         _sync_freshservice(_configured_settings(), db=session, freshservice_client=second.client())
 
-    assert "updated_at:>'2026-10-09'" in first.queries[0]
-    assert "updated_at:>'2026-10-23'" in second.queries[0]
+    assert "updated_at:>'2026-10-08'" in first.queries[0]
+    assert "updated_at:>'2026-10-22'" in second.queries[0]
 
 
 def test_freshservice_sync_whose_search_fails_leaves_the_cursor_where_it_was(clock: dict[str, Any]) -> None:
@@ -520,7 +520,7 @@ def test_freshservice_sync_whose_search_fails_leaves_the_cursor_where_it_was(clo
         retry = _Transport()
         _sync_freshservice(_configured_settings(), db=session, freshservice_client=retry.client())
 
-    assert "updated_at:>'2026-10-21'" in retry.queries[0]
+    assert "updated_at:>'2026-10-20'" in retry.queries[0]
 
 
 def test_freshservice_sync_whose_search_fails_with_no_cursor_does_not_invent_one(clock: dict[str, Any]) -> None:

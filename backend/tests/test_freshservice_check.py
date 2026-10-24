@@ -79,7 +79,7 @@ def test_run_check_reports_the_total_freshservice_gives_when_it_gives_one() -> N
     assert report["ticket_count"] == 42
 
 
-@pytest.mark.parametrize(("lookback_days", "since"), [(14, date(2026, 10, 9)), (3, date(2026, 10, 20))])
+@pytest.mark.parametrize(("lookback_days", "since"), [(14, date(2026, 10, 8)), (3, date(2026, 10, 19))])
 def test_run_check_searches_the_whole_lookback_as_a_first_sync_would(lookback_days: int, since: date) -> None:
     calls: list[str] = []
 

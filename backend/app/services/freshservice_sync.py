@@ -24,7 +24,7 @@ reason and never the email or the key.
 every Open or Pending ticket assigned to the owner whatever its age, plus every
 assigned ticket updated since :func:`since_date`. The filter compares dates only,
 and compares them in the account's timezone rather than UTC, so the cut-off is a
-whole day, backed off by one more to cover both. Re-fetching a ticket is harmless
+whole day, backed off by two more to cover both. Re-fetching a ticket is harmless
 (``persist_signals`` is idempotent).
 """
 
@@ -45,6 +45,7 @@ from .sync_registry import register_sync_handler
 
 FRESHSERVICE_SOURCE_KIND = "freshservice"
 FALLBACK_TITLE = "(no subject)"
+SINCE_OVERLAP_DAYS = 2
 
 
 def _utc_now() -> datetime:
@@ -54,23 +55,24 @@ def _utc_now() -> datetime:
 def since_date(last_success_at: datetime | None, now: datetime, lookback_days: int) -> date:
     """The day after which an assigned ticket's update makes it part of this sync.
 
-    The day of the last successful sync's start, minus one. With no cursor (the first
+    The day of the last successful sync's start, minus two. With no cursor (the first
     sync) it is the whole lookback instead, and so it is when the cursor is older than
     the lookback -- a long outage must not ask Freshservice for years of history -- or
     in the future, which means the clock stepped back and how long ago the last sync
     really was is unknown, so the whole lookback is searched rather than a window
     that could miss what changed in the meantime.
 
-    The extra day is the overlap: the filter takes ``yyyy-mm-dd`` and ``updated_at:>``
-    is strict, and Freshservice evaluates the date in the account's timezone rather
-    than UTC.
+    The two extra days are the overlap: the filter takes ``yyyy-mm-dd`` and
+    ``updated_at:>`` is strict (one day), and Freshservice may evaluate the date in the
+    account's timezone rather than UTC, which for an account behind UTC can put the
+    date a further day back.
     """
     lookback_start = now - timedelta(days=lookback_days)
     if last_success_at is None or last_success_at > now or last_success_at < lookback_start:
         start = lookback_start
     else:
         start = last_success_at
-    return start.date() - timedelta(days=1)
+    return start.date() - timedelta(days=SINCE_OVERLAP_DAYS)
 
 
 def _int_or_none(value: Any) -> int | None:

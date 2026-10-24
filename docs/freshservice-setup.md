@@ -65,7 +65,7 @@ The count is the same set the first sync fetches. The tool never writes to the d
 
 ## 4. What syncs and what promotes
 
-One search per sync, for the agent found in step 3: every ticket assigned to that agent that is Open or Pending, whatever its age, plus every assigned ticket updated since the cut-off day (any status, so resolutions and custom statuses are seen). The cut-off is the day the last good sync started, minus one day of overlap, or the lookback window on the first sync and after a long gap. All of them are stored and browsable under the source "Freshservice".
+One search per sync, for the agent found in step 3: every ticket assigned to that agent that is Open or Pending, whatever its age, plus every assigned ticket updated since the cut-off day (any status, so resolutions and custom statuses are seen). The cut-off is the day the last good sync started, minus two days of overlap (the filter compares dates only, and your account's timezone may sit behind UTC), or the lookback window on the first sync and after a long gap. All of them are stored and browsable under the source "Freshservice".
 
 Only a ticket that is assigned to you and not Resolved or Closed becomes a work item. If the connector cannot tell who you are, it promotes nothing. Each ticket links to `https://<domain>.freshservice.com/a/tickets/<id>`.
 
