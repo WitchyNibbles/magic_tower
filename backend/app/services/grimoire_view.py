@@ -33,7 +33,10 @@ _Row = TypeVar("_Row", WorkItemAnalysis, GrimoireProjectSnapshot)
 
 
 def _evidence_fields(rows: Sequence[WorkEvidence]) -> list[dict[str, Any]]:
-    ordered = sorted(rows, key=lambda row: (as_utc(row.observed_at), row.external_id, row.source_kind.value))
+    # The excerpt is the last key so rows tied on everything else still fingerprint the same
+    # whatever order they were stored in.
+    ordered = sorted(rows, key=lambda row: (as_utc(row.observed_at), row.external_id, row.source_kind.value,
+                                            row.excerpt is not None, row.excerpt or ""))
     return [{"source_kind": row.source_kind.value, "external_id": row.external_id,
              "observed_at": as_utc(row.observed_at).isoformat(), "excerpt": row.excerpt} for row in ordered]
 

@@ -5,6 +5,7 @@ Fixture titles and text are invented. The marker string is what a leak would loo
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import engine
 from app.main import app
-from app.models import SourceKind, WorkItem, WorkItemAnalysis
+from app.models import SourceKind, WorkEvidence, WorkItem, WorkItemAnalysis
 from app.services.graph import persist_signals
 from app.services.grimoire_view import context_fields, fingerprint
 from app.services.promotion import promote_signals
@@ -195,3 +196,23 @@ def test_finished_items_are_not_loaded_to_find_those_needing_analysis(client):
 
     assert _loaded_statuses(client, "needs_analysis=true") == ["pending"]
     assert sorted(_loaded_statuses(client, "needs_analysis=false")) == ["done", "pending"], "the complement still holds done items"
+
+
+def test_the_fingerprint_does_not_depend_on_the_order_tied_evidence_was_stored_in():
+    seen = datetime(2026, 1, 2, 3, 4, tzinfo=UTC)
+
+    def evidence(excerpt: str | None) -> WorkEvidence:
+        return WorkEvidence(source_kind=SourceKind.jira, external_id="jira:tie", observed_at=seen, excerpt=excerpt)
+
+    fingerprints = []
+    for excerpts in (["first note", "second note", None], [None, "second note", "first note"]):
+        with Session(engine) as session:
+            item = WorkItem(title="Tied", source_kind=SourceKind.manual, id=UUID(int=1))
+            item.evidence = [evidence(excerpt) for excerpt in excerpts]
+            session.add(item)
+            session.commit()
+            fingerprints.append(fingerprint(context_fields(session, item)))
+            session.delete(item)
+            session.commit()
+
+    assert fingerprints[0] == fingerprints[1]
