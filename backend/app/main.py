@@ -16,6 +16,7 @@ from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
 from .api.grimoire import router as grimoire_router
+from .api.projects import router as projects_router
 
 
 APP_LOGGER_NAME = "app"
@@ -139,3 +140,4 @@ app.include_router(auth_router)
 app.include_router(sync_router)
 app.include_router(session_router)
 app.include_router(grimoire_router)
+app.include_router(projects_router)

@@ -13,6 +13,13 @@ export interface WorkItemPage { items: WorkItem[]; total: number; limit: number;
 export interface Source { id: string; kind: SourceKind; external_id: string; subject: string | null; url: string | null; excerpt: string | null; observed_at: string }
 export interface SourcePage { items: Source[]; total: number; limit: number; offset: number }
 
+// grimoire's read-only project snapshot (backend/app/schemas.py ProjectSnapshotRead). Text and links come from grimoire: render as text.
+export type ProjectStatus = 'active' | 'waiting' | 'done'
+export type ProjectTaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done'
+interface ProjectTask { title: string; status: ProjectTaskStatus; pr_url: string | null }
+export interface ProjectItem { code: string; name: string; status: ProjectStatus; tasks: ProjectTask[]; open_questions: number; pending_prod_steps: string[] }
+export interface ProjectSnapshot { projects: ProjectItem[]; updated_at: string | null }
+
 export class ApiError extends Error { constructor(public status: number) { super(`Request failed (${status})`) } }
 let csrfToken: string | null = null
 
@@ -66,3 +73,4 @@ export const getSources = (params: { limit?: number; offset?: number } = {}) => 
   return request<SourcePage>(`/api/sources${query ? `?${query}` : ''}`)
 }
 export const promoteSource = (sourceId: string) => request<WorkItem>(`/api/sources/${sourceId}/promote`, { method: 'POST' })
+export const getProjects = () => request<ProjectSnapshot>('/api/projects')

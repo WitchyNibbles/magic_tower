@@ -22,8 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import Source, WorkEvidence, WorkItem, WorkItemAnalysis, WorkStatus
-from ..schemas import AnalysisWrite, GrimoireItemRef
+from ..models import GrimoireProjectSnapshot, Source, WorkEvidence, WorkItem, WorkItemAnalysis, WorkStatus
+from ..schemas import AnalysisWrite, GrimoireItemRef, ProjectSnapshot, ProjectSnapshotRead, ProjectSnapshotWritten
 from .http_errors import conflict, not_found
 
 logger = logging.getLogger(__name__)
@@ -154,3 +154,36 @@ def items_needing_analysis(db: Session, *, needs_analysis: bool, limit: int,
         analyzed_at=as_utc(item.analysis.analyzed_at) if item.analysis else None,
         stale=stale.get(item.id, False)) for item in wanted[offset:offset + limit]]
     return refs, len(wanted)
+
+
+def save_project_snapshot(db: Session, data: ProjectSnapshot) -> ProjectSnapshotWritten:
+    """Replace the one snapshot of grimoire's projects. Only that row is written.
+
+    The row's key is the constant 1, so two racing first writes cannot leave two rows:
+    the one that loses the insert updates the winner's row instead.
+    """
+    values = {"snapshot": data.model_dump_json(), "updated_at": datetime.now(UTC)}
+    row = db.get(GrimoireProjectSnapshot, 1)
+    if row is None:
+        row = GrimoireProjectSnapshot(id=1, **values)
+        db.add(row)
+    else:
+        _assign(row, values)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = db.get(GrimoireProjectSnapshot, 1)
+        _assign(row, values)
+        db.commit()
+    logger.info("grimoire project snapshot written: %d projects", len(data.projects))
+    return ProjectSnapshotWritten(updated_at=as_utc(row.updated_at))
+
+
+def read_project_snapshot(db: Session) -> ProjectSnapshotRead:
+    """The snapshot for the signed-in user; empty, with no timestamp, before grimoire has written one."""
+    row = db.get(GrimoireProjectSnapshot, 1)
+    if row is None:
+        return ProjectSnapshotRead(projects=[], updated_at=None)
+    stored = ProjectSnapshot.model_validate_json(row.snapshot)
+    return ProjectSnapshotRead(projects=stored.projects, updated_at=as_utc(row.updated_at))

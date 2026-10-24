@@ -236,3 +236,31 @@ class GrimoireContext(APIModel):
     source_excerpt: str | None
     fingerprint: str
     untrusted_content: Literal[True] = True
+
+
+class ProjectTask(APIModel):
+    title: str = Field(max_length=200)
+    status: Literal["todo", "in_progress", "blocked", "done"]
+    pr_url: HttpUrl | None = None
+
+
+class ProjectSnapshotItem(APIModel):
+    """One of grimoire's projects as the UI lists it: labels and counts, never question bodies."""
+    code: str = Field(max_length=40)
+    name: str = Field(max_length=200)
+    status: Literal["active", "waiting", "done"]
+    tasks: list[ProjectTask] = Field(default_factory=list, max_length=50)
+    open_questions: int = Field(ge=0)
+    pending_prod_steps: list[Annotated[str, Field(max_length=120)]] = Field(default_factory=list, max_length=20)
+
+
+class ProjectSnapshot(APIModel):
+    projects: list[ProjectSnapshotItem] = Field(max_length=50)
+
+
+class ProjectSnapshotWritten(APIModel):
+    updated_at: datetime
+
+
+class ProjectSnapshotRead(ProjectSnapshot):
+    updated_at: datetime | None

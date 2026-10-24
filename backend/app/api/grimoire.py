@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..schemas import AnalysisRead, AnalysisWrite, GrimoireContext, GrimoireItemPage
+from ..schemas import AnalysisRead, AnalysisWrite, GrimoireContext, GrimoireItemPage, ProjectSnapshot, ProjectSnapshotWritten
 from ..security import require_grimoire_token
-from ..services.grimoire_view import context_fields, fingerprint, get_open_item, items_needing_analysis, save_analysis
+from ..services.grimoire_view import context_fields, fingerprint, get_open_item, items_needing_analysis, save_analysis, save_project_snapshot
 from ..services.sync_all import sync_ready_sources
 from ..services.work_items import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 
@@ -45,3 +45,9 @@ def write_analysis(item_id: UUID, payload: AnalysisWrite, db: Session = Depends(
     """Store an analysis of the text grimoire read; 409 if that text has changed since."""
     analysis = save_analysis(db, get_open_item(db, item_id), payload)
     return AnalysisRead.from_row(analysis)
+
+
+@router.put("/projects", response_model=ProjectSnapshotWritten)
+def write_projects(payload: ProjectSnapshot, db: Session = Depends(get_db)):
+    """Replace the snapshot of grimoire's projects that the UI shows read-only."""
+    return save_project_snapshot(db, payload)
