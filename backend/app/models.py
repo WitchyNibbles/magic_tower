@@ -39,10 +39,12 @@ class SourceKind(str, enum.Enum):
     outlook_email = "outlook_email"
     manual = "manual"
     # No Alembic revision needed: ``sources.kind``/``work_items.source_kind`` are
-    # ``VARCHAR(13)`` with no CHECK (``alembic/versions/0001_initial_schema.py``).
-    # Spelled identically here, in ``app/services/jira_sync.py`` and in docs, or
-    # ``scripts/deaddocs_check.py`` reads it as a retired connector.
+    # ``VARCHAR(13)`` with no CHECK (``alembic/versions/0001_initial_schema.py``);
+    # ``freshservice`` is 12 characters. Spelled identically here, in
+    # ``app/services/jira_sync.py``, ``app/services/freshservice_sync.py`` and in
+    # docs, or ``scripts/deaddocs_check.py`` reads it as a retired connector.
     jira = "jira"
+    freshservice = "freshservice"
 
 
 class WorkItem(Base):
