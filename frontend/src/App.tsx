@@ -9,7 +9,7 @@ import { SettingsDialog } from '@/components/settings-dialog'
 import { UnlockPanel } from '@/components/unlock-panel'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import { demoItems } from '@/lib/work-items'
+import { demoItems, itemSummary } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
 const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira', freshservice: 'Freshservice' }
@@ -150,7 +150,7 @@ export default function App() {
   }
 
   const visible = useMemo(
-    () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${i.summary ?? ''}`.toLowerCase().includes(query.toLowerCase())),
+    () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${itemSummary(i)}`.toLowerCase().includes(query.toLowerCase())),
     [items, filter, source, query],
   )
 

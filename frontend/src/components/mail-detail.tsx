@@ -3,7 +3,7 @@ import type { WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { jiraIssueKey, sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
+import { itemSummary, jiraIssueKey, sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
 export function MailDetail({ item, demo, onStatus, onHandoff, onDismiss }: {
   item: WorkItem
@@ -46,18 +46,20 @@ export function MailDetail({ item, demo, onStatus, onHandoff, onDismiss }: {
       <div className="flex flex-col gap-6 p-6">
         <div>
           <h2 className="font-serif text-2xl leading-tight tracking-tight">{item.title}</h2>
-          <p className="mt-2 leading-relaxed text-muted-foreground">{item.summary || 'No summary was added to this task.'}</p>
+          <p className="mt-2 leading-relaxed text-muted-foreground">{itemSummary(item) || 'No summary was added to this task.'}</p>
         </div>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Why this is here <span className="font-normal text-muted-foreground">Source evidence</span></h3>
           {item.evidence?.length
-            ? item.evidence.map((entry, index) => (
-              <blockquote key={index} className="rounded-r-md border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed">
-                {entry.excerpt}
-                <footer className="mt-2 text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</footer>
-              </blockquote>
-            ))
+            ? item.evidence.map((entry, index) => entry.excerpt
+              ? (
+                <blockquote key={index} className="rounded-r-md border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed">
+                  {entry.excerpt}
+                  <footer className="mt-2 text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</footer>
+                </blockquote>
+              )
+              : <p key={index} className="text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</p>)
             : <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">This task was added manually, so no message evidence is available.</p>}
         </section>
 
