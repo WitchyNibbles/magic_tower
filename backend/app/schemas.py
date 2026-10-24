@@ -73,11 +73,19 @@ class AnalysisRead(APIModel):
     stale: bool
 
     @classmethod
-    def from_row(cls, row: WorkItemAnalysis) -> "AnalysisRead":
+    def from_row(cls, row: WorkItemAnalysis, stale: bool | None = None) -> "AnalysisRead":
         """The stored analysis as the API shows it. SQLite hands ``analyzed_at`` back naive;
-        it was written as UTC, so say so."""
+        it was written as UTC, so say so.
+
+        ``stale`` is not stored: pass it, or load the row through a service that has marked it
+        (``grimoire_view.mark_stale_analyses``). A row with neither is refused rather than
+        reported fresh.
+        """
+        stale = row.stale if stale is None else stale
+        if stale is None:
+            raise RuntimeError(f"staleness of the analysis of work item {row.work_item_id} was never computed")
         return cls(summary=row.summary, details=AnalysisDetailsRead.model_validate_json(row.details),
-                   analyzed_at=as_utc(row.analyzed_at), analyzer=row.analyzer, stale=row.stale)
+                   analyzed_at=as_utc(row.analyzed_at), analyzer=row.analyzer, stale=stale)
 
 
 class WorkItemBase(APIModel):

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from uuid import UUID
+from datetime import datetime
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from app.config import get_settings
 from app.database import SessionLocal, engine
 from app.main import app
 from app.models import WorkItemAnalysis
+from app.schemas import AnalysisRead
 
 LOCAL = {"Authorization": "Bearer test-local-agent-token"}
 GRIMOIRE = {"Authorization": "Bearer g-token"}
@@ -151,3 +153,18 @@ def test_an_unreadable_stored_analysis_is_no_analysis_and_the_log_names_only_the
     assert listed.json()["items"][0]["analysis"] is None
     assert item_id in caplog.text
     assert unreadable_marker not in caplog.text
+
+
+def _bare_row() -> WorkItemAnalysis:
+    return WorkItemAnalysis(work_item_id=uuid4(), summary="s", details=json.dumps(DETAILS), source_fingerprint="0" * 64,
+                            analyzer="grimoire", analyzed_at=datetime(2026, 1, 2, 3, 4))
+
+
+def test_a_row_whose_staleness_was_never_computed_is_refused_not_reported_fresh():
+    with pytest.raises(RuntimeError, match="staleness"):
+        AnalysisRead.from_row(_bare_row())
+
+
+def test_staleness_can_be_given_with_the_row():
+    assert AnalysisRead.from_row(_bare_row(), stale=True).stale is True
+    assert AnalysisRead.from_row(_bare_row(), stale=False).stale is False

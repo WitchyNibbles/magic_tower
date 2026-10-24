@@ -44,7 +44,7 @@ def run_sync(db: Session = Depends(get_db)) -> dict[str, object]:
 def write_analysis(item_id: UUID, payload: AnalysisWrite, db: Session = Depends(get_db)):
     """Store an analysis of the text grimoire read; 409 if that text has changed since."""
     analysis = save_analysis(db, get_open_item(db, item_id), payload)
-    return AnalysisRead.from_row(analysis)
+    return AnalysisRead.from_row(analysis, stale=False)  # just checked against the current text
 
 
 @router.put("/projects", response_model=ProjectSnapshotWritten)

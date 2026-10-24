@@ -200,9 +200,10 @@ class WorkItemAnalysis(Base):
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
     analyzer: Mapped[str] = mapped_column(String(40))
 
-    # Not a column. Set by the services that load an item for the signed-in user
-    # (``grimoire_view.mark_stale_analyses``) so the read schema can report it.
-    stale = False
+    # Not a column. Set on the instance by the services that load an item for the signed-in
+    # user (``grimoire_view.mark_stale_analyses``) so the read schema can report it. ``None``
+    # means "not computed", which ``AnalysisRead.from_row`` refuses.
+    stale = None
 
     work_item: Mapped[WorkItem] = relationship(back_populates="analysis")
 
