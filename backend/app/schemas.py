@@ -1,10 +1,10 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from .models import DispatchStatus, SourceKind, WorkPriority, WorkStatus
+from .models import DispatchStatus, SourceKind, WorkItemAnalysis, WorkPriority, WorkStatus
 
 
 class APIModel(BaseModel):
@@ -23,6 +23,49 @@ class EvidenceRead(EvidenceInput):
     id: UUID
     work_item_id: UUID
     observed_at: datetime
+
+
+ANALYSIS_SUMMARY_LIMIT = 600
+ANALYSIS_DETAILS_LIMIT = 8000
+
+
+class AnalysisDetails(APIModel):
+    """What is needed to work on an item, in the fields the UI lays out. Only ``asked`` is required."""
+    asked: str
+    systems: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list)
+    known: str = ""
+    next_step: str = ""
+    open_questions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fits_the_stored_size(self) -> "AnalysisDetails":
+        if len(self.model_dump_json()) > ANALYSIS_DETAILS_LIMIT:
+            raise ValueError(f"details must serialize to at most {ANALYSIS_DETAILS_LIMIT} characters")
+        return self
+
+
+class AnalysisWrite(APIModel):
+    summary: str = Field(min_length=1, max_length=ANALYSIS_SUMMARY_LIMIT)
+    details: AnalysisDetails
+    source_fingerprint: str = Field(min_length=1, max_length=64)
+    # Single-line on purpose: it is written to the log.
+    analyzer: str = Field(default="grimoire", min_length=1, max_length=40, pattern=r"^[\w .:/@-]+$")
+
+
+class AnalysisRead(APIModel):
+    summary: str
+    details: AnalysisDetails
+    analyzed_at: datetime
+    analyzer: str
+    stale: bool
+
+    @classmethod
+    def from_row(cls, row: WorkItemAnalysis) -> "AnalysisRead":
+        """The stored analysis as the API shows it. SQLite hands ``analyzed_at`` back naive;
+        it was written as UTC, so say so."""
+        analyzed_at = row.analyzed_at if row.analyzed_at.tzinfo else row.analyzed_at.replace(tzinfo=UTC)
+        return cls(summary=row.summary, details=AnalysisDetails.model_validate_json(row.details),
+                   analyzed_at=analyzed_at, analyzer=row.analyzer, stale=row.stale)
 
 
 class WorkItemBase(APIModel):
@@ -57,6 +100,12 @@ class WorkItemRead(WorkItemBase):
     created_at: datetime
     updated_at: datetime
     evidence: list[EvidenceRead] = Field(default_factory=list)
+    analysis: AnalysisRead | None = None
+
+    @field_validator("analysis", mode="before")
+    @classmethod
+    def analysis_from_row(cls, value: object) -> object:
+        return AnalysisRead.from_row(value) if isinstance(value, WorkItemAnalysis) else value
 
 
 class SourceBase(APIModel):
@@ -147,41 +196,6 @@ class AgentProposalRead(APIModel):
     client: str
     confidence: float
     work_item: WorkItemRead
-
-
-ANALYSIS_SUMMARY_LIMIT = 600
-ANALYSIS_DETAILS_LIMIT = 8000
-
-
-class AnalysisDetails(APIModel):
-    """What is needed to work on an item, in the fields the UI lays out. Only ``asked`` is required."""
-    asked: str
-    systems: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list)
-    known: str = ""
-    next_step: str = ""
-    open_questions: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def fits_the_stored_size(self) -> "AnalysisDetails":
-        if len(self.model_dump_json()) > ANALYSIS_DETAILS_LIMIT:
-            raise ValueError(f"details must serialize to at most {ANALYSIS_DETAILS_LIMIT} characters")
-        return self
-
-
-class AnalysisWrite(APIModel):
-    summary: str = Field(min_length=1, max_length=ANALYSIS_SUMMARY_LIMIT)
-    details: AnalysisDetails
-    source_fingerprint: str = Field(min_length=1, max_length=64)
-    # Single-line on purpose: it is written to the log.
-    analyzer: str = Field(default="grimoire", min_length=1, max_length=40, pattern=r"^[\w .:/@-]+$")
-
-
-class AnalysisRead(APIModel):
-    summary: str
-    details: AnalysisDetails
-    analyzed_at: datetime
-    analyzer: str
-    stale: bool
 
 
 class GrimoireItemRef(APIModel):

@@ -9,8 +9,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..schemas import AnalysisRead, AnalysisWrite, GrimoireContext, GrimoireItemPage
 from ..security import require_grimoire_token
-from ..services.grimoire_view import (analysis_read, context_fields, fingerprint, get_open_item, items_needing_analysis,
-                                      save_analysis)
+from ..services.grimoire_view import context_fields, fingerprint, get_open_item, items_needing_analysis, save_analysis
 from ..services.sync_all import sync_ready_sources
 from ..services.work_items import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 
@@ -45,4 +44,4 @@ def run_sync(db: Session = Depends(get_db)) -> dict[str, object]:
 def write_analysis(item_id: UUID, payload: AnalysisWrite, db: Session = Depends(get_db)):
     """Store an analysis of the text grimoire read; 409 if that text has changed since."""
     analysis = save_analysis(db, get_open_item(db, item_id), payload)
-    return analysis_read(analysis, stale=False)
+    return AnalysisRead.from_row(analysis)

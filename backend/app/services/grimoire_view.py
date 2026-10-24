@@ -23,8 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import Source, WorkEvidence, WorkItem, WorkItemAnalysis, WorkStatus
-from ..schemas import AnalysisDetails, AnalysisRead, AnalysisWrite, GrimoireItemRef
-from .work_items import conflict, not_found
+from ..schemas import AnalysisWrite, GrimoireItemRef
+from .http_errors import conflict, not_found
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +82,12 @@ def staleness(db: Session, items: Sequence[WorkItem]) -> dict[UUID, bool]:
             for item in analysed}
 
 
-def analysis_read(analysis: WorkItemAnalysis, *, stale: bool) -> AnalysisRead:
-    return AnalysisRead(summary=analysis.summary, details=AnalysisDetails.model_validate_json(analysis.details),
-                        analyzed_at=as_utc(analysis.analyzed_at), analyzer=analysis.analyzer, stale=stale)
+def mark_stale_analyses(db: Session, items: Sequence[WorkItem]) -> None:
+    """Record on each loaded analysis whether its item's text has changed since (see ``staleness``)."""
+    flags = staleness(db, items)
+    for item in items:
+        if item.analysis is not None:
+            item.analysis.stale = flags[item.id]
 
 
 def _assign(analysis: WorkItemAnalysis, values: dict[str, Any]) -> None:
