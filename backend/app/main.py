@@ -9,7 +9,7 @@ from sqlalchemy.exc import StatementError
 from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
-from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
+from .services import freshservice_sync, jira_sync
 from .services.scheduler import SyncScheduler, run_scheduled_sync
 from .api.routes import router
 from .api.auth import router as auth_router
@@ -18,6 +18,12 @@ from .api.session import router as session_router
 
 
 APP_LOGGER_NAME = "app"
+# Importing a connector's sync module is what registers its handler
+# (``register_sync_handler``), and nothing else in the app calls into them. Naming
+# the modules here keeps those imports from reading as unused, and
+# ``tests/test_jira_sync.py`` / ``tests/test_freshservice_sync.py`` pin that this
+# file alone is enough to register each kind.
+SYNC_CONNECTOR_MODULES = (jira_sync, freshservice_sync)
 
 
 def _configure_app_logging() -> None:
