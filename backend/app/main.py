@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import StatementError
@@ -6,12 +9,33 @@ from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
 from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
+from .services.scheduler import SyncScheduler, run_scheduled_sync
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
 
-app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Run the sync scheduler for as long as the app is up.
+
+    Off when ``SYNC_INTERVAL_MINUTES`` is 0. The scheduler is stopped in a
+    ``finally`` so a failing app still shuts its thread down.
+    """
+    interval_minutes = get_settings().sync_interval_minutes
+    scheduler = SyncScheduler(interval_minutes * 60, run_scheduled_sync) if interval_minutes > 0 else None
+    if scheduler:
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler:
+            scheduler.stop()
+
+
+app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 
 @app.middleware("http")
