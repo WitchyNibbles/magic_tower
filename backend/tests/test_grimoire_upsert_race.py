@@ -23,7 +23,7 @@ def db():
         yield session
 
 
-def _blind_to(db: Session, model: type, *, times: int) -> None:
+def _blind_to(monkeypatch, db: Session, model: type, *, times: int) -> None:
     """Make the next ``times`` lookups of ``model`` by key answer None, as a stale read would."""
     real_get, remaining = db.get, [times]
 
@@ -33,7 +33,7 @@ def _blind_to(db: Session, model: type, *, times: int) -> None:
             return None
         return real_get(entity, ident, *args, **kwargs)
 
-    db.get = get  # type: ignore[method-assign]
+    monkeypatch.setattr(db, "get", get)
 
 
 def _item(db: Session) -> WorkItem:
@@ -55,11 +55,11 @@ def _write(db: Session, item: WorkItem) -> AnalysisWrite:
                          source_fingerprint=fingerprint(context_fields(db, item)))
 
 
-def test_losing_the_analysis_insert_race_updates_the_winners_row(db):
+def test_losing_the_analysis_insert_race_updates_the_winners_row(db, monkeypatch):
     item = _item(db)
     data = _write(db, item)
     _winning_analysis(item)
-    _blind_to(db, WorkItemAnalysis, times=1)
+    _blind_to(monkeypatch, db, WorkItemAnalysis, times=1)
 
     saved = save_analysis(db, item, data)
 
@@ -68,11 +68,11 @@ def test_losing_the_analysis_insert_race_updates_the_winners_row(db):
     assert db.get(WorkItemAnalysis, item.id).analyzer == "grimoire"
 
 
-def test_a_vanished_winner_row_is_not_found_not_a_server_error_for_the_analysis(db):
+def test_a_vanished_winner_row_is_not_found_not_a_server_error_for_the_analysis(db, monkeypatch):
     item = _item(db)
     data = _write(db, item)
     _winning_analysis(item)
-    _blind_to(db, WorkItemAnalysis, times=2)
+    _blind_to(monkeypatch, db, WorkItemAnalysis, times=2)
 
     with pytest.raises(HTTPException) as refused:
         save_analysis(db, item, data)
@@ -92,9 +92,9 @@ def _snapshot() -> ProjectSnapshot:
                                       "open_questions": 0, "pending_prod_steps": []}])
 
 
-def test_losing_the_snapshot_insert_race_updates_the_winners_row(db):
+def test_losing_the_snapshot_insert_race_updates_the_winners_row(db, monkeypatch):
     _winning_snapshot()
-    _blind_to(db, GrimoireProjectSnapshot, times=1)
+    _blind_to(monkeypatch, db, GrimoireProjectSnapshot, times=1)
 
     written = save_project_snapshot(db, _snapshot())
 
@@ -103,9 +103,9 @@ def test_losing_the_snapshot_insert_race_updates_the_winners_row(db):
     assert "PRJ-A" in db.get(GrimoireProjectSnapshot, 1).snapshot
 
 
-def test_a_vanished_winner_row_is_not_found_not_a_server_error_for_the_snapshot(db):
+def test_a_vanished_winner_row_is_not_found_not_a_server_error_for_the_snapshot(db, monkeypatch):
     _winning_snapshot()
-    _blind_to(db, GrimoireProjectSnapshot, times=2)
+    _blind_to(monkeypatch, db, GrimoireProjectSnapshot, times=2)
 
     with pytest.raises(HTTPException) as refused:
         save_project_snapshot(db, _snapshot())
