@@ -7,11 +7,13 @@ later that wrongly accepts the grimoire token fails here without anyone remember
 from uuid import uuid4
 
 import pytest
+from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+from app.security import require_grimoire_token
 
 GRIMOIRE_TOKEN = "g-token"
 LOCAL_TOKEN = "l-token"
@@ -105,3 +107,38 @@ def test_a_grimoire_token_equal_to_the_local_one_is_a_configuration_error(monkey
     detail = response.json()["detail"]
     assert detail == "GRIMOIRE_API_TOKEN must differ from LOCAL_API_TOKEN"
     assert shared not in response.text
+
+
+def _grimoire_routes() -> list[tuple[str, APIRoute]]:
+    return sorted(((method, route) for route in app.routes
+                   if isinstance(route, APIRoute) and route.path.startswith(GRIMOIRE_PREFIX) for method in route.methods),
+                  key=lambda pair: (pair[1].path, pair[0]))
+
+
+def _nested(dependant: Dependant) -> list[Dependant]:
+    return [inner for sub in dependant.dependencies for inner in (sub, *_nested(sub))]
+
+
+def _guards(dependant: Dependant) -> set:
+    return {dependency.call for dependency in _nested(dependant)}
+
+
+def test_every_grimoire_route_is_guarded_by_the_grimoire_token_dependency():
+    routes = _grimoire_routes()
+    assert {(method, route.path) for method, route in routes} >= {
+        ("GET", f"{GRIMOIRE_PREFIX}/items"), ("PUT", f"{GRIMOIRE_PREFIX}/projects"),
+        ("PUT", f"{GRIMOIRE_PREFIX}/items/{{item_id}}/analysis"), ("POST", f"{GRIMOIRE_PREFIX}/sync")}
+    for method, route in routes:
+        assert require_grimoire_token in _guards(route.dependant), f"{method} {route.path} is not guarded by require_grimoire_token"
+
+
+@pytest.mark.usefixtures("tokens")
+def test_every_grimoire_route_refuses_no_credentials_the_local_token_and_a_browser_session():
+    routes = _grimoire_routes()
+    with TestClient(app) as client:
+        for method, route in routes:
+            assert _call(client, method, route.path, {}).status_code == 401, f"{method} {route.path} without credentials"
+            assert _call(client, method, route.path, bearer(LOCAL_TOKEN)).status_code == 401, f"{method} {route.path} with the local token"
+        assert client.post("/api/session", headers=bearer(LOCAL_TOKEN)).status_code == 201
+        for method, route in routes:
+            assert _call(client, method, route.path, {}).status_code == 401, f"{method} {route.path} with a browser session"
