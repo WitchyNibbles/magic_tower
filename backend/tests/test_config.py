@@ -76,3 +76,19 @@ def test_blank_graph_settings_are_reported_as_missing() -> None:
         "MICROSOFT_TARGET_USER_ID",
         "APP_ENCRYPTION_KEY",
     }
+
+
+def test_jira_sync_lookback_defaults_to_two_weeks() -> None:
+    assert Settings().jira_sync_lookback_days == 14
+
+
+def test_jira_sync_lookback_is_read_from_its_environment_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JIRA_SYNC_LOOKBACK_DAYS", "30")
+
+    assert Settings().jira_sync_lookback_days == 30
+
+
+@pytest.mark.parametrize("bad_value", [0, -3])
+def test_jira_sync_lookback_below_one_day_is_refused(bad_value: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(jira_sync_lookback_days=bad_value)
