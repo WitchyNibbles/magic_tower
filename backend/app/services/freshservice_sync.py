@@ -11,7 +11,7 @@ which of them belong in the actionable queue. Every ticket the search returns is
 stored and browsable; only the owner's unresolved ones are promoted, which
 ``promotion.should_promote`` decides through its Freshservice rule (rule B).
 
-**Who the owner is.** An agent id, resolved once per sync (:func:`_owner_agent`):
+**Who the owner is.** An agent id, resolved once per sync (:func:`owner_agent`):
 the agent with ``FRESHSERVICE_AGENT_EMAIL`` when that is set, otherwise the agent
 the API key belongs to (``/agents/me``). Unlike Jira, whose search says
 ``currentUser()`` and whose owner lookup can fail after the issues are fetched,
@@ -107,7 +107,7 @@ def _normalize_ticket(ticket: dict[str, Any], base_url: str) -> dict[str, Any]:
     }
 
 
-def _owner_agent(client: FreshserviceClient, settings: Settings) -> FreshserviceAgent:
+def owner_agent(client: FreshserviceClient, settings: Settings) -> FreshserviceAgent:
     """The agent whose tickets these are, or a ``SyncError`` saying the lookup failed.
 
     A ``FreshserviceError`` carries a message written to be shown (no URL, header, key
@@ -172,7 +172,7 @@ def _sync_freshservice(settings: Settings, db: Session | None = None, limit: int
     since = since_date(previous, started, settings.freshservice_sync_lookback_days)
     try:
         freshservice = freshservice_client or FreshserviceClient.from_settings(settings)
-        owner = _owner_agent(freshservice, settings)
+        owner = owner_agent(freshservice, settings)
         signals, truncated = _fetch_ticket_signals(freshservice, owner, since)
     except FreshserviceError as error:
         raise SyncError(str(error)) from error
