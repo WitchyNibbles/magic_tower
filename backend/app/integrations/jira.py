@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
@@ -28,6 +29,8 @@ from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
     from ..config import Settings
+
+logger = logging.getLogger(__name__)
 
 JIRA_API_ROOT = "/rest/api/3"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
@@ -77,6 +80,16 @@ JIRA_SEARCH_PAGE_SIZE = 100
 # token (buggy, or worse) from paging forever; 20 pages of 100 issues each is
 # far beyond what one account's participation window will ever hold.
 JIRA_SEARCH_MAX_PAGES = 20
+
+
+class SearchResult(list[dict[str, Any]]):
+    """The issues a search returned, plus whether the page cap cut it short.
+
+    A ``list`` so every caller that only iterates keeps working; ``truncated`` is
+    true when the last page allowed still offered a ``nextPageToken``.
+    """
+
+    truncated: bool = False
 
 
 class JiraError(RuntimeError):
@@ -159,7 +172,7 @@ class JiraClient:
     def myself(self) -> dict[str, Any]:
         return self._get(f"{JIRA_API_ROOT}/myself")
 
-    def _search(self, jql: str) -> list[dict[str, Any]]:
+    def _search(self, jql: str, query_kind: str) -> SearchResult:
         """Fetch up to ``JIRA_SEARCH_MAX_PAGES`` pages of ``jql`` via
         ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
         (CHANGE-2046) and stays removed. Requests ``JIRA_SEARCH_FIELDS`` explicitly, since this
@@ -172,8 +185,11 @@ class JiraClient:
         :meth:`search_project_issues` (T09) -- the two differ only in which JQL
         they hand this method, and every pagination rule ``test_jira_query.py``
         pins applies identically to both.
+
+        Stopping at the cap with a ``nextPageToken`` still on offer is truncation: the
+        result says so (``truncated``) and a WARNING names ``query_kind``, never the JQL.
         """
-        issues: list[dict[str, Any]] = []
+        issues = SearchResult()
         next_page_token: str | None = None
         for _ in range(JIRA_SEARCH_MAX_PAGES):
             params: dict[str, str] = {
@@ -192,23 +208,27 @@ class JiraClient:
             next_page_token = response.get("nextPageToken")
             if not next_page_token:
                 break
+        else:
+            issues.truncated = True
+            logger.warning("Jira %s search stopped after %s pages; older issues were not fetched", query_kind, JIRA_SEARCH_MAX_PAGES)
         return issues
 
-    def search_participation_issues(self, window_minutes: int) -> list[dict[str, Any]]:
+    def search_participation_issues(self, window_minutes: int) -> SearchResult:
         """Every issue in the caller's participation window over the last
         ``window_minutes`` minutes (:func:`participation_jql`); see :meth:`_search`."""
-        return self._search(participation_jql(window_minutes))
+        return self._search(participation_jql(window_minutes), "participation")
 
-    def search_project_issues(self, project_key: str) -> list[dict[str, Any]]:
+    def search_project_issues(self, project_key: str) -> SearchResult:
         """The most recently updated issues in one named project (T09, AC10) --
         the management visibility sync, unbounded by participation.
 
-        **Capped, and the truncation is silent.** The clause orders by ``updated
+        **Capped.** The clause orders by ``updated
         DESC`` and :meth:`_search` follows at most ``JIRA_SEARCH_MAX_PAGES`` pages
         of ``JIRA_SEARCH_PAGE_SIZE``, so this returns at most the 2000 most
         recently updated issues in the project; anything past that is dropped with
-        no error and no marker on the result. Measured against a stub that always
-        returns a ``nextPageToken``: 2000 issues, 20 pages, no raise. The cap's
+        no error. The result's ``truncated`` flag and a WARNING say so. Measured
+        against a stub that always returns a ``nextPageToken``: 2000 issues, 20
+        pages, no raise. The cap's
         justification where it is defined is about one account's participation
         window, and that reasoning does not carry here -- a
         management project holding more than 2000 issues is ordinary, so this
@@ -231,7 +251,7 @@ class JiraClient:
         keys that carry a backslash and a quote.
         """
         escaped_key = project_key.replace("\\", "\\\\").replace('"', '\\"')
-        return self._search(f'project = "{escaped_key}" ORDER BY updated DESC')
+        return self._search(f'project = "{escaped_key}" ORDER BY updated DESC', "project")
 
 
 def extract_adf_plain_text(document: dict[str, Any] | None) -> str | None:

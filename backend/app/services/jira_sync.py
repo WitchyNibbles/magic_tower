@@ -20,10 +20,11 @@ here from ``Settings.jira_management_project_key``, never a new column on
 one project a sync also fetches from, through
 ``JiraClient.search_project_issues``, alongside the participation window. That
 fetch is not the whole project: it is capped at the 2000 most recently updated
-issues and truncates silently past that, for the reasons its own docstring
-records. Every issue it does return is stored and browsable the same way, and
-never promoted on that ground alone: the assignee rule above is the only thing
-that decides a Jira signal either way, so an issue assigned to the owner still
+issues. Past that it stops, logs a WARNING, and the sync envelope reports
+``truncated`` (also set when the participation search hit its cap). Every
+issue it does return is stored and browsable the same way, and never promoted
+on that ground alone: the assignee rule above is the only thing that decides a
+Jira signal either way, so an issue assigned to the owner still
 promotes once even when the project fetch is the only query that found it. The
 setting is optional; when it is unset, this call is skipped and nothing about
 the participation-only sync changes.
@@ -152,8 +153,10 @@ def _owner_account_id(client: JiraClient) -> str | None:
         return None
 
 
-def _fetch_issue_signals(client: JiraClient, window_minutes: int, project_key: str | None = None) -> list[dict[str, Any]]:
-    """Every participation issue in the last ``window_minutes`` minutes, plus the capped project fetch
+def _fetch_issue_signals(client: JiraClient, window_minutes: int, project_key: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+    """The signals, and whether either search hit its page cap.
+
+    Every participation issue in the last ``window_minutes`` minutes, plus the capped project fetch
     (:meth:`JiraClient.search_project_issues`, at most the 2000 most recently
     updated issues) when ``project_key`` is configured (T09, AC10), normalized
     and de-duplicated by ``external_id`` --
@@ -179,14 +182,18 @@ def _fetch_issue_signals(client: JiraClient, window_minutes: int, project_key: s
     Dedup is what keeps it to one promotion; the assignee is what makes it a
     promotion at all (``backend/tests/test_jira_project_visibility.py``).
     """
-    issues = list(client.search_participation_issues(window_minutes))
+    participation = client.search_participation_issues(window_minutes)
+    issues = list(participation)
+    truncated = participation.truncated
     if project_key:
-        issues.extend(client.search_project_issues(project_key))
+        project = client.search_project_issues(project_key)
+        issues.extend(project)
+        truncated = truncated or project.truncated
     rows = [_normalize_issue(issue, client.base_url) for issue in issues]
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:
         deduped.setdefault(row["external_id"], row)
-    return list(deduped.values())
+    return list(deduped.values()), truncated
 
 
 def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, client: Any = None,
@@ -213,7 +220,7 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     window_minutes = participation_window_minutes(previous, started, settings.jira_sync_lookback_days)
     try:
         jira = jira_client or JiraClient.from_settings(settings)
-        signals = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
+        signals, truncated = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
     except JiraError as error:
         # ``JiraError`` messages are written to be shown (no URL, header or token), so
         # the owner gets the reason; as a ``SyncError`` it is a known failure, not a bug.
@@ -229,7 +236,7 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
         # is not covered either: the cursor stays and the next sync re-fetches it.
         record_success(db, JIRA_SOURCE_KIND, started)
     return {"mode": "read-only", "synced_at": _utc_now().isoformat(), "count": len(signals),
-            "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes}
+            "new_sources": created, "new_work_items": promoted, "window_minutes": window_minutes, "truncated": truncated}
 
 
 register_sync_handler(JIRA_SOURCE_KIND, _sync_jira, ready=lambda settings: not settings.jira_configuration_errors())

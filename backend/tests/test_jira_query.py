@@ -12,6 +12,7 @@ transport from ``app/integrations/jira.py`` (mirrors ``app/integrations/graph.py
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -181,6 +182,46 @@ def test_jira_query_pagination_is_bounded_against_an_endless_next_page_token() -
     _client(transport).search_participation_issues(15)
 
     assert call_count == JIRA_SEARCH_MAX_PAGES
+
+
+def _endless_pages(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+    return {"issues": [{"id": "1"}], "nextPageToken": "always-more"}
+
+
+def test_jira_query_a_search_cut_off_by_the_page_cap_warns_naming_the_participation_query(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger=jira_module.logger.name):
+        issues = _client(_endless_pages).search_participation_issues(15)
+
+    assert issues.truncated
+    (record,) = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "participation" in record.getMessage()
+    assert "updated >=" not in record.getMessage()
+
+
+def test_jira_query_a_project_search_cut_off_by_the_page_cap_warns_naming_the_project_query(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger=jira_module.logger.name):
+        issues = _client(_endless_pages).search_project_issues("OPS")
+
+    assert issues.truncated
+    (record,) = caplog.records
+    assert "project" in record.getMessage()
+
+
+def test_jira_query_a_search_that_ends_on_the_last_allowed_page_is_not_truncated(caplog: pytest.LogCaptureFixture) -> None:
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        page = int(parse_qs(urlparse(url).query).get("nextPageToken", ["1"])[0])
+        body: dict[str, Any] = {"issues": [{"id": str(page)}]}
+        if page < JIRA_SEARCH_MAX_PAGES:
+            body["nextPageToken"] = str(page + 1)
+        return body
+
+    with caplog.at_level(logging.WARNING, logger=jira_module.logger.name):
+        issues = _client(transport).search_participation_issues(15)
+
+    assert len(issues) == JIRA_SEARCH_MAX_PAGES
+    assert not issues.truncated
+    assert not caplog.records
 
 
 def test_jira_query_search_never_reaches_the_network(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -484,3 +484,35 @@ def test_sync_all_reports_a_jira_search_failure_as_jiras_message_without_logging
 
     assert results["jira"] == {"error": jira_search_down}
     assert not [record for record in caplog.records if record.exc_info]
+
+
+def _always_another_page(include_project: bool, include_participation: bool = True):
+    """A transport whose project and/or participation search never runs out of pages."""
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        if url.endswith("/myself"):
+            return {"accountId": OWNER_ACCOUNT_ID}
+        is_project = parse_qs(urlparse(url).query)["jql"][0].startswith("project =")
+        if (is_project and include_project) or (not is_project and include_participation):
+            return {"issues": [], "nextPageToken": "more"}
+        return {"issues": []}
+
+    return JiraClient.from_settings(_configured_settings(), transport=transport)
+
+
+@pytest.mark.parametrize(
+    ("project_key", "client", "truncated"),
+    [
+        (None, _always_another_page(include_project=False), True),
+        ("OPS", _always_another_page(include_project=True, include_participation=False), True),
+        ("OPS", _always_another_page(include_project=False, include_participation=False), False),
+    ],
+    ids=["participation-cut-off", "project-cut-off", "neither-cut-off"],
+)
+def test_jira_sync_envelope_says_whether_either_search_was_cut_off(project_key: str | None, client: JiraClient, truncated: bool) -> None:
+    settings = _configured_settings(**({"jira_management_project_key": project_key} if project_key else {}))
+
+    with Session(engine) as session:
+        result = _sync_jira(settings, db=session, jira_client=client)
+
+    assert result["truncated"] is truncated
