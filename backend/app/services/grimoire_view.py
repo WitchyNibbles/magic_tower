@@ -15,7 +15,7 @@ import json
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
@@ -27,6 +27,8 @@ from ..schemas import AnalysisWrite, GrimoireItemRef, ProjectSnapshot, ProjectSn
 from .http_errors import conflict, not_found
 
 logger = logging.getLogger(__name__)
+
+_Row = TypeVar("_Row", WorkItemAnalysis, GrimoireProjectSnapshot)
 
 
 def as_utc(moment: datetime) -> datetime:
@@ -90,9 +92,35 @@ def mark_stale_analyses(db: Session, items: Sequence[WorkItem]) -> None:
             item.analysis.stale = flags[item.id]
 
 
-def _assign(analysis: WorkItemAnalysis, values: dict[str, Any]) -> None:
+def _assign(row: object, values: dict[str, Any]) -> None:
     for key, value in values.items():
-        setattr(analysis, key, value)
+        setattr(row, key, value)
+
+
+def _upsert(db: Session, model: type[_Row], key: object, key_columns: dict[str, object], values: dict[str, Any],
+            *, missing: str) -> _Row:
+    """Insert the row at ``key`` or update it, and commit. A row is one per key.
+
+    Two writers can both find no row and both insert; the one that loses gets an
+    ``IntegrityError`` and updates the winner's row instead. If that row is gone by
+    then it was deleted in between, which is a 404 for ``missing``, not a crash.
+    """
+    row = db.get(model, key)
+    if row is None:
+        row = model(**key_columns, **values)
+        db.add(row)
+    else:
+        _assign(row, values)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = db.get(model, key)
+        if row is None:
+            raise not_found(missing) from None
+        _assign(row, values)
+        db.commit()
+    return row
 
 
 def save_analysis(db: Session, item: WorkItem, data: AnalysisWrite) -> WorkItemAnalysis:
@@ -108,21 +136,7 @@ def save_analysis(db: Session, item: WorkItem, data: AnalysisWrite) -> WorkItemA
         raise conflict("source changed since it was read")
     values = {"summary": data.summary, "details": data.details.model_dump_json(),
               "source_fingerprint": data.source_fingerprint, "analyzer": data.analyzer, "analyzed_at": datetime.now(UTC)}
-    analysis = db.get(WorkItemAnalysis, item.id)
-    if analysis is None:
-        analysis = WorkItemAnalysis(work_item_id=item.id, **values)
-        db.add(analysis)
-    else:
-        _assign(analysis, values)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        analysis = db.get(WorkItemAnalysis, item.id)
-        if analysis is None:
-            raise not_found("Work item")
-        _assign(analysis, values)
-        db.commit()
+    analysis = _upsert(db, WorkItemAnalysis, item.id, {"work_item_id": item.id}, values, missing="Work item")
     logger.info("grimoire analysis written for work item %s by %s", item.id, data.analyzer)
     return analysis
 
@@ -165,21 +179,7 @@ def save_project_snapshot(db: Session, data: ProjectSnapshot) -> ProjectSnapshot
     the one that loses the insert updates the winner's row instead.
     """
     values = {"snapshot": data.model_dump_json(), "updated_at": datetime.now(UTC)}
-    row = db.get(GrimoireProjectSnapshot, 1)
-    if row is None:
-        row = GrimoireProjectSnapshot(id=1, **values)
-        db.add(row)
-    else:
-        _assign(row, values)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        row = db.get(GrimoireProjectSnapshot, 1)
-        if row is None:
-            raise not_found("Project snapshot")
-        _assign(row, values)
-        db.commit()
+    row = _upsert(db, GrimoireProjectSnapshot, 1, {"id": 1}, values, missing="Project snapshot")
     logger.info("grimoire project snapshot written: %d projects", len(data.projects))
     return ProjectSnapshotWritten(updated_at=as_utc(row.updated_at))
 
