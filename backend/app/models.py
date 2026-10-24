@@ -222,9 +222,11 @@ class SyncCursor(Base):
     """When a source kind last synced successfully, so the next sync can ask its
     upstream only for what changed since.
 
-    One row per kind (``"jira"``, ``"graph"``). ``last_success_at`` is the moment
-    that sync *started*, not when it finished: anything updated while it ran then
-    falls inside the next window instead of in a gap between two.
+    One row per kind that keeps a cursor; today only ``"jira"`` does. Graph syncs
+    without one (it reads the latest inbox messages up to a limit), so it has no row.
+    ``last_success_at`` is the moment that sync *started*, not when it finished:
+    anything updated while it ran then falls inside the next window instead of in
+    a gap between two.
     """
 
     __tablename__ = "sync_cursors"
