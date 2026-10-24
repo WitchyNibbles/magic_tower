@@ -28,6 +28,8 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from ..config import FRESHSERVICE_FIELD_NAME_PATTERN, FRESHSERVICE_FIELD_VALUE_FORBIDDEN_CHARS
+
 if TYPE_CHECKING:
     from ..config import Settings
 
@@ -46,6 +48,11 @@ FRESHSERVICE_FILTER_MAX_PAGES = 50
 # Freshservice ticket statuses 2 (Open) and 3 (Pending): the ones still owed work.
 _OPEN_STATUS = 2
 _PENDING_STATUS = 3
+# The most characters Freshservice accepts in one filter query.
+FRESHSERVICE_QUERY_MAX_LENGTH = 512
+
+# The optional custom-field filter: the field's internal name and the value it must hold.
+TicketFieldFilter = tuple[str, str]
 
 
 class SearchResult(list[dict[str, Any]]):
@@ -122,7 +129,25 @@ def is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def assigned_tickets_query(agent_id: int, since: date) -> str:
+def _field_clause(ticket_filter: object) -> str:
+    """`` AND <field>:'<value>'`` for a ``(field, value)`` pair, refusing anything that
+    could carry more query than that.
+
+    The pair is spliced into quoted query text whose escape rules are not known, so a
+    field that is not a plain internal name and a value with a quote or a backslash are
+    refused, not escaped. The messages never echo what was refused.
+    """
+    if not (isinstance(ticket_filter, tuple) and len(ticket_filter) == 2 and all(isinstance(part, str) for part in ticket_filter)):
+        raise ValueError("ticket_filter must be a (field, value) pair of strings")
+    field, value = ticket_filter
+    if not FRESHSERVICE_FIELD_NAME_PATTERN.fullmatch(field):
+        raise ValueError("ticket_filter field must be lowercase letters, digits and underscores")
+    if not value or any(char in value for char in FRESHSERVICE_FIELD_VALUE_FORBIDDEN_CHARS):
+        raise ValueError("ticket_filter value must be non-empty and contain no quotes or backslashes")
+    return f" AND {field}:'{value}'"
+
+
+def assigned_tickets_query(agent_id: int, since: date, ticket_filter: TicketFieldFilter | None = None) -> str:
     """The filter query for the owner's tickets: every Open or Pending ticket assigned
     to ``agent_id`` whatever its age, plus every assigned ticket (any status) updated
     after ``since``.
@@ -131,18 +156,43 @@ def assigned_tickets_query(agent_id: int, since: date) -> str:
     keeps an old, still-open ticket from falling out of the window. The filter's date
     comparison takes ``yyyy-mm-dd`` only, so ``since`` is a date, not a time.
 
-    Both values are spliced into the query text, so each is refused unless it is
-    exactly the type that cannot carry more query: an ``int`` for the id (not a
-    ``bool``) and a ``date`` for the cut-off.
+    A ``ticket_filter`` ``(field, value)`` adds ``AND <field>:'<value>'`` after the
+    agent clause, for a shared agent whose custom field says whose ticket it is.
+
+    Every value is spliced into the query text, so each is refused unless it is exactly
+    the type that cannot carry more query: an ``int`` for the id (not a ``bool``), a
+    ``date`` for the cut-off, a plain pair for the filter. A query over
+    ``FRESHSERVICE_QUERY_MAX_LENGTH`` characters is refused too, rather than sent for
+    Freshservice to reject; the message names the settings, never the value.
     """
     if not is_int(agent_id):
         raise ValueError(f"agent_id must be an int, got {agent_id!r}")
     if not isinstance(since, date):
         raise ValueError(f"since must be a date, got {since!r}")
-    return (
-        f"agent_id:{agent_id} AND "
+    field_clause = _field_clause(ticket_filter) if ticket_filter is not None else ""
+    query = (
+        f"agent_id:{agent_id}{field_clause} AND "
         f"(status:{_OPEN_STATUS} OR status:{_PENDING_STATUS} OR updated_at:>'{since:%Y-%m-%d}')"
     )
+    if len(query) > FRESHSERVICE_QUERY_MAX_LENGTH:
+        raise FreshserviceConfigurationError(
+            f"Freshservice ticket query is longer than {FRESHSERVICE_QUERY_MAX_LENGTH} characters: "
+            "shorten FRESHSERVICE_TICKET_FIELD_VALUE"
+        )
+    return query
+
+
+def ticket_matches_field(ticket: object, ticket_filter: TicketFieldFilter) -> bool:
+    """Whether a ticket's custom field holds the filter's value.
+
+    The client-side counterpart of the query's field clause, for a server that ignores
+    it. Exact, after stripping whitespace on both sides; a ticket with no
+    ``custom_fields``, a non-dict one, or a field that is not a string does not match.
+    """
+    field, value = ticket_filter
+    custom_fields = ticket.get("custom_fields") if isinstance(ticket, dict) else None
+    held = custom_fields.get(field) if isinstance(custom_fields, dict) else None
+    return isinstance(held, str) and held.strip() == value.strip()
 
 
 def _validated_base_url(url: str) -> str:
@@ -182,9 +232,9 @@ class FreshserviceClient:
     @classmethod
     def from_settings(cls, settings: "Settings", transport: Transport = default_transport) -> "FreshserviceClient":
         """The one construction path every caller goes through."""
-        errors = settings.freshservice_configuration_errors()
-        if errors:
-            raise FreshserviceConfigurationError(f"Freshservice is not configured: missing {', '.join(errors)}")
+        message = settings.freshservice_configuration_message()
+        if message:
+            raise FreshserviceConfigurationError(message)
         url = settings.freshservice_url
         api_key = settings.freshservice_api_key
         assert url is not None and api_key is not None
@@ -227,7 +277,7 @@ class FreshserviceClient:
                     return agent
         return None
 
-    def search_assigned_tickets(self, agent_id: int, since: date) -> SearchResult:
+    def search_assigned_tickets(self, agent_id: int, since: date, ticket_filter: TicketFieldFilter | None = None) -> SearchResult:
         """Up to ``FRESHSERVICE_FILTER_MAX_PAGES`` pages of :func:`assigned_tickets_query`.
 
         Stops at the first page that is short or empty, or once the collected count
@@ -236,9 +286,11 @@ class FreshserviceClient:
         WARNING names the query kind, never the query.
 
         The query is wrapped in double quotes, as the filter endpoint requires, and
-        percent-encoded (spaces as ``%20``, not ``+``).
+        percent-encoded (spaces as ``%20``, not ``+``). ``ticket_filter`` is passed
+        to :func:`assigned_tickets_query`; a query it makes too long fails before any
+        request is sent.
         """
-        query = f'"{assigned_tickets_query(agent_id, since)}"'
+        query = f'"{assigned_tickets_query(agent_id, since, ticket_filter)}"'
         tickets = SearchResult()
         for page in range(1, FRESHSERVICE_FILTER_MAX_PAGES + 1):
             params = urlencode({"query": query, "page": page}, quote_via=quote)

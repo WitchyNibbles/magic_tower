@@ -37,6 +37,7 @@ from app.integrations.freshservice import (
     FreshserviceRateLimitError,
     assigned_tickets_query,
     default_transport,
+    ticket_matches_field,
 )
 
 BASE = "https://example.freshservice.com"
@@ -133,6 +134,24 @@ def test_freshservice_client_from_settings_fails_closed_on_missing_configuration
 
     assert "FRESHSERVICE_URL" in str(error.value)
     assert "FRESHSERVICE_API_KEY" in str(error.value)
+
+
+def test_freshservice_client_from_settings_fails_closed_on_a_half_set_ticket_filter() -> None:
+    settings = Settings(freshservice_url=BASE, freshservice_api_key="a-real-key", freshservice_ticket_field="technician")
+
+    with pytest.raises(FreshserviceConfigurationError, match="^Freshservice is not configured: missing FRESHSERVICE_TICKET_FIELD_VALUE$"):
+        FreshserviceClient.from_settings(settings)
+
+
+def test_freshservice_client_from_settings_names_an_unusable_filter_value_without_echoing_it() -> None:
+    settings = Settings(freshservice_url=BASE, freshservice_api_key="a-real-key", freshservice_ticket_field="technician",
+                        freshservice_ticket_field_value="Jane's Team")
+
+    with pytest.raises(FreshserviceConfigurationError) as error:
+        FreshserviceClient.from_settings(settings)
+
+    assert "FRESHSERVICE_TICKET_FIELD_VALUE" in str(error.value)
+    assert "Jane" not in str(error.value)
 
 
 # --- default transport ------------------------------------------------------------------
@@ -335,6 +354,114 @@ def test_freshservice_query_refuses_an_agent_id_that_is_not_an_int(agent_id: Any
 def test_freshservice_query_refuses_a_since_that_is_not_a_date(since: Any) -> None:
     with pytest.raises(ValueError):
         assigned_tickets_query(42, since)
+
+
+# --- query builder: the custom-field filter ---------------------------------------------
+
+FILTER = ("technician", "Jane Example")
+
+
+def test_freshservice_query_with_a_field_filter_puts_the_field_clause_between_the_agent_and_the_status_group() -> None:
+    assert assigned_tickets_query(42, date(2026, 10, 9), FILTER) == (
+        "agent_id:42 AND technician:'Jane Example' AND (status:2 OR status:3 OR updated_at:>'2026-10-09')"
+    )
+
+
+def test_freshservice_query_without_a_field_filter_is_unchanged() -> None:
+    assert assigned_tickets_query(42, date(2026, 10, 9), None) == assigned_tickets_query(42, date(2026, 10, 9))
+
+
+@pytest.mark.parametrize(
+    "ticket_filter",
+    ["technician", ("technician",), ("technician", "Jane", "x"), ("technician", None), (None, "Jane"), (1, 2), ["technician", "Jane"]],
+)
+def test_freshservice_query_refuses_a_field_filter_that_is_not_a_pair_of_strings(ticket_filter: Any) -> None:
+    with pytest.raises(ValueError):
+        assigned_tickets_query(42, date(2026, 10, 9), ticket_filter)
+
+
+@pytest.mark.parametrize("field", ["", "Technician", "tech name", "technician:'x' OR agent_id", "technician'"])
+def test_freshservice_query_refuses_a_field_name_that_is_not_a_plain_internal_name(field: str) -> None:
+    with pytest.raises(ValueError) as error:
+        assigned_tickets_query(42, date(2026, 10, 9), (field, "Jane Example"))
+
+    assert field not in str(error.value) or field == ""
+
+
+@pytest.mark.parametrize("value", ["Jane' OR agent_id:1 OR technician:'x", 'Jane "x"', "Jane\\x", ""])
+def test_freshservice_query_refuses_a_field_value_that_would_break_out_of_its_quotes(value: str) -> None:
+    with pytest.raises(ValueError) as error:
+        assigned_tickets_query(42, date(2026, 10, 9), ("technician", value))
+
+    assert value not in str(error.value) or value == ""
+
+
+def test_freshservice_query_accepts_exactly_512_characters_and_refuses_one_more() -> None:
+    base_length = len(assigned_tickets_query(42, date(2026, 10, 9), ("technician", "x")))
+    exact = assigned_tickets_query(42, date(2026, 10, 9), ("technician", "x" * (512 - base_length + 1)))
+    assert len(exact) == 512
+
+    too_long_value = "SecretValue" + "x" * (512 - base_length)
+    with pytest.raises(FreshserviceConfigurationError) as error:
+        assigned_tickets_query(42, date(2026, 10, 9), ("technician", too_long_value))
+
+    assert "512" in str(error.value)
+    assert "FRESHSERVICE_TICKET_FIELD_VALUE" in str(error.value)
+    assert "SecretValue" not in str(error.value)
+
+
+def test_freshservice_search_sends_the_field_clause_in_the_query() -> None:
+    calls: list[str] = []
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        calls.append(url)
+        return {"tickets": [], "total": 0}
+
+    _client(transport).search_assigned_tickets(42, date(2026, 10, 9), FILTER)
+
+    assert parse_qs(urlparse(calls[0]).query)["query"] == [f'"{assigned_tickets_query(42, date(2026, 10, 9), FILTER)}"']
+
+
+def test_freshservice_search_with_a_too_long_filter_fails_before_any_request() -> None:
+    calls: list[str] = []
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        calls.append(url)
+        return {"tickets": []}
+
+    with pytest.raises(FreshserviceConfigurationError):
+        _client(transport).search_assigned_tickets(42, date(2026, 10, 9), ("technician", "x" * 600))
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("ticket", "expected"),
+    [
+        ({"custom_fields": {"technician": "Jane Example"}}, True),
+        ({"custom_fields": {"technician": "  Jane Example\n"}}, True),
+        ({"custom_fields": {"technician": "Jane Example", "other": "x"}}, True),
+        ({"custom_fields": {"technician": "jane example"}}, False),
+        ({"custom_fields": {"technician": "Jane Example II"}}, False),
+        ({"custom_fields": {"technician": None}}, False),
+        ({"custom_fields": {"technician": 7}}, False),
+        ({"custom_fields": {"technician": ["Jane Example"]}}, False),
+        ({"custom_fields": {"other": "Jane Example"}}, False),
+        ({"custom_fields": {}}, False),
+        ({"custom_fields": None}, False),
+        ({"custom_fields": "Jane Example"}, False),
+        ({"custom_fields": ["technician"]}, False),
+        ({}, False),
+        ("not a ticket", False),
+        (None, False),
+    ],
+)
+def test_freshservice_ticket_matches_field_compares_the_stripped_strings_exactly(ticket: Any, expected: bool) -> None:
+    assert ticket_matches_field(ticket, FILTER) is expected
+
+
+def test_freshservice_ticket_matches_field_strips_the_configured_value_too() -> None:
+    assert ticket_matches_field({"custom_fields": {"technician": "Jane Example"}}, ("technician", " Jane Example ")) is True
 
 
 # --- search request shape ---------------------------------------------------------------
