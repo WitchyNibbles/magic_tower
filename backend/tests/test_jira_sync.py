@@ -201,6 +201,59 @@ def test_jira_sync_returns_the_same_envelope_shape_every_registered_kind_returns
     assert result["count"] == 1
 
 
+def _adf(*paragraphs: str) -> dict[str, Any]:
+    return {"type": "doc", "version": 1, "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": text}]} for text in paragraphs]}
+
+
+def _issue_with_description(description: Any, issue_id: str = "10003") -> dict[str, Any]:
+    return {"id": issue_id, "key": f"OPS-{issue_id}",
+            "fields": {"summary": "Rotate the invented certificate", "updated": "2026-09-18T08:30:00.000+0000",
+                       "assignee": {"accountId": OWNER_ACCOUNT_ID}, "description": description}}
+
+
+def test_jira_sync_stores_the_issue_description_as_the_source_and_evidence_excerpt() -> None:
+    """A work item's only text is its source's own description, kept in the encrypted
+    excerpt columns: the queue shows it when the item has no summary."""
+    issue = _issue_with_description(_adf("Rotate the   certificate\non the demo host.", "Owner: nobody real."))
+
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=_client_with([issue]))
+
+        source = session.query(Source).filter_by(external_id="jira:10003").one()
+        item = session.query(WorkItem).filter_by(source_external_id="jira:10003").one()
+        evidence_excerpts = [evidence.excerpt for evidence in item.evidence]
+
+    assert source.excerpt == "Rotate the certificate on the demo host. Owner: nobody real."
+    assert evidence_excerpts == [source.excerpt]
+
+
+@pytest.mark.parametrize("description", [None, _adf(), _adf("   "), "plain string, not ADF"])
+def test_jira_sync_leaves_the_excerpt_empty_when_the_description_has_no_text(description: Any) -> None:
+    issue = _issue_with_description(description, issue_id="10004")
+
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=_client_with([issue]))
+        source = session.query(Source).filter_by(external_id="jira:10004").one()
+
+    assert source.excerpt is None
+
+
+def test_jira_sync_requests_the_description_field() -> None:
+    urls: list[str] = []
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        urls.append(url)
+        return {"accountId": OWNER_ACCOUNT_ID} if url.endswith("/myself") else {"issues": []}
+
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session,
+                   jira_client=JiraClient.from_settings(_configured_settings(), transport=transport))
+
+    search = next(url for url in urls if "/search/jql" in url)
+    assert "description" in parse_qs(urlparse(search).query)["fields"][0].split(",")
+
+
 def test_jira_sync_promotes_an_assigned_issue_via_the_shared_heuristic() -> None:
     """The handler reaches the queue through ``promote_signals``, not around it.
 

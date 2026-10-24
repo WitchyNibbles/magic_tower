@@ -72,7 +72,7 @@ def participation_jql(window_minutes: int) -> str:
 
 # ``GET /rest/api/3/search/jql`` defaults ``fields`` to ``id`` alone; everything
 # the queue needs to render a Jira issue must be named here explicitly.
-JIRA_SEARCH_FIELDS = ("summary", "status", "priority", "assignee", "reporter", "updated", "project")
+JIRA_SEARCH_FIELDS = ("summary", "description", "status", "priority", "assignee", "reporter", "updated", "project")
 
 JIRA_SEARCH_PAGE_SIZE = 100
 # Cap on how many ``nextPageToken`` pages a single call follows. This endpoint

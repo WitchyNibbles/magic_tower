@@ -34,6 +34,17 @@ def parse_observed_at(value: Any) -> datetime:
         return datetime.now(UTC)
 
 
+def single_line_excerpt(text: Any) -> str | None:
+    """A source's own description as one line of text for ``excerpt``, or ``None``.
+
+    Runs of whitespace (newlines included) collapse to one space. Anything that is
+    not a string, or has no words in it, is ``None`` rather than an empty excerpt.
+    """
+    if not isinstance(text, str):
+        return None
+    return " ".join(text.split()) or None
+
+
 def _address(entry: Any) -> str | None:
     """The plain address inside a Graph ``emailAddress`` wrapper, if there is one."""
     email_address = entry.get("emailAddress") if isinstance(entry, dict) else None
