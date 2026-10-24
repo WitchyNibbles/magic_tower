@@ -29,9 +29,11 @@ def run_sync(
 
     ``kind`` reaches ``sync()`` unchecked; an unregistered one comes back as
     ``UnknownSourceKindError`` wrapped in ``SyncError`` (``app/services/sync.py``),
-    so *that* path answers 409 rather than 500. Only ``SyncError`` is caught here:
-    a handler raising anything else -- ``GraphError``, say -- still escapes as a
-    500, which is pre-existing behaviour this route does not change.
+    so *that* path answers 409 rather than 500. A Jira outage is a ``SyncError`` too
+    (``_sync_jira`` converts ``JiraError``), so it answers 409 with Jira's reason.
+    Only ``SyncError`` is caught here: a handler raising anything else --
+    ``GraphError``, say -- still escapes as a 500, which is pre-existing behaviour
+    this route does not change.
     """
     try:
         return sync(get_settings(), db, limit=limit, kind=kind)

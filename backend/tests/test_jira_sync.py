@@ -16,26 +16,31 @@ No test here reaches the network -- everything goes through the injectable
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.database import engine
+from app.main import app
 from app.integrations.jira import JiraClient, JiraError
 from app.models import Source, SourceKind, WorkItem
 from app.services import jira_sync
 from app.services.jira_sync import JIRA_SOURCE_KIND, _sync_jira, participation_window_minutes
 from app.services.sync_cursor import last_success, record_success
 from app.services.sync import SyncError, sync
+from app.services.sync_all import sync_ready_sources
 from app.services.sync_registry import get_sync_handler, registered_kinds
 
 
@@ -393,7 +398,7 @@ def test_jira_sync_that_fails_leaves_the_cursor_where_it_was(clock) -> None:
 
     with Session(engine) as session:
         record_success(session, JIRA_SOURCE_KIND, previous)
-        with pytest.raises(JiraError):
+        with pytest.raises(SyncError, match="Jira request failed with status 500"):
             _sync_jira(_configured_settings(), db=session, jira_client=failing.client())
         assert last_success(session, JIRA_SOURCE_KIND) == previous
 
@@ -406,7 +411,7 @@ def test_jira_sync_that_fails_leaves_the_cursor_where_it_was(clock) -> None:
 
 def test_jira_sync_that_fails_with_no_cursor_does_not_invent_one(clock) -> None:
     with Session(engine) as session:
-        with pytest.raises(JiraError):
+        with pytest.raises(SyncError, match="Jira request failed with status 500"):
             _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport(fail=True).client())
         assert last_success(session, JIRA_SOURCE_KIND) is None
 
@@ -444,3 +449,38 @@ def test_jira_sync_whose_owner_lookup_fails_with_no_cursor_does_not_invent_one(c
     with Session(engine) as session:
         _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport(myself_fails=True).client())
         assert last_success(session, JIRA_SOURCE_KIND) is None
+
+
+@pytest.fixture
+def jira_search_down(monkeypatch: pytest.MonkeyPatch) -> str:
+    """The registered Jira handler, with a client whose search fails; returns the message Jira's error carries."""
+    failing = _WindowRecordingTransport(fail=True).client()
+    monkeypatch.setattr(jira_sync, "JiraClient", SimpleNamespace(from_settings=lambda settings: failing))
+    return "Jira request failed with status 500"
+
+
+def test_a_jira_search_failure_is_a_sync_error_carrying_jiras_message(jira_search_down: str) -> None:
+    with pytest.raises(SyncError, match=jira_search_down) as raised:
+        _sync_jira(_configured_settings(), db=None)
+
+    assert isinstance(raised.value.__cause__, JiraError)
+
+
+def test_post_sync_for_jira_answers_409_with_the_reason_when_the_search_fails(jira_search_down: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.api.sync.get_settings", _configured_settings)
+
+    with TestClient(app) as client:
+        response = client.post("/api/sync", params={"kind": "jira"}, headers={"Authorization": "Bearer test-local-agent-token"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": jira_search_down}
+
+
+def test_sync_all_reports_a_jira_search_failure_as_jiras_message_without_logging_a_traceback(
+    jira_search_down: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with Session(engine) as session, caplog.at_level(logging.ERROR):
+        results = sync_ready_sources(_configured_settings(), session)
+
+    assert results["jira"] == {"error": jira_search_down}
+    assert not [record for record in caplog.records if record.exc_info]

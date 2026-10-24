@@ -129,7 +129,8 @@ def _owner_account_id(client: JiraClient) -> str | None:
     """The ``accountId`` of the account the configured API token belongs to, or
     ``None`` when Jira will not say.
 
-    ``JiraError`` is swallowed on purpose, and only here. The issues have already
+    ``JiraError`` is swallowed on purpose, and only here (the search's own is turned
+    into a ``SyncError`` by :func:`_sync_jira`). The issues have already
     been fetched by the time this is called, and a ``/myself`` that errors is no
     reason to throw them away or fail the sync -- they are still stored and
     browsable. It is every reason not to promote any of them: ``should_promote``'s
@@ -199,15 +200,24 @@ def _sync_jira(settings: Settings, db: Session | None = None, limit: int = 50, c
     query is bounded by ``JIRA_SEARCH_MAX_PAGES``, not by a caller-supplied count.
     Tests inject a stub transport through ``jira_client`` instead, the same seam
     ``JiraClient.from_settings``'s own ``transport`` parameter offers.
+
+    A ``JiraError`` while building the client or searching is raised as a
+    ``SyncError`` with the same message, so ``POST /api/sync?kind=jira`` answers 409
+    with the reason and ``sync_ready_sources`` reports it without a traceback.
     """
     errors = settings.jira_configuration_errors()
     if errors:
         raise SyncError(f"Jira is not configured: missing {', '.join(errors)}")
-    jira = jira_client or JiraClient.from_settings(settings)
     started = _utc_now()
     previous = last_success(db, JIRA_SOURCE_KIND) if db is not None else None
     window_minutes = participation_window_minutes(previous, started, settings.jira_sync_lookback_days)
-    signals = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
+    try:
+        jira = jira_client or JiraClient.from_settings(settings)
+        signals = _fetch_issue_signals(jira, window_minutes, settings.jira_management_project_key)
+    except JiraError as error:
+        # ``JiraError`` messages are written to be shown (no URL, header or token), so
+        # the owner gets the reason; as a ``SyncError`` it is a known failure, not a bug.
+        raise SyncError(str(error)) from error
     created = persist_signals(db, signals) if db is not None else 0
     owner_account_id = _owner_account_id(jira) if db is not None else None
     promoted = promote_signals(db, signals, owner_account_id=owner_account_id) if db is not None else 0
