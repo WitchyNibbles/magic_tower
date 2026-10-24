@@ -75,8 +75,9 @@ def participation_window_minutes(last_success_at: datetime | None, now: datetime
     The whole lookback with no cursor (the first sync). Otherwise the minutes since
     the last successful sync started, rounded up, plus :data:`WINDOW_OVERLAP_MINUTES`
     -- but never more than the lookback, so a long outage cannot ask Jira for years
-    of history. A cursor in the future (the clock stepped back) counts as no gap
-    rather than yielding a window of zero or fewer minutes.
+    of history. A cursor in the future means the clock stepped back, so how long
+    ago the last sync really was is unknown: the whole lookback is searched rather
+    than a window that could miss what changed in the meantime.
 
     The result is a *duration*, not a timestamp: ``participation_jql`` sends it as
     ``updated >= -{N}m``, which Jira measures from its own clock in the owner's
@@ -85,7 +86,9 @@ def participation_window_minutes(last_success_at: datetime | None, now: datetime
     lookback_minutes = lookback_days * 1440
     if last_success_at is None:
         return lookback_minutes
-    gap = max(now - last_success_at, timedelta(0))
+    gap = now - last_success_at
+    if gap < timedelta(0):
+        return lookback_minutes
     minutes_since = -(-gap // timedelta(minutes=1))
     return min(minutes_since + WINDOW_OVERLAP_MINUTES, lookback_minutes)
 
