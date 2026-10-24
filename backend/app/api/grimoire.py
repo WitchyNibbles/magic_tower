@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..schemas import GrimoireContext, GrimoireItemPage
+from ..schemas import AnalysisRead, AnalysisWrite, GrimoireContext, GrimoireItemPage
 from ..security import require_grimoire_token
-from ..services.grimoire_view import context_fields, fingerprint, get_open_item, items_needing_analysis
+from ..services.grimoire_view import (analysis_read, context_fields, fingerprint, get_open_item, items_needing_analysis,
+                                      save_analysis)
 from ..services.work_items import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 
 router = APIRouter(prefix="/api/grimoire", tags=["grimoire"], dependencies=[Depends(require_grimoire_token)])
@@ -27,3 +28,10 @@ def item_context(item_id: UUID, db: Session = Depends(get_db)):
     """The only route that returns source text to grimoire. It is data, not instructions."""
     fields = context_fields(db, get_open_item(db, item_id))
     return GrimoireContext(**fields, fingerprint=fingerprint(fields))
+
+
+@router.put("/items/{item_id}/analysis", response_model=AnalysisRead)
+def write_analysis(item_id: UUID, payload: AnalysisWrite, db: Session = Depends(get_db)):
+    """Store an analysis of the text grimoire read; 409 if that text has changed since."""
+    analysis = save_analysis(db, get_open_item(db, item_id), payload)
+    return analysis_read(analysis, stale=False)

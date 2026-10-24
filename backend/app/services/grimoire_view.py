@@ -12,17 +12,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import Source, WorkEvidence, WorkItem, WorkItemAnalysis, WorkStatus
-from ..schemas import GrimoireItemRef
-from .work_items import not_found
+from ..schemas import AnalysisDetails, AnalysisRead, AnalysisWrite, GrimoireItemRef
+from .work_items import conflict, not_found
+
+logger = logging.getLogger(__name__)
 
 
 def as_utc(moment: datetime) -> datetime:
@@ -76,6 +80,46 @@ def staleness(db: Session, items: Sequence[WorkItem]) -> dict[UUID, bool]:
     sources = _sources_by_external_id(db, analysed)
     return {item.id: item.analysis.source_fingerprint != fingerprint(_fields(item, sources.get(item.source_external_id or "")))
             for item in analysed}
+
+
+def analysis_read(analysis: WorkItemAnalysis, *, stale: bool) -> AnalysisRead:
+    return AnalysisRead(summary=analysis.summary, details=AnalysisDetails.model_validate_json(analysis.details),
+                        analyzed_at=as_utc(analysis.analyzed_at), analyzer=analysis.analyzer, stale=stale)
+
+
+def _assign(analysis: WorkItemAnalysis, values: dict[str, Any]) -> None:
+    for key, value in values.items():
+        setattr(analysis, key, value)
+
+
+def save_analysis(db: Session, item: WorkItem, data: AnalysisWrite) -> WorkItemAnalysis:
+    """Store ``data`` as the item's analysis, replacing any earlier one.
+
+    Refused with 409 when the item's text no longer hashes to ``data.source_fingerprint``:
+    the analyst wrote about text that has since changed and must read it again. Only the
+    analysis row is written; the item's status, dismissal and promotion are untouched.
+    The row's key is the item id, so two racing writes cannot leave two rows: the one that
+    loses the insert updates the winner's row instead.
+    """
+    if fingerprint(context_fields(db, item)) != data.source_fingerprint:
+        raise conflict("source changed since it was read")
+    values = {"summary": data.summary, "details": data.details.model_dump_json(),
+              "source_fingerprint": data.source_fingerprint, "analyzer": data.analyzer, "analyzed_at": datetime.now(UTC)}
+    analysis = db.get(WorkItemAnalysis, item.id)
+    if analysis is None:
+        analysis = WorkItemAnalysis(work_item_id=item.id, **values)
+        db.add(analysis)
+    else:
+        _assign(analysis, values)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        analysis = db.get(WorkItemAnalysis, item.id)
+        _assign(analysis, values)
+        db.commit()
+    logger.info("grimoire analysis written for work item %s by %s", item.id, data.analyzer)
+    return analysis
 
 
 def get_open_item(db: Session, item_id: UUID) -> WorkItem:

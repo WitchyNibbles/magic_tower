@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from .models import DispatchStatus, SourceKind, WorkPriority, WorkStatus
 
@@ -147,6 +147,41 @@ class AgentProposalRead(APIModel):
     client: str
     confidence: float
     work_item: WorkItemRead
+
+
+ANALYSIS_SUMMARY_LIMIT = 600
+ANALYSIS_DETAILS_LIMIT = 8000
+
+
+class AnalysisDetails(APIModel):
+    """What is needed to work on an item, in the fields the UI lays out. Only ``asked`` is required."""
+    asked: str
+    systems: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list)
+    known: str = ""
+    next_step: str = ""
+    open_questions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fits_the_stored_size(self) -> "AnalysisDetails":
+        if len(self.model_dump_json()) > ANALYSIS_DETAILS_LIMIT:
+            raise ValueError(f"details must serialize to at most {ANALYSIS_DETAILS_LIMIT} characters")
+        return self
+
+
+class AnalysisWrite(APIModel):
+    summary: str = Field(min_length=1, max_length=ANALYSIS_SUMMARY_LIMIT)
+    details: AnalysisDetails
+    source_fingerprint: str = Field(min_length=1, max_length=64)
+    # Single-line on purpose: it is written to the log.
+    analyzer: str = Field(default="grimoire", min_length=1, max_length=40, pattern=r"^[\w .:/@-]+$")
+
+
+class AnalysisRead(APIModel):
+    summary: str
+    details: AnalysisDetails
+    analyzed_at: datetime
+    analyzer: str
+    stale: bool
 
 
 class GrimoireItemRef(APIModel):
