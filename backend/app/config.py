@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 
 from pathlib import Path
@@ -24,7 +25,16 @@ _BLANKABLE_OPTIONAL_FIELDS = (
     "freshservice_url",
     "freshservice_api_key",
     "freshservice_agent_email",
+    "freshservice_ticket_field",
+    "freshservice_ticket_field_value",
 )
+
+# A Freshservice custom field's internal name, and the characters a filter value must
+# not carry. Both are spliced into the ticket filter's quoted query text, whose escape
+# rules are not known, so a value that would need escaping is refused rather than
+# guessed at.
+FRESHSERVICE_FIELD_NAME_PATTERN = re.compile(r"[a-z0-9_]+")
+FRESHSERVICE_FIELD_VALUE_FORBIDDEN_CHARS = "'\"\\"
 
 
 def _present(value: str | SecretStr | None) -> bool:
@@ -72,6 +82,11 @@ class Settings(BaseSettings):
     # Optional: the agent whose assigned tickets are the owner's. Unset, the owner is
     # whoever the API key belongs to.
     freshservice_agent_email: str | None = None
+    # Optional filter for a shared team agent: only tickets whose custom field
+    # ``freshservice_ticket_field`` (its internal name) equals the value are the
+    # owner's. Both or neither; see ``freshservice_ticket_filter``.
+    freshservice_ticket_field: str | None = None
+    freshservice_ticket_field_value: str | None = None
     # How far back a first Freshservice sync looks for recently updated tickets.
     freshservice_sync_lookback_days: int = Field(default=14, ge=1)
     # Minutes between scheduled syncs of every configured source; 0 turns the
@@ -150,17 +165,57 @@ class Settings(BaseSettings):
         }
         return [name for name, value in required.items() if not _present(value)]
 
-    def freshservice_configuration_errors(self) -> list[str]:
-        """Names of missing or blank core Freshservice settings, fail-closed.
+    def _freshservice_problems(self) -> tuple[list[str], list[str]]:
+        """The Freshservice settings that are missing, and those that are set but unusable.
 
-        The agent email is a choice of owner, not part of the connection, so it is
-        deliberately excluded here.
+        Names only: a value is never echoed, as the API key and the filter value are
+        secret or personal. The agent email is a choice of owner, not part of the
+        connection, so it is excluded. The ticket filter is optional as a pair: one
+        half set makes the other half missing, and a half that would corrupt the
+        query it is spliced into is invalid.
         """
+        field, value = self.freshservice_ticket_field, self.freshservice_ticket_field_value
+        filter_set = _present(field) or _present(value)
         required = {
-            "FRESHSERVICE_URL": self.freshservice_url,
-            "FRESHSERVICE_API_KEY": self.freshservice_api_key,
+            "FRESHSERVICE_URL": (self.freshservice_url, True),
+            "FRESHSERVICE_API_KEY": (self.freshservice_api_key, True),
+            "FRESHSERVICE_TICKET_FIELD": (field, filter_set),
+            "FRESHSERVICE_TICKET_FIELD_VALUE": (value, filter_set),
         }
-        return [name for name, value in required.items() if not _present(value)]
+        missing = [name for name, (setting, needed) in required.items() if needed and not _present(setting)]
+        invalid: list[str] = []
+        if field is not None and _present(field) and not FRESHSERVICE_FIELD_NAME_PATTERN.fullmatch(field.strip()):
+            invalid.append("FRESHSERVICE_TICKET_FIELD")
+        if value is not None and any(char in value for char in FRESHSERVICE_FIELD_VALUE_FORBIDDEN_CHARS):
+            invalid.append("FRESHSERVICE_TICKET_FIELD_VALUE")
+        return missing, invalid
+
+    def freshservice_configuration_errors(self) -> list[str]:
+        """Names of the Freshservice settings that are missing or unusable, fail-closed."""
+        missing, invalid = self._freshservice_problems()
+        return missing + invalid
+
+    def freshservice_configuration_message(self) -> str | None:
+        """The one sentence every caller shows for a bad configuration, or ``None``
+        when Freshservice is configured. It names settings and never their values."""
+        missing, invalid = self._freshservice_problems()
+        parts = []
+        if missing:
+            parts.append(f"missing {', '.join(missing)}")
+        if "FRESHSERVICE_TICKET_FIELD" in invalid:
+            parts.append("FRESHSERVICE_TICKET_FIELD must be a custom field's internal name: lowercase letters, digits and underscores")
+        if "FRESHSERVICE_TICKET_FIELD_VALUE" in invalid:
+            parts.append("FRESHSERVICE_TICKET_FIELD_VALUE must not contain quotes or backslashes")
+        return f"Freshservice is not configured: {'; '.join(parts)}" if parts else None
+
+    def freshservice_ticket_filter(self) -> tuple[str, str] | None:
+        """The custom-field filter as a stripped ``(field, value)`` pair, or ``None``
+        when none is configured. A half-set or unusable pair also answers ``None``
+        here: the configuration check is what refuses it, before anything asks."""
+        field, value = self.freshservice_ticket_field, self.freshservice_ticket_field_value
+        if field is None or value is None or self._freshservice_problems() != ([], []):
+            return None
+        return field.strip(), value.strip()
 
 
 @lru_cache
