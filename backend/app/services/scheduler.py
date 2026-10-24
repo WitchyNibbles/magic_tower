@@ -62,11 +62,17 @@ class SyncScheduler:
             delay = self._interval
 
 
-def _describe(kind: str, result: dict[str, Any]) -> str:
-    """One log line for a source: counts or the error message, never anything else from the envelope."""
+def _log_result(kind: str, result: dict[str, Any]) -> None:
+    """One log line per source: a failure at WARNING, a success at INFO.
+
+    Only the error message or the counts are logged, never anything else from the
+    envelope. The levels matter because a failure must stay visible wherever INFO
+    is filtered out.
+    """
     if "error" in result:
-        return f"scheduled sync {kind} failed: {result['error']}"
-    return f"scheduled sync {kind}: {result.get('count', 0)} fetched, {result.get('new_work_items', 0)} new work items"
+        logger.warning("scheduled sync %s failed: %s", kind, result["error"])
+    else:
+        logger.info("scheduled sync %s: %s fetched, %s new work items", kind, result.get("count", 0), result.get("new_work_items", 0))
 
 
 def run_scheduled_sync() -> None:
@@ -78,6 +84,6 @@ def run_scheduled_sync() -> None:
     db = SessionLocal()
     try:
         for kind, result in sync_ready_sources(get_settings(), db).items():
-            logger.info(_describe(kind, result))
+            _log_result(kind, result)
     finally:
         db.close()

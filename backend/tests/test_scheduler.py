@@ -203,3 +203,20 @@ def test_a_tick_logs_one_line_per_source_with_counts_or_the_error(tick_environme
     assert len(messages) == 2
     assert "alpha" in messages[0] and "4" in messages[0] and "2" in messages[0]
     assert "broken" in messages[1] and "Microsoft Graph is not connected" in messages[1]
+
+
+def test_a_tick_logs_a_failed_source_as_a_warning_and_a_synced_one_as_info(tick_environment, caplog: pytest.LogCaptureFixture) -> None:
+    """Under uvicorn only WARNING and above survive by default, so a failure has to be at least that."""
+
+    def broken(settings: Settings, db: Any = None, limit: int = 50, **_: Any) -> dict[str, Any]:
+        raise SyncError("Jira request failed with status 500")
+
+    _register("alpha", lambda settings, db=None, limit=50, **_: {"count": 4, "new_work_items": 2})
+    _register("broken", broken)
+
+    with caplog.at_level(logging.INFO, logger=scheduler_module.logger.name):
+        run_scheduled_sync()
+
+    levels = {record.getMessage().split()[2].rstrip(":"): record.levelno
+              for record in caplog.records if record.name == scheduler_module.logger.name}
+    assert levels == {"alpha": logging.INFO, "broken": logging.WARNING}
