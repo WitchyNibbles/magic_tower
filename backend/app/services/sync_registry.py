@@ -9,6 +9,7 @@ connector lives, without touching ``sync()``.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 SyncHandler = Callable[..., dict[str, Any]]
 # Whether a kind is set up well enough to sync without being asked for by name.
 ReadyCheck = Callable[["Settings"], bool]
+
+logger = logging.getLogger(__name__)
 
 _handlers: dict[str, SyncHandler] = {}
 _ready_checks: dict[str, ReadyCheck] = {}
@@ -66,8 +69,24 @@ def registered_kinds() -> tuple[str, ...]:
 
 
 def ready_kinds(settings: "Settings") -> tuple[str, ...]:
-    """The registered kinds whose ``ready`` check passes for ``settings``, in registration order."""
-    return tuple(kind for kind in _handlers if kind in _ready_checks and _ready_checks[kind](settings))
+    """The registered kinds whose ``ready`` check passes for ``settings``, in registration order.
+
+    A check that raises counts as not ready (:func:`_is_ready`); this never raises for one.
+    """
+    return tuple(kind for kind in _handlers if kind in _ready_checks and _is_ready(kind, settings))
+
+
+def _is_ready(kind: str, settings: "Settings") -> bool:
+    """Run ``kind``'s check; one that raises means not ready and must not hide the other kinds.
+
+    A check can touch the disk (Graph reads its token store), so an ``OSError`` is
+    possible. Only the exception's type is logged: its message may carry a path.
+    """
+    try:
+        return _ready_checks[kind](settings)
+    except Exception as error:
+        logger.warning("readiness check for %s failed (%s); treating it as not ready", kind, type(error).__name__)
+        return False
 
 
 def sync_lock(kind: str) -> threading.Lock:

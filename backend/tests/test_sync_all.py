@@ -201,3 +201,21 @@ def test_a_source_that_breaks_the_shared_session_does_not_break_the_next_one(poi
     assert results["after"] == ENVELOPE
     with Session(engine) as db:
         assert db.query(Source).filter_by(external_id="after:1").count() == 1
+
+
+def test_a_readiness_check_that_raises_means_not_ready_and_the_other_kinds_still_sync(caplog: pytest.LogCaptureFixture) -> None:
+    def unreadable_token_store(settings: Settings) -> bool:
+        raise OSError("/home/owner/.secret/tokens.enc: permission denied")
+
+    _register("good", _ok)
+    register_sync_handler("unreadable", _ok, ready=unreadable_token_store)
+    _register("also-good", _ok)
+
+    with Session(engine) as db, caplog.at_level(logging.WARNING):
+        results = sync_ready_sources(Settings(), db)
+
+    assert list(results) == ["good", "also-good"]
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "unreadable" in warnings[0].getMessage()
+    assert "tokens.enc" not in warnings[0].getMessage()
