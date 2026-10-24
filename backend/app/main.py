@@ -1,3 +1,4 @@
+import importlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,7 +10,6 @@ from sqlalchemy.exc import StatementError
 from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
-from .services import freshservice_sync, jira_sync
 from .services.scheduler import SyncScheduler, run_scheduled_sync
 from .api.routes import router
 from .api.auth import router as auth_router
@@ -19,11 +19,13 @@ from .api.session import router as session_router
 
 APP_LOGGER_NAME = "app"
 # Importing a connector's sync module is what registers its handler
-# (``register_sync_handler``), and nothing else in the app calls into them. Naming
-# the modules here keeps those imports from reading as unused, and
+# (``register_sync_handler``), and nothing else in the app calls into them, so they
+# are imported by name here, once, when ``app.main`` is imported.
 # ``tests/test_jira_sync.py`` / ``tests/test_freshservice_sync.py`` pin that this
 # file alone is enough to register each kind.
-SYNC_CONNECTOR_MODULES = (jira_sync, freshservice_sync)
+SYNC_CONNECTOR_MODULE_NAMES = ("jira_sync", "freshservice_sync")
+for _module_name in SYNC_CONNECTOR_MODULE_NAMES:
+    importlib.import_module(f".services.{_module_name}", package=__package__)
 
 
 def _configure_app_logging() -> None:
