@@ -91,3 +91,17 @@ def test_grimoire_token_is_refused_on_every_other_route():
                 f"but {without.status_code} to no credentials at all")
             if without.status_code == 401:
                 assert not 200 <= with_grimoire.status_code < 300, f"{method} {path} accepted the grimoire token"
+
+
+def test_a_grimoire_token_equal_to_the_local_one_is_a_configuration_error(monkeypatch):
+    shared = "shared-invented-token"
+    monkeypatch.setenv("GRIMOIRE_API_TOKEN", shared)
+    monkeypatch.setenv("LOCAL_API_TOKEN", shared)
+    get_settings.cache_clear()
+    with TestClient(app) as client:
+        response = client.get(PING, headers=bearer(shared))
+        assert client.get("/api/work-items", headers=bearer(shared)).status_code == 200, "the local routes keep working"
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail == "GRIMOIRE_API_TOKEN must differ from LOCAL_API_TOKEN"
+    assert shared not in response.text

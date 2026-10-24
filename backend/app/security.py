@@ -68,6 +68,12 @@ def require_grimoire_token(authorization: Annotated[str | None, Header()] = None
     expected = configured.get_secret_value() if configured else ""
     if not expected:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="grimoire API not configured")
+    local = settings.local_api_token
+    if local is not None and hmac.compare_digest(local.get_secret_value().encode(), expected.encode()):
+        # Refused here, not when the settings load: a shared value must not take the whole app down,
+        # only open nothing -- otherwise the local bearer would be a grimoire credential.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="GRIMOIRE_API_TOKEN must differ from LOCAL_API_TOKEN")
     if not _valid_bearer(authorization, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="A valid grimoire API bearer token is required",
