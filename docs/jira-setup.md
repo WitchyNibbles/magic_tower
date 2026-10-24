@@ -168,8 +168,8 @@ read such a failure: it prints the reason straight to your terminal.
 
 ## 4. Keep it synced
 
-The API syncs every configured source on its own: Jira once its three required
-settings are set, Outlook once its five are. The first run is 30 seconds after
+The API syncs every ready source on its own: Jira once its three required
+settings are set, Outlook once its five are set and Microsoft is connected. The first run is 30 seconds after
 the API starts, then one every `SYNC_INTERVAL_MINUTES` (default 10). Set it to
 `0` to turn the schedule off. Each run logs one line per source to
 `docker compose logs api`.
@@ -183,11 +183,11 @@ curl -s -X POST "http://localhost:8787/api/sync/all" \
 ```
 
 ```
-{"results":{"graph":{"error":"Microsoft Graph is not connected"},"jira":{"mode":"read-only",...}}}
+{"results":{"jira":{"mode":"read-only","synced_at":"...","count":3,"new_sources":3,"new_work_items":1,"window_minutes":15}}}
 ```
 
-Only configured sources appear in `results`; one failing source never stops the
-others. A scheduled run and a button press never sync the same source at the
+Only ready sources appear in `results`. A source that fails shows `{"error": "..."}`
+instead, and never stops the others. A scheduled run and a button press never sync the same source at the
 same time: the second one waits for the first.
 
 ## What actually needs real credentials

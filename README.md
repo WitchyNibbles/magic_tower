@@ -16,7 +16,7 @@ Everything runs on your own machine. Nothing is fetched until you connect a sour
 
 - **Outlook ingestion** over Microsoft Graph with delegated, read-only OAuth (authorization code + PKCE, `offline_access`, automatic token refresh, `@odata.nextLink` paging, and `Retry-After` backoff on 429/503).
 - **Jira ingestion** of issues you are assigned to, reported, created, watch, or voted on, plus an optional browse-only management project (`docs/jira-setup.md`). Each sync picks up where the last good one stopped.
-- **Scheduled sync** of every configured source every `SYNC_INTERVAL_MINUTES` (default 10), plus a sync button that runs all of them on demand.
+- **Scheduled sync** of every ready source every `SYNC_INTERVAL_MINUTES` (default 10), plus a sync button that runs all of them on demand.
 - **Rule-based promotion** (`backend/app/services/promotion.py`): no LLM and no network, so the same message always gets the same decision, and the rules can be scored against a hand-labeled sample of real mail.
 - **Review queue UI** to filter, inspect, update, dismiss, and hand off work items, each with its source evidence.
 - **Agent API** on loopback: clients read bounded context, propose work items, and record dispatch progress (`docs/agent-protocol.md`).
@@ -40,7 +40,7 @@ flowchart LR
 | `backend/` | Python 3.12, FastAPI, SQLAlchemy, Alembic, uv | Work queue, source sync, promotion rules, OAuth, agent API. |
 | `docker-compose.yml` | Docker Compose | Publishes the web service on loopback only; the API is reachable only inside the Compose network. |
 
-A sync (`POST /api/sync`, `POST /api/sync?kind=jira`, or `POST /api/sync/all` for every configured source, which is also what the schedule runs) reads a source, stores every signal as a `Source`, and promotes the actionable ones into `WorkItem` rows with `WorkEvidence`. More detail is in [`docs/architecture.md`](docs/architecture.md).
+A sync (`POST /api/sync`, `POST /api/sync?kind=jira`, or `POST /api/sync/all` for every ready source, which is also what the schedule runs) reads a source, stores every signal as a `Source`, and promotes the actionable ones into `WorkItem` rows with `WorkEvidence`. More detail is in [`docs/architecture.md`](docs/architecture.md).
 
 ## Quick start
 
@@ -72,7 +72,7 @@ All settings live in `.env`; [`.env.example`](.env.example) lists every one with
 | `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI` | Outlook sync. See [`docs/microsoft-graph.md`](docs/microsoft-graph.md). |
 | `JIRA_SITE_URL`, `JIRA_ACCOUNT_EMAIL`, `JIRA_API_TOKEN`, `JIRA_MANAGEMENT_PROJECT_KEY` | Jira sync. See [`docs/jira-setup.md`](docs/jira-setup.md). |
 | `PROMOTION_ALLOWLISTED_SENDERS` | Optional senders whose mail is always treated as work. |
-| `SYNC_INTERVAL_MINUTES` | Minutes between scheduled syncs of every configured source. Default 10; `0` turns the schedule off. |
+| `SYNC_INTERVAL_MINUTES` | Minutes between scheduled syncs of every ready source. Default 10; `0` turns the schedule off. |
 | `JIRA_SYNC_LOOKBACK_DAYS` | How far back a first Jira sync looks, and the cap after a long gap. Default 14. |
 
 ## Security
