@@ -12,7 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { demoItems } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
-const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira' }
+const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira', freshservice: 'Freshservice' }
 function describeNewItems(count: number): string {
   if (!count) return 'no new items'
   return `${count} new ${count === 1 ? 'item' : 'items'}`

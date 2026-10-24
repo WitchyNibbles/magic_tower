@@ -4,7 +4,7 @@ import type { SourceKind, WorkItem, WorkStatus } from '@/api'
 // through the dismiss action (B51), never picked from a filter or a status dropdown.
 export const statuses: WorkStatus[] = ['pending', 'in_progress', 'blocked', 'done']
 export const statusLabels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done', dismissed: 'Dismissed' }
-export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual', jira: 'Jira' }
+export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual', jira: 'Jira', freshservice: 'Freshservice' }
 
 export const statusTone: Record<WorkStatus, string> = {
   pending: 'bg-secondary text-secondary-foreground',
@@ -18,6 +18,7 @@ export const sourceTone: Record<SourceKind, string> = {
   outlook_email: 'bg-sky-400',
   manual: 'bg-muted-foreground',
   jira: 'bg-indigo-400',
+  freshservice: 'bg-teal-400',
 }
 
 // The `.../browse/{KEY}` path segment jira_sync.py's `_normalize_issue` builds `source_url`

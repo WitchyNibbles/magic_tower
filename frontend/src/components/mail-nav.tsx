@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
-const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'manual', 'jira']
+const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'manual', 'jira', 'freshservice']
 
 export function MailNav({ items, filter, onFilter, source, onSource, onSync, onConnect, onDemo, missed, onPromote }: {
   items: WorkItem[]
