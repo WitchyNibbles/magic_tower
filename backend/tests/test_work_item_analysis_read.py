@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import logging
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from app.config import get_settings
-from app.database import engine
+from app.database import SessionLocal, engine
 from app.main import app
+from app.models import WorkItemAnalysis
 
 LOCAL = {"Authorization": "Bearer test-local-agent-token"}
 GRIMOIRE = {"Authorization": "Bearer g-token"}
@@ -113,3 +118,36 @@ def test_work_item_list_loads_analyses_without_extra_queries_per_item(client):
 
     assert len(client.get("/api/work-items", headers=LOCAL).json()["items"]) == 5
     assert with_five == with_one
+
+
+def _store_details(item_id: str, details: str) -> None:
+    with SessionLocal() as db:
+        db.get(WorkItemAnalysis, UUID(item_id)).details = details
+        db.commit()
+
+
+def test_a_stored_analysis_beyond_a_limit_tightened_since_is_still_shown(client):
+    item_id = _create(client, "old")
+    _analyse(client, item_id)
+    _store_details(item_id, json.dumps({**DETAILS, "systems": ["s" * 200]}))
+
+    listed = client.get("/api/work-items", headers=LOCAL)
+
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["analysis"]["details"]["systems"] == ["s" * 200]
+    assert client.get(f"/api/work-items/{item_id}", headers=LOCAL).status_code == 200
+
+
+def test_an_unreadable_stored_analysis_is_no_analysis_and_the_log_names_only_the_item(client, caplog):
+    unreadable_marker = "unreadable-marker-77d2"
+    item_id = _create(client, "broken")
+    _analyse(client, item_id)
+    _store_details(item_id, json.dumps({"asked": ["not", "text", unreadable_marker]}))
+
+    with caplog.at_level(logging.INFO):
+        listed = client.get("/api/work-items", headers=LOCAL)
+
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["analysis"] is None
+    assert item_id in caplog.text
+    assert unreadable_marker not in caplog.text

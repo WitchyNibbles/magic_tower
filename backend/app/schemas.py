@@ -1,11 +1,14 @@
+import logging
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator, model_validator
 
 from .models import DispatchStatus, SourceKind, WorkItemAnalysis, WorkPriority, WorkStatus
 from .services.timeutil import as_utc
+
+logger = logging.getLogger(__name__)
 
 
 class APIModel(BaseModel):
@@ -30,13 +33,22 @@ ANALYSIS_SUMMARY_LIMIT = 600
 ANALYSIS_DETAILS_LIMIT = 8000
 
 
-class AnalysisDetails(APIModel):
-    """What is needed to work on an item, in the fields the UI lays out. Only ``asked`` is required."""
+class AnalysisDetailsRead(APIModel):
+    """What is needed to work on an item, in the fields the UI lays out, as stored. Only ``asked`` is required.
+
+    No size limits: those belong to writing (``AnalysisDetails``). A limit tightened after a
+    row was stored must not make that row unreadable.
+    """
     asked: str
-    systems: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list)
+    systems: list[str] = Field(default_factory=list)
     known: str = ""
     next_step: str = ""
     open_questions: list[str] = Field(default_factory=list)
+
+
+class AnalysisDetails(AnalysisDetailsRead):
+    """The same fields, bounded, as grimoire may write them."""
+    systems: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def fits_the_stored_size(self) -> "AnalysisDetails":
@@ -55,7 +67,7 @@ class AnalysisWrite(APIModel):
 
 class AnalysisRead(APIModel):
     summary: str
-    details: AnalysisDetails
+    details: AnalysisDetailsRead
     analyzed_at: datetime
     analyzer: str
     stale: bool
@@ -64,7 +76,7 @@ class AnalysisRead(APIModel):
     def from_row(cls, row: WorkItemAnalysis) -> "AnalysisRead":
         """The stored analysis as the API shows it. SQLite hands ``analyzed_at`` back naive;
         it was written as UTC, so say so."""
-        return cls(summary=row.summary, details=AnalysisDetails.model_validate_json(row.details),
+        return cls(summary=row.summary, details=AnalysisDetailsRead.model_validate_json(row.details),
                    analyzed_at=as_utc(row.analyzed_at), analyzer=row.analyzer, stale=row.stale)
 
 
@@ -105,7 +117,15 @@ class WorkItemRead(WorkItemBase):
     @field_validator("analysis", mode="before")
     @classmethod
     def analysis_from_row(cls, value: object) -> object:
-        return AnalysisRead.from_row(value) if isinstance(value, WorkItemAnalysis) else value
+        if not isinstance(value, WorkItemAnalysis):
+            return value
+        try:
+            return AnalysisRead.from_row(value)
+        except ValidationError:
+            # One unreadable row must not fail every list it appears in. Log the item only:
+            # the error text would quote the stored analysis, which is source-derived.
+            logger.warning("stored analysis of work item %s is unreadable; showing none", value.work_item_id)
+            return None
 
 
 class SourceBase(APIModel):
