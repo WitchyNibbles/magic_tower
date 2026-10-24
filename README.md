@@ -64,7 +64,7 @@ On first use, enter the separately generated `LOCAL_API_TOKEN` in the browser to
 
 ### Configuration
 
-All settings live in `.env`; [`.env.example`](.env.example) lists every one with a comment.
+Settings live in `.env`; [`.env.example`](.env.example) lists them with a comment, except the `FRESHSERVICE_*` ones, which [`docs/freshservice-setup.md`](docs/freshservice-setup.md) describes.
 
 | Variable | Needed for |
 | --- | --- |
