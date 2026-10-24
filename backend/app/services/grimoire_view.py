@@ -119,6 +119,8 @@ def save_analysis(db: Session, item: WorkItem, data: AnalysisWrite) -> WorkItemA
     except IntegrityError:
         db.rollback()
         analysis = db.get(WorkItemAnalysis, item.id)
+        if analysis is None:
+            raise not_found("Work item")
         _assign(analysis, values)
         db.commit()
     logger.info("grimoire analysis written for work item %s by %s", item.id, data.analyzer)
@@ -174,6 +176,8 @@ def save_project_snapshot(db: Session, data: ProjectSnapshot) -> ProjectSnapshot
     except IntegrityError:
         db.rollback()
         row = db.get(GrimoireProjectSnapshot, 1)
+        if row is None:
+            raise not_found("Project snapshot")
         _assign(row, values)
         db.commit()
     logger.info("grimoire project snapshot written: %d projects", len(data.projects))
