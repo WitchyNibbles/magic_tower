@@ -159,7 +159,8 @@ def test_run_check_report_never_carries_the_key_the_email_or_ticket_text() -> No
 
 
 def _environment(monkeypatch: pytest.MonkeyPatch, **values: str) -> None:
-    for name in ("FRESHSERVICE_URL", "FRESHSERVICE_API_KEY", "FRESHSERVICE_AGENT_EMAIL"):
+    for name in ("FRESHSERVICE_URL", "FRESHSERVICE_API_KEY", "FRESHSERVICE_AGENT_EMAIL", "FRESHSERVICE_TICKET_FIELD",
+                 "FRESHSERVICE_TICKET_FIELD_VALUE"):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -266,3 +267,98 @@ def test_main_never_prints_the_key_or_the_email_on_a_failure(monkeypatch: pytest
     for secret in (SECRET_KEY, OWNER_EMAIL):
         assert secret not in captured.out
         assert secret not in captured.err
+
+
+# --- the optional custom-field filter ---------------------------------------------------
+
+FIELD_VALUE = "Jane Example"
+FIELD_SETTINGS = {"freshservice_ticket_field": "technician", "freshservice_ticket_field_value": FIELD_VALUE}
+
+
+def _owned(ticket_id: int, value: object = FIELD_VALUE) -> dict[str, Any]:
+    return {**TICKET, "id": ticket_id, "custom_fields": {"technician": value}}
+
+
+def test_run_check_without_a_field_filter_reports_none_and_the_servers_count() -> None:
+    report = freshservice_check.run_check(_configured_settings(), transport=_transport([TICKET]), now=NOW)
+
+    assert report["field_filter"] is None
+    assert report["server_ticket_count"] == report["ticket_count"] == 1
+
+
+def test_run_check_with_a_field_filter_sends_the_clause_and_names_only_the_field() -> None:
+    calls: list[str] = []
+
+    report = freshservice_check.run_check(
+        _configured_settings(**FIELD_SETTINGS), transport=_transport([_owned(1)], calls=calls), now=NOW)
+
+    (search,) = [url for url in calls if urlparse(url).path == "/api/v2/tickets/filter"]
+    assert f"technician:'{FIELD_VALUE}'" in parse_qs(urlparse(search).query)["query"][0]
+    assert report["field_filter"] == "technician"
+    assert FIELD_VALUE not in repr(report)
+
+
+def test_run_check_with_a_field_filter_counts_the_tickets_that_match_it() -> None:
+    tickets = [_owned(1), _owned(2, value="Someone Else"), _owned(3), TICKET]
+
+    report = freshservice_check.run_check(_configured_settings(**FIELD_SETTINGS), transport=_transport(tickets, total=4), now=NOW)
+
+    assert report["ticket_count"] == 2
+    assert report["server_ticket_count"] == 4
+
+
+def test_run_check_with_a_field_filter_counts_what_came_back_not_a_total_beyond_the_pages_read() -> None:
+    page = [_owned(index) for index in range(5)]
+
+    report = freshservice_check.run_check(_configured_settings(**FIELD_SETTINGS), transport=_transport(page, total=900), now=NOW)
+
+    assert report["server_ticket_count"] == 5
+    assert report["ticket_count"] == 5
+
+
+def test_run_check_with_a_half_set_field_filter_raises_the_configuration_error() -> None:
+    with pytest.raises(FreshserviceConfigurationError, match="missing FRESHSERVICE_TICKET_FIELD_VALUE$"):
+        freshservice_check.run_check(_configured_settings(freshservice_ticket_field="technician"), transport=_transport([]), now=NOW)
+
+
+def test_main_prints_the_filter_line_without_the_value_and_the_matched_count(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _environment(monkeypatch, FRESHSERVICE_URL=BASE, FRESHSERVICE_API_KEY=SECRET_KEY,
+                 FRESHSERVICE_TICKET_FIELD="technician", FRESHSERVICE_TICKET_FIELD_VALUE=FIELD_VALUE)
+    monkeypatch.setattr(freshservice_check, "default_transport", _transport([_owned(1), _owned(2)], total=2))
+
+    exit_code = freshservice_check.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == (
+        f"connected to {BASE} as 'Ada Example' (agent id {OWNER_AGENT_ID})\n"
+        "ticket field filter: technician (value set)\n"
+        "assigned tickets (open, pending, or updated in the last 14 days): 2\n"
+    )
+    assert FIELD_VALUE not in captured.out + captured.err
+
+
+def test_main_says_how_many_tickets_the_server_returned_when_the_filter_dropped_some(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _environment(monkeypatch, FRESHSERVICE_URL=BASE, FRESHSERVICE_API_KEY=SECRET_KEY,
+                 FRESHSERVICE_TICKET_FIELD="technician", FRESHSERVICE_TICKET_FIELD_VALUE=FIELD_VALUE)
+    monkeypatch.setattr(freshservice_check, "default_transport", _transport([_owned(1), _owned(2, value="Someone Else"), TICKET], total=3))
+
+    freshservice_check.main()
+
+    assert capsys.readouterr().out == (
+        f"connected to {BASE} as 'Ada Example' (agent id {OWNER_AGENT_ID})\n"
+        "ticket field filter: technician (value set)\n"
+        "assigned tickets (open, pending, or updated in the last 14 days): 1\n"
+        "server returned 3, 1 matched the field filter\n"
+    )
+
+
+def test_main_prints_a_half_set_filter_as_a_configuration_error(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _environment(monkeypatch, FRESHSERVICE_URL=BASE, FRESHSERVICE_API_KEY=SECRET_KEY, FRESHSERVICE_TICKET_FIELD_VALUE=FIELD_VALUE)
+
+    exit_code = freshservice_check.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.err == "Freshservice is not configured: missing FRESHSERVICE_TICKET_FIELD\n"
+    assert captured.out == ""
