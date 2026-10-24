@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import SessionLocal, engine
 from app.models import GrimoireProjectSnapshot, SourceKind, WorkItem, WorkItemAnalysis
 from app.schemas import AnalysisDetails, AnalysisWrite, ProjectSnapshot
 from app.services.grimoire_view import context_fields, fingerprint, save_analysis, save_project_snapshot
@@ -21,6 +21,10 @@ from app.services.grimoire_view import context_fields, fingerprint, save_analysi
 def db():
     with SessionLocal() as session:
         yield session
+    # The race needs two connections at once. Left in the pool, the second one answered an empty
+    # ``PRAGMA index_list`` after the next test's drop_all/create_all (seen as test_pagination's
+    # index inspection failing in a full run), so start the next test with a fresh pool.
+    engine.dispose()
 
 
 def _blind_to(monkeypatch, db: Session, model: type, *, times: int) -> None:
