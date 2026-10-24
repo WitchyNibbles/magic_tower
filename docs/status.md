@@ -50,7 +50,7 @@ The connector follows the Jira shape and is read-only (`docs/freshservice-setup.
 - `FRESHSERVICE_URL`, `FRESHSERVICE_API_KEY`, optional `FRESHSERVICE_AGENT_EMAIL` and `FRESHSERVICE_SYNC_LOOKBACK_DAYS`, a compose passthrough so shell variables reach the `api` container, and a check command, `app.tools.freshservice_check`;
 - the UI lists "Freshservice" as a source.
 
-What the tests cannot tell: the agent lookups (`/api/v2/agents?email=` and `/api/v2/agents/me`) and the agent-portal ticket link were built from documentation and have not been run against a real site; a wrong guess shows up as a `Freshservice agent lookup ... failed` message in the check. A search reads at most 300 tickets (10 pages of 30), then says `"truncated": true`.
+Run against a real site once (2026-10-24, with the check command): the lookup by `FRESHSERVICE_AGENT_EMAIL` (`/api/v2/agents?email=`) and the ticket filter both worked, and an account with 364 matching tickets showed that the first cap of 300 was too low. Still unverified: the lookup by the key's own agent (`/api/v2/agents/me`, used when no email is set) and the agent-portal ticket link; a wrong guess there shows up as a `Freshservice agent lookup ... failed` message in the check. A search reads at most 1500 tickets (50 pages of 30), then says `"truncated": true`.
 
 ## Repo housekeeping
 

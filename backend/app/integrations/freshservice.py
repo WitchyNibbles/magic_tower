@@ -37,11 +37,12 @@ FRESHSERVICE_API_ROOT = "/api/v2"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
 
 # The filter endpoint's fixed page size (it takes no ``per_page``), and the most pages
-# one search follows. Deep paging is discouraged by Freshservice and the owner's own
-# assigned tickets never come near it; 10 pages is 300 tickets, and past that the
+# one search follows. A shared team agent can hold hundreds of assigned tickets (364
+# on one real site), so 50 pages (1500 tickets) leaves room for that while staying far
+# below the page numbers Freshservice calls deep paging (over 500); past the cap the
 # result says it was cut short rather than looping on.
 FRESHSERVICE_PAGE_SIZE = 30
-FRESHSERVICE_FILTER_MAX_PAGES = 10
+FRESHSERVICE_FILTER_MAX_PAGES = 50
 # Freshservice ticket statuses 2 (Open) and 3 (Pending): the ones still owed work.
 _OPEN_STATUS = 2
 _PENDING_STATUS = 3

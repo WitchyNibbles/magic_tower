@@ -78,7 +78,7 @@ curl -s -X POST "http://localhost:8787/api/sync?kind=freshservice" -H "Authoriza
 
 A healthy answer is `{"mode":"read-only","synced_at":"...","count":3,"new_sources":3,"new_work_items":2,"since":"2026-10-10","truncated":false}`. Without the two required settings it answers `409` with the missing names.
 
-A search reads at most 10 pages of 30 tickets. If you have more than 300 matching tickets, the answer says `"truncated": true` and the API log warns; the oldest ones are skipped.
+A search reads at most 50 pages of 30 tickets. If you have more than 1500 matching tickets, the answer says `"truncated": true` and the API log warns; the oldest ones are skipped.
 
 ## Read-only
 
@@ -86,7 +86,7 @@ The client refuses anything but `GET` before a request is made. Nothing is creat
 
 ## Rate limits
 
-Freshservice limits calls per minute by plan and answers `429` with a `Retry-After` header. One sync makes one agent lookup and up to 10 search pages, so it stays well under typical limits. If a `429` happens anyway, the sync stops with the message above, nothing is stored from that run and the cursor does not move, so the next scheduled sync (or Sync now) covers the same window.
+Freshservice limits calls per minute by plan and answers `429` with a `Retry-After` header. One sync makes one agent lookup and as many search pages as your tickets fill (30 per page, at most 50), so it stays well under typical limits. If a `429` happens anyway, the sync stops with the message above, nothing is stored from that run and the cursor does not move, so the next scheduled sync (or Sync now) covers the same window.
 
 ## What is not verified yet
 

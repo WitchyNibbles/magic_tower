@@ -493,6 +493,21 @@ def test_freshservice_search_pagination_is_bounded_against_a_server_that_always_
     assert tickets.truncated
 
 
+def test_freshservice_search_fetches_a_shared_queue_of_1500_tickets_whole() -> None:
+    """A team agent's assigned set can run to hundreds of tickets (364 on a real site),
+    so the cap must leave room for that instead of cutting it at 300."""
+    total = 1500
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        page = _page_of(url)
+        return {"tickets": _tickets(page * 100, FRESHSERVICE_PAGE_SIZE), "total": total}
+
+    tickets = _client(transport).search_assigned_tickets(42, date(2026, 10, 9))
+
+    assert len(tickets) == total
+    assert not tickets.truncated
+
+
 def test_freshservice_search_cut_off_by_the_page_cap_warns_naming_the_kind_not_the_query(caplog: pytest.LogCaptureFixture) -> None:
     def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
         return {"tickets": _tickets(1, FRESHSERVICE_PAGE_SIZE), "total": 10_000}
