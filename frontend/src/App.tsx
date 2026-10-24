@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
-import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type WorkItem, type WorkStatus } from './api'
+import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
 import { CommandPalette } from '@/components/command-palette'
 import { MailDetail } from '@/components/mail-detail'
 import { MailList } from '@/components/mail-list'
@@ -12,6 +12,12 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { demoItems } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
+const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira' }
+const syncPart = (kind: string, r: SyncResult) => {
+  const n = r.new_work_items ?? 0
+  return `${SYNC_LABELS[kind] ?? kind}: ${r.error ?? (n ? `${n} new ${n === 1 ? 'item' : 'items'}` : 'no new items')}`
+}
+const syncSummary = (results: Record<string, SyncResult>) => Object.entries(results).map(([kind, r]) => syncPart(kind, r)).join('. ') || 'No sources are set up yet.'
 
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])
@@ -90,7 +96,7 @@ export default function App() {
     try { await beginMicrosoftConnect() } catch { setToast('Microsoft connection could not start.') }
   }
   const runSync = async () => {
-    try { const result = await syncNow(); await loadWork(); setToast(result.detail || 'Microsoft messages synced.') } catch { setToast('Sync could not be completed.') }
+    try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
   const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
     try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
