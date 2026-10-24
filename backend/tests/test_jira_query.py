@@ -226,9 +226,9 @@ def test_jira_query_a_search_that_ends_on_the_last_allowed_page_is_not_truncated
 
 def test_jira_query_search_never_reaches_the_network(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*_: object, **__: object) -> object:
-        raise AssertionError("urlopen must never be called from a test")
+        raise AssertionError("the opener must never be called from a test")
 
-    monkeypatch.setattr(jira_module, "urlopen", forbidden)
+    monkeypatch.setattr(jira_module._opener, "open", forbidden)
 
     _client(lambda *_: {"issues": []}).search_participation_issues(15)
 
