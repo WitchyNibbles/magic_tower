@@ -48,7 +48,7 @@ One client, grimoire, reads the items that need analysis and writes back what it
 
 `details` holds `asked` (required), `systems` (a list of strings of at most 80 characters), `known`, `next_step` and `open_questions`. Unknown keys are refused, and it serializes to at most 8000 characters. A body over a limit is `422`.
 
-An item is stale when the text the context route returns now hashes differently from the fingerprint stored with its analysis: a title change, a new comment, or an excerpt that filled in late. Staleness is computed when a page is read and is never stored. Writing an analysis never changes an item's status, dismissal or promotion.
+An item is stale when the text the context route returns now hashes differently from the fingerprint stored with its analysis: a title change, a new comment, or an excerpt that filled in late. Staleness is computed when a page is read and is never stored. The client must echo the `fingerprint` the context route returned as `source_fingerprint`, not recompute it from the response fields. Writing an analysis never changes an item's status, dismissal or promotion.
 
 ### Project snapshot
 
