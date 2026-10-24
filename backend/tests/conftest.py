@@ -15,6 +15,8 @@ _TEST_DB_DIR = tempfile.mkdtemp(prefix="workboard-tests-")
 atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/workboard-tests.db"
 os.environ["LOCAL_API_TOKEN"] = "test-local-agent-token"
+# ``TestClient(app)`` as a context manager runs the app lifespan; no test should get a background sync thread.
+os.environ["SYNC_INTERVAL_MINUTES"] = "0"
 
 # Message content lives in encrypted columns (``Source.excerpt``,
 # ``WorkEvidence.excerpt``) and every write of one fails closed without a key, so

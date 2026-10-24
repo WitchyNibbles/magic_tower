@@ -92,3 +92,25 @@ def test_jira_sync_lookback_is_read_from_its_environment_variable(monkeypatch: p
 def test_jira_sync_lookback_below_one_day_is_refused(bad_value: int) -> None:
     with pytest.raises(ValidationError):
         Settings(jira_sync_lookback_days=bad_value)
+
+
+def test_sync_interval_defaults_to_ten_minutes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The suite pins SYNC_INTERVAL_MINUTES=0 (tests/conftest.py); the default is what a deployment gets.
+    monkeypatch.delenv("SYNC_INTERVAL_MINUTES")
+
+    assert Settings().sync_interval_minutes == 10
+
+
+def test_sync_interval_is_read_from_its_environment_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYNC_INTERVAL_MINUTES", "30")
+
+    assert Settings().sync_interval_minutes == 30
+
+
+def test_sync_interval_zero_turns_the_scheduler_off() -> None:
+    assert Settings(sync_interval_minutes=0).sync_interval_minutes == 0
+
+
+def test_sync_interval_below_zero_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        Settings(sync_interval_minutes=-1)
