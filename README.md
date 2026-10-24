@@ -119,6 +119,8 @@ Nothing crosses the threshold until you invite it in. The rest of the grimoire l
 - **[Summoning Jira](docs/jira-setup.md)**: connecting a real Jira Cloud site and checking what comes back.
 - **[The agent's pact](docs/agent-protocol.md)**: what a local agent may read, propose, and report.
 - **[The tower's plan](docs/architecture.md)**: components, boundaries, and how a sync moves through them.
+- **[Where the tower stands](docs/status.md)**: what works today, what's never touched a real account, and the gaps before daily use.
+- **[Raising it at work](docs/work-setup.md)**: setting it up on a WSL2 work PC against a real Outlook and Jira.
 
 ## License
 
