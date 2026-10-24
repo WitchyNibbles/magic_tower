@@ -60,7 +60,8 @@ The count is the same set the first sync fetches. The tool never writes to the d
 - `FRESHSERVICE_URL must be a full https URL like https://<domain>.freshservice.com` means the URL has no `https://` or no host.
 - `Freshservice request failed with status 401` is a wrong or expired key. `403` is the API being closed to you (step 1).
 - `Freshservice request failed` with no status is DNS, TLS, a proxy or a timeout.
-- `Freshservice agent lookup failed: ...` means the owner could not be found. Check `FRESHSERVICE_AGENT_EMAIL`, or unset it to use the key's own agent. See the unverified part below.
+- `Freshservice agent lookup by FRESHSERVICE_AGENT_EMAIL failed: ...` means the owner could not be found by that address. A `403` here may mean the key's role cannot list agents: try unsetting `FRESHSERVICE_AGENT_EMAIL` so the key's own agent is used. `no agent matched` means no agent has that address: check it for typos.
+- `Freshservice agent lookup for the API key's own agent failed: ...` means `/api/v2/agents/me` did not name an agent. A `404` here means the endpoint is not available on your site: set `FRESHSERVICE_AGENT_EMAIL` instead. See the unverified part below.
 - A message containing `Freshservice rate limit exceeded, retry after <seconds>` is [the rate limit](#rate-limits).
 
 ## 4. What syncs and what promotes
@@ -91,7 +92,7 @@ Freshservice limits calls per minute by plan and answers `429` with a `Retry-Aft
 
 These were built from the public API documentation and tested against stubs only. The first run on a real site is the test:
 
-- The agent lookups: `GET /api/v2/agents?email=<email>` (for `FRESHSERVICE_AGENT_EMAIL`) and `GET /api/v2/agents/me` (for the key's own agent). The first was not found in the documentation we could read; the second is reported to work but is undocumented. Both parsers treat an unexpected shape as "owner unknown", which fails the sync with `Freshservice agent lookup failed` instead of guessing.
+- The agent lookups: `GET /api/v2/agents?email=<email>` (for `FRESHSERVICE_AGENT_EMAIL`) and `GET /api/v2/agents/me` (for the key's own agent). The first was not found in the documentation we could read; the second is reported to work but is undocumented. Both parsers treat an unexpected shape as "owner unknown", which fails the sync with a `Freshservice agent lookup ... failed` message instead of guessing.
 - The ticket link `https://<domain>.freshservice.com/a/tickets/<id>`: the agent-portal address is assumed, not confirmed.
 - The `agent_id` and date terms of the ticket filter on a real account, in particular how your account's timezone treats the `updated_at` cut-off.
 

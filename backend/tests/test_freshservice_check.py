@@ -135,7 +135,7 @@ def test_run_check_reports_a_failed_owner_lookup_as_a_lookup_failure() -> None:
     def failing_transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
         raise FreshserviceError("Freshservice request failed with status 500")
 
-    with pytest.raises(SyncError, match="Freshservice agent lookup failed: Freshservice request failed with status 500"):
+    with pytest.raises(SyncError, match="Freshservice agent lookup for the API key's own agent failed: Freshservice request failed with status 500"):
         freshservice_check.run_check(_configured_settings(), transport=failing_transport, now=NOW)
 
 
@@ -143,7 +143,7 @@ def test_run_check_raises_when_no_agent_can_be_named() -> None:
     def nobody(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
         return {}
 
-    with pytest.raises(SyncError, match="^Freshservice agent lookup failed: "):
+    with pytest.raises(SyncError, match="^Freshservice agent lookup for the API key's own agent failed: "):
         freshservice_check.run_check(_configured_settings(), transport=nobody, now=NOW)
 
 
@@ -215,7 +215,7 @@ def test_main_prints_a_request_failure_without_repeating_its_own_prefix(monkeypa
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert captured.err == "Freshservice agent lookup failed: Freshservice request failed with status 403\n"
+    assert captured.err == "Freshservice agent lookup for the API key's own agent failed: Freshservice request failed with status 403\n"
     assert captured.out == ""
 
 

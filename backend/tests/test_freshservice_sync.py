@@ -373,7 +373,7 @@ def test_freshservice_sync_with_an_unknown_owner_fails_closed_before_fetching_an
 
     with Session(engine) as session:
         record_success(session, FRESHSERVICE_SOURCE_KIND, previous)
-        with pytest.raises(SyncError, match="^Freshservice agent lookup failed: ") as raised:
+        with pytest.raises(SyncError, match="^Freshservice agent lookup for the API key's own agent failed: ") as raised:
             _sync_freshservice(_configured_settings(), db=session, freshservice_client=transport.client())
 
         assert not transport.searched
@@ -396,7 +396,7 @@ def test_freshservice_sync_with_an_agent_email_nobody_matches_fails_closed_witho
     settings = _configured_settings(freshservice_agent_email=OWNER_EMAIL)
 
     with Session(engine) as session:
-        with pytest.raises(SyncError, match="^Freshservice agent lookup failed: ") as raised:
+        with pytest.raises(SyncError, match="^Freshservice agent lookup by FRESHSERVICE_AGENT_EMAIL failed: ") as raised:
             _sync_freshservice(settings, db=session, freshservice_client=transport.client(freshservice_agent_email=OWNER_EMAIL))
 
         assert not transport.searched
@@ -404,8 +404,34 @@ def test_freshservice_sync_with_an_agent_email_nobody_matches_fails_closed_witho
     assert API_KEY not in str(raised.value)
 
 
+def test_freshservice_sync_email_lookup_failure_names_the_setting_and_carries_the_clients_reason() -> None:
+    settings = _configured_settings(freshservice_agent_email=OWNER_EMAIL)
+    transport = _Transport(fail_lookup=True)
+
+    with pytest.raises(SyncError) as raised:
+        _sync_freshservice(settings, db=None, freshservice_client=transport.client(freshservice_agent_email=OWNER_EMAIL))
+
+    assert str(raised.value) == "Freshservice agent lookup by FRESHSERVICE_AGENT_EMAIL failed: Freshservice request failed with status 503"
+
+
+@pytest.mark.parametrize(
+    ("email", "expected"),
+    [
+        (None, "Freshservice agent lookup for the API key's own agent failed: no agent matched"),
+        (OWNER_EMAIL, "Freshservice agent lookup by FRESHSERVICE_AGENT_EMAIL failed: no agent matched"),
+    ],
+)
+def test_freshservice_sync_no_agent_matched_says_which_lookup_ran(email: str | None, expected: str) -> None:
+    overrides = {"freshservice_agent_email": email} if email else {}
+
+    with pytest.raises(SyncError) as raised:
+        _sync_freshservice(_configured_settings(**overrides), db=None, freshservice_client=_Transport(me={}, agents={"agents": []}).client(**overrides))
+
+    assert str(raised.value) == expected
+
+
 def test_freshservice_sync_agent_lookup_failure_carries_the_clients_reason() -> None:
-    with pytest.raises(SyncError, match="Freshservice agent lookup failed: Freshservice request failed with status 503") as raised:
+    with pytest.raises(SyncError, match="Freshservice agent lookup for the API key's own agent failed: Freshservice request failed with status 503") as raised:
         _sync_freshservice(_configured_settings(), db=None, freshservice_client=_Transport(fail_lookup=True).client())
 
     assert isinstance(raised.value.__cause__, FreshserviceError)
@@ -563,7 +589,7 @@ def lookup_down(monkeypatch: pytest.MonkeyPatch) -> str:
     """The registered handler, with a client whose owner lookup fails; returns the sync's message."""
     failing = _Transport(fail_lookup=True).client()
     monkeypatch.setattr(freshservice_sync, "FreshserviceClient", SimpleNamespace(from_settings=lambda settings: failing))
-    return "Freshservice agent lookup failed: Freshservice request failed with status 503"
+    return "Freshservice agent lookup for the API key's own agent failed: Freshservice request failed with status 503"
 
 
 def test_post_sync_for_freshservice_answers_409_naming_what_is_missing_when_unconfigured() -> None:

@@ -17,8 +17,8 @@ the API key belongs to (``/agents/me``). Unlike Jira, whose search says
 ``currentUser()`` and whose owner lookup can fail after the issues are fetched,
 this connector's query *contains* the owner's id (``agent_id:<id>``), so an owner
 nobody can name fails the sync before anything is fetched: nothing stored, nothing
-promoted, the cursor where it was. The message names the lookup and the client's
-reason and never the email or the key.
+promoted, the cursor where it was. The message names which lookup ran (the setting's name
+or the key's own agent), then the client's reason, and never the email or the key.
 
 **The window.** One query per sync, :func:`~app.integrations.freshservice.assigned_tickets_query`:
 every Open or Pending ticket assigned to the owner whatever its age, plus every
@@ -114,12 +114,13 @@ def owner_agent(client: FreshserviceClient, settings: Settings) -> FreshserviceA
     reason of its own, and gets a fixed one that, like the others, names no value.
     """
     email = settings.freshservice_agent_email
+    lookup = "by FRESHSERVICE_AGENT_EMAIL" if email else "for the API key's own agent"
     try:
         agent = client.find_agent_by_email(email) if email else client.current_agent()
     except FreshserviceError as error:
-        raise SyncError(f"Freshservice agent lookup failed: {error}") from error
+        raise SyncError(f"Freshservice agent lookup {lookup} failed: {error}") from error
     if agent is None:
-        raise SyncError("Freshservice agent lookup failed: no agent matched")
+        raise SyncError(f"Freshservice agent lookup {lookup} failed: no agent matched")
     return agent
 
 
