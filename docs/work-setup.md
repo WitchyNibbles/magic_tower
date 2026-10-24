@@ -32,6 +32,8 @@ Add the proxy to your shell profile (`~/.bashrc` or your shell's equivalent), th
 export HTTPS_PROXY=http://<proxy-host>:<port>
 export HTTP_PROXY=http://<proxy-host>:<port>
 export NO_PROXY=localhost,127.0.0.1,api
+# apt reads only the lowercase names
+export https_proxy=$HTTPS_PROXY http_proxy=$HTTP_PROXY no_proxy=$NO_PROXY
 ```
 
 `apt`, `curl`, `git`, `uv` and `npm` read these. Docker needs it in two places once it's installed: a systemd drop-in for `docker.service` for image pulls (Docker's docs: "Configure the daemon to use a proxy"), and `proxies` in `~/.docker/config.json` for the `RUN npm ci` and `RUN uv sync` steps of the image builds. Step 3 adds it to `.env` for the running app.
@@ -66,7 +68,7 @@ On WSL the Docker script prints a warning suggesting Docker Desktop and waits 20
 nvm install 22
 ```
 
-Check: `docker run --rm hello-world` prints "Hello from Docker!", and the table checks above pass.
+Behind a proxy, set up the Docker daemon proxy (section above) before this check, since it pulls from Docker Hub. Check: `docker run --rm hello-world` prints "Hello from Docker!", and the table checks above pass.
 
 ## 2. Clone and run the tests
 

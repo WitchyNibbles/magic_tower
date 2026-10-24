@@ -30,7 +30,7 @@ Ranked by how much they block real daily use at work (Jira Cloud, Freshservice, 
 1. **Jira sync only sees the last 15 minutes, and nothing syncs on a schedule.** The participation search ends in `updated >= -15m` (`backend/app/integrations/jira.py`), and no scheduler exists. A manual sync once a day therefore misses almost every issue. Only the optional management project is read without a time window. This needs a fix before Jira is usable: a stored watermark or a wider first-sync window, plus a periodic sync.
 2. **The UI can't sync Jira or show why a sync failed.** The sync button calls `POST /api/sync` with the default `kind` (Outlook). Jira syncs only through `curl ... /api/sync?kind=jira`. Every error, including a useful 409 such as "Jira is not configured", becomes the same "Sync could not be completed." toast.
 3. **No Freshservice connector.** See [Freshservice](#freshservice) below for what it would take.
-4. **Outlook needs IT.** Outlook needs an Entra app registration, which a user without the Application Developer role can't create (`docs/work-setup.md`, step 5). Once connected, each sync reads only the newest 50 messages in the Inbox folder, so mail that rules file elsewhere is missed.
+4. **Outlook needs IT.** Outlook needs an Entra app registration, and this tenant doesn't let users create one without the Application Developer role (`docs/work-setup.md`, step 5). Once connected, each sync reads only the newest 50 messages in the Inbox folder, so mail that rules file elsewhere is missed.
 5. **Image builds can't trust a company root CA.** The Dockerfiles have no hook for an extra CA, so behind TLS inspection `docker compose build` fails at `npm ci` or `uv sync`. The no-Docker dev loop still works.
 6. **Agent handoff has no client.** "Use Codex" and "Use Claude Code" store an `AgentDispatchRequest`, and nothing in the repo consumes it: the pending-work CLI (under scripts/) and its plugins were removed in PR #1 (they survive on `tooling-archive`). An agent can still call the API with `curl`.
 7. **Some sync failures are a bare 500.** A Jira or Graph error that isn't a `SyncError` escapes `POST /api/sync` as `500`, with the reason only in `docker compose logs api`.
@@ -42,11 +42,11 @@ Ranked by how much they block real daily use at work (Jira Cloud, Freshservice, 
 A connector would follow the Jira shape:
 
 - a read-only GET client for `https://<domain>.freshservice.com/api/v2`, with Basic auth (the agent's own API key as username, any dummy password);
-- a sync handler registered in `backend/app/services/sync_registry.py`, a promotion rule (tickets where `agent_id` is you), and three settings;
+- its own sync module that calls `register_sync_handler` and is imported by `backend/app/main.py` (the way `jira_sync` is), a promotion rule (tickets where `agent_id` is you), and three settings;
 - a `freshservice` source kind in `backend/app/models.py` (no migration: the kind columns are `VARCHAR(13)` with no CHECK, and `freshservice` is 12 characters), plus the frontend source union;
 - a connectivity check like `jira_check`.
 
-Useful API facts: `GET /api/v2/tickets/filter?query="agent_id:<id>"`, `updated_since` on the list endpoint (it otherwise returns only the last 30 days), `per_page` up to 100, and per-minute rate limits by plan with `Retry-After` on 429. Jira's connector is about 700 lines of backend code plus tests (`integrations/jira.py`, `services/jira_sync.py`, `services/jira_dedupe.py`, `tools/jira_check.py`). Freshservice can skip the dedupe part, so expect roughly 1 to 2 days of agent work with tests. It stays read-only: nothing is ever written back to Freshservice.
+Useful API facts: `GET /api/v2/tickets/filter?query="agent_id:<id>"`, `updated_since` on the list endpoint (it otherwise returns only the last 30 days), `per_page` up to 100 on the list endpoint (the filter endpoint pages at 30), and per-minute rate limits by plan with `Retry-After` on 429. Jira's connector is about 700 lines of backend code plus tests (`integrations/jira.py`, `services/jira_sync.py`, `services/jira_dedupe.py`, `tools/jira_check.py`). Freshservice can skip the dedupe part, so expect roughly 1 to 2 days of agent work with tests. It stays read-only: nothing is ever written back to Freshservice.
 
 ## Repo housekeeping
 
