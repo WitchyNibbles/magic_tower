@@ -108,6 +108,10 @@ Two optional sync settings. Both are fine at their defaults, so only add them to
 - `SYNC_INTERVAL_MINUTES`: minutes between automatic syncs. Default `10`; `0` turns them off.
 - `JIRA_SYNC_LOOKBACK_DAYS`: how far back the first Jira sync looks. Default `14`. After that, each sync picks up where the last good one stopped.
 
+One more optional setting, for a client that analyses your queue and shows its results in the UI (the grimoire work view, `docs/agent-protocol.md`):
+
+- `GRIMOIRE_API_TOKEN`: a random value, different from `LOCAL_API_TOKEN` (generate it the same way). The client sends it on `/api/grimoire/*` only, and those routes accept nothing else. Leave it out and they answer `503`; the rest of the app is unaffected.
+
 `.env` is gitignored. Never paste its values into a chat, issue or commit.
 
 ## 4. Connect Jira
@@ -182,7 +186,7 @@ Just leave it running:
 
 1. `docker compose up -d` once. The data lives in the `workboard-data` volume between runs.
 2. It syncs every 10 minutes on its own. Press Sync now when you want it right away.
-3. Triage the queue: update, dismiss, hand off. Note what's missing or noisy. Those notes are the backlog.
+3. Triage the queue: update, dismiss, promote. If a client writes analyses, they show above each item's source text, and the Projects entry in the left pane lists its project snapshot. Note what's missing or noisy. Those notes are the backlog.
 4. `docker compose down` when you're done with it. `down -v` deletes all synced data.
 
 Freshservice tickets don't show up: the connector needs `FRESHSERVICE_URL` and `FRESHSERVICE_API_KEY` set, and only parts of it have run against a real site. Follow `docs/freshservice-setup.md`, run its check, and see "What is not verified yet" there if the check fails.

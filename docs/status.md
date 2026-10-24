@@ -4,7 +4,7 @@ Snapshot of 2026-10-24, taken from `main` at `fc3e536`. Things will drift from h
 
 ## What it does today
 
-Magic Tower is a local task queue. It reads your Outlook inbox (Microsoft Graph), your Jira Cloud issues and the Freshservice tickets assigned to you, keeps the ones a fixed rule set calls "work" as review items with their evidence, and shows them in a React UI on `127.0.0.1:8787`. Local agent clients can read the queue and post proposals and dispatch records through a loopback API guarded by `LOCAL_API_TOKEN`. It never writes to Microsoft 365, Jira or Freshservice.
+Magic Tower is a local task queue. It reads your Outlook inbox (Microsoft Graph), your Jira Cloud issues and the Freshservice tickets assigned to you, keeps the ones a fixed rule set calls "work" as review items with their evidence, and shows them in a React UI on `127.0.0.1:8787`. Local agent clients can read the queue and post proposals and dispatch records through a loopback API guarded by `LOCAL_API_TOKEN`, and one analysing client can write summaries and a project snapshot through a separate, narrower token. It never writes to Microsoft 365, Jira or Freshservice.
 
 ## What works end to end
 
@@ -15,7 +15,8 @@ Proven by the test suite and CI, with fake or stubbed Graph, Jira and Freshservi
 - Jira connector: participation search (assigned, reported, created, watched, voted) over the whole gap since the last good sync, an optional browse-only management project, dedupe, and promotion of issues assigned to you.
 - Freshservice connector (`docs/freshservice-setup.md`): read-only search of the tickets assigned to you (open and pending ones of any age, plus anything updated within the lookback), dedupe, promotion of the ones assigned to you and not Resolved or Closed, and a connectivity check (`app.tools.freshservice_check`).
 - Scheduled sync of every ready source every 10 minutes, and the Sync now button for all of them (`POST /api/sync/all`).
-- Promotion rules, the backfill endpoint, review queue actions (filter, update, dismiss, promote, hand off).
+- Promotion rules, the backfill endpoint, review queue actions (filter, update, dismiss, promote).
+- The grimoire work view: a token-scoped `/api/grimoire/*` API to read the items that need analysis and to write an encrypted analysis and a project snapshot, which the UI shows as plain text.
 - Alembic migrations, also on a database that predates Alembic.
 - `docker compose build` (CI job `build`).
 
@@ -36,7 +37,7 @@ PR #4 fixed the two that blocked Jira: each sync now covers the whole gap since 
 2. **Outlook needs IT.** Outlook needs an Entra app registration, and this tenant doesn't let users create one without the Application Developer role (`docs/work-setup.md`, step 5). Once connected, each sync reads only the newest 50 messages in the Inbox folder, so mail that rules file elsewhere is missed.
 3. **Image builds can't trust a company root CA.** The Dockerfiles have no hook for an extra CA, so behind TLS inspection `docker compose build` fails at `npm ci` or `uv sync`. The no-Docker dev loop still works.
 4. **A big Jira can outgrow one sync.** Each query stops at 2000 issues. A first 14-day sync for a busy account, or a large management project, can hit that; the API log then warns and the Jira result says `"truncated": true`, but the oldest issues are skipped.
-5. **Agent handoff has no client.** "Use Codex" and "Use Claude Code" store an `AgentDispatchRequest`, and nothing in the repo consumes it: the pending-work CLI (under scripts/) and its plugins were removed in PR #1 (they survive on `tooling-archive`). An agent can still call the API with `curl`.
+5. **The work view has no client in this repo.** The UI shows an analysis (summary, details, a stale hint) above each item's source text, and a read-only Projects view, both written through `/api/grimoire/*` (`docs/agent-protocol.md`). The client that writes them lives outside this repo, so until it runs the UI shows source text and "No analysis yet." The "Use Codex" and "Use Claude Code" buttons are gone. The dispatch API and its stored rows remain, and nothing consumes them.
 6. **Unmeasured heuristic.** Until a labeled sample of real mail is scored, nobody knows how much real work the rules miss or how much noise they let through. This needs Outlook.
 7. **An Outlook failure can still be a bare 500.** Jira request failures now answer `409` with their reason, and Sync now always reports per source. A Graph error that isn't a `SyncError` still escapes `POST /api/sync` as `500`, with the reason only in `docker compose logs api`.
 8. **Jira Cloud only.** Basic auth over `email:classic-token`, and the Cloud-only `/rest/api/3/search/jql` endpoint. Fine for a Cloud site; Server or Data Center would need new code.
