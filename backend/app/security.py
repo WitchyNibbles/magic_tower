@@ -57,6 +57,23 @@ def require_local_agent_token(authorization: Annotated[str | None, Header()] = N
                             headers={"WWW-Authenticate": "Bearer"})
 
 
+def require_grimoire_token(authorization: Annotated[str | None, Header()] = None,
+                           settings: Settings = Depends(get_settings)) -> None:
+    """Authenticate the grimoire client on ``/api/grimoire/*`` with its own bearer token.
+
+    Deliberately not ``LOCAL_API_TOKEN`` and not a browser session: whoever holds one of
+    those cannot read source text or write analyses, and this token opens no other route.
+    """
+    configured = settings.grimoire_api_token
+    expected = configured.get_secret_value() if configured else ""
+    if not expected:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="grimoire API not configured")
+    if not _valid_bearer(authorization, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="A valid grimoire API bearer token is required",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+
 def _session_key(session_id: str) -> str:
     """The stored form of a session id: its SHA-256, so the database never holds the cookie value."""
     return hashlib.sha256(session_id.encode()).hexdigest()
