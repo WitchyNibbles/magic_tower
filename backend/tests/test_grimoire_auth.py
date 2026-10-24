@@ -142,3 +142,19 @@ def test_every_grimoire_route_refuses_no_credentials_the_local_token_and_a_brows
         assert client.post("/api/session", headers=bearer(LOCAL_TOKEN)).status_code == 201
         for method, route in routes:
             assert _call(client, method, route.path, {}).status_code == 401, f"{method} {route.path} with a browser session"
+
+
+@pytest.mark.usefixtures("tokens")
+@pytest.mark.parametrize("path", [PING, "/api/work-items"])
+def test_a_non_ascii_bearer_is_401_not_a_server_error(path):
+    with TestClient(app) as client:
+        response = client.get(path, headers={"Authorization": "Bearer café-token".encode("latin-1")})
+    assert response.status_code == 401
+
+
+@pytest.mark.usefixtures("tokens")
+def test_a_non_ascii_csrf_token_is_403_not_a_server_error():
+    with TestClient(app) as client:
+        assert client.post("/api/session", headers=bearer(LOCAL_TOKEN)).status_code == 201
+        response = client.post("/api/sync/all", headers={"X-CSRF-Token": "café".encode("latin-1")})
+    assert response.status_code == 403
