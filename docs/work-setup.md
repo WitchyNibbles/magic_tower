@@ -1,6 +1,6 @@
 # Setting up on a work computer
 
-How to run Magic Tower on a Windows work PC with WSL2 and Docker Engine inside WSL, so you can develop it and test it against your real Jira. Outlook works only if IT registers an app for you (step 5). Each step ends with a check, so you know it worked before you move on.
+How to run Magic Tower on a Windows work PC with WSL2 and Docker Engine inside WSL, so you can develop it and test it against your real Jira and Freshservice. Outlook works only if IT registers an app for you (step 5). Each step ends with a check, so you know it worked before you move on.
 
 Once it's running, it syncs Jira on its own every 10 minutes, so after setup there's nothing to press.
 
@@ -125,6 +125,10 @@ cd ..
 
 Check: it prints `connected to https://<site>.atlassian.net as '<your name>' ...` and an issue count. The count covers issues you touch that changed in the last `JIRA_SYNC_LOOKBACK_DAYS` (14 days by default), the same set the first sync fetches. `Jira request failed with status 401` means a wrong email or token. Plain `Jira request failed` means DNS, TLS or proxy (see the proxy section).
 
+### Freshservice (optional)
+
+If your tickets live in Freshservice, `docs/freshservice-setup.md` has the steps: take the API key from your Freshservice Profile Settings, set `FRESHSERVICE_URL` and `FRESHSERVICE_API_KEY` in `.env` (or export them in your shell, since Docker passes shell variables through), and run `uv run --env-file ../.env python -m app.tools.freshservice_check` from `backend/`. Only tickets assigned to you that aren't Resolved or Closed become work items.
+
 ## 5. Outlook: only through IT
 
 You can't register an Entra app at work, and Magic Tower has no other way in: it reads mail only through Microsoft Graph with its own app registration. Skip this step unless IT agrees. Everything else works without it.
@@ -164,9 +168,9 @@ If Windows can't reach the page but `curl -s http://127.0.0.1:8787/api/health` w
 
 Nothing to do: the app syncs Jira about 30 seconds after it starts. To sync right away, press Sync now in the UI. The toast says what came back for each source, for example "Jira: 3 new items".
 
-Check: filter the UI by source "Jira". Only issues assigned to you become work items. The rest are stored and browsable.
+Check: filter the UI by source "Jira" (or "Freshservice"). Only issues and tickets assigned to you become work items. The rest are stored and browsable.
 
-- Toast says "Nothing to sync yet": Jira's three settings aren't set.
+- Toast says "Nothing to sync yet": neither Jira's three settings nor Freshservice's two are set.
 - Toast shows a Jira error (for example `Jira request failed with status 401`): fix that, then press Sync now again.
 - `docker compose logs api` also has one line per scheduled sync.
 
@@ -181,7 +185,7 @@ Just leave it running:
 3. Triage the queue: update, dismiss, hand off. Note what's missing or noisy. Those notes are the backlog.
 4. `docker compose down` when you're done with it. `down -v` deletes all synced data.
 
-Freshservice tickets don't show up: there's no Freshservice connector yet (`docs/status.md`, gap 1).
+Freshservice tickets don't show up: the connector needs `FRESHSERVICE_URL` and `FRESHSERVICE_API_KEY` set, and it has not been run against a real site yet. Follow `docs/freshservice-setup.md`, run its check, and see "What is not verified yet" there if the check fails.
 
 With Outlook, after a week or so, score the promotion rules on your own mail with `docs/second-pc.md` steps 5 to 7. The labeled file holds real mail and stays in `~/.magic-tower/`, outside the repo.
 

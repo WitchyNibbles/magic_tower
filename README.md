@@ -4,9 +4,9 @@
 
 ![Magic Tower, surrounded by floating runic particles](assets/magic-tower-logo.png)
 
-Magic Tower is a local-first task queue built from the work that arrives in your Outlook inbox and Jira. It reads mail through Microsoft Graph, decides with a deterministic rule set which messages are actual work, and shows those as reviewable work items with the evidence that put them there. Local agent clients can read that queue and report back through a loopback-only API.
+Magic Tower is a local-first task queue built from the work that arrives in your Outlook inbox, Jira and Freshservice. It reads mail through Microsoft Graph, decides with a deterministic rule set which messages are actual work, and shows those as reviewable work items with the evidence that put them there. Local agent clients can read that queue and report back through a loopback-only API.
 
-Everything runs on your own machine. Nothing is fetched until you connect a source, nothing is ever sent or changed in Microsoft 365 or Jira, and message content is encrypted at rest.
+Everything runs on your own machine. Nothing is fetched until you connect a source, nothing is ever sent or changed in Microsoft 365, Jira or Freshservice, and message content is encrypted at rest.
 
 ![The Magic Tower review queue: sources and status filters on the left, triaged work items in the middle, and the selected email's source evidence and agent handoff on the right](assets/dashboard.png)
 
@@ -16,6 +16,7 @@ Everything runs on your own machine. Nothing is fetched until you connect a sour
 
 - **Outlook ingestion** over Microsoft Graph with delegated, read-only OAuth (authorization code + PKCE, `offline_access`, automatic token refresh, `@odata.nextLink` paging, and `Retry-After` backoff on 429/503).
 - **Jira ingestion** of issues you are assigned to, reported, created, watch, or voted on, plus an optional browse-only management project (`docs/jira-setup.md`). Each sync picks up where the last good one stopped.
+- **Freshservice ingestion** of the tickets assigned to you, read-only (`docs/freshservice-setup.md`). Only the ones that aren't Resolved or Closed become work items; the connector has not been run against a real site yet.
 - **Scheduled sync** of every ready source every `SYNC_INTERVAL_MINUTES` (default 10), plus a sync button that runs all of them on demand.
 - **Rule-based promotion** (`backend/app/services/promotion.py`): no LLM and no network, so the same message always gets the same decision, and the rules can be scored against a hand-labeled sample of real mail.
 - **Review queue UI** to filter, inspect, update, dismiss, and hand off work items, each with its source evidence.
@@ -73,6 +74,8 @@ All settings live in `.env`; [`.env.example`](.env.example) lists every one with
 | `JIRA_SITE_URL`, `JIRA_ACCOUNT_EMAIL`, `JIRA_API_TOKEN`, `JIRA_MANAGEMENT_PROJECT_KEY` | Jira sync. See [`docs/jira-setup.md`](docs/jira-setup.md). |
 | `PROMOTION_ALLOWLISTED_SENDERS` | Optional senders whose mail is always treated as work. |
 | `SYNC_INTERVAL_MINUTES` | Minutes between scheduled syncs of every ready source. Default 10; `0` turns the schedule off. |
+| `FRESHSERVICE_URL`, `FRESHSERVICE_API_KEY`, `FRESHSERVICE_AGENT_EMAIL` | Freshservice sync. Shell variables reach the container too. See [`docs/freshservice-setup.md`](docs/freshservice-setup.md). |
+| `FRESHSERVICE_SYNC_LOOKBACK_DAYS` | How far back a first Freshservice sync looks. Default 14. |
 | `JIRA_SYNC_LOOKBACK_DAYS` | How far back a first Jira sync looks, and the cap after a long gap. Default 14. |
 
 ## Security
@@ -117,6 +120,7 @@ Nothing crosses the threshold until you invite it in. The rest of the grimoire l
 - **[Binding the Graph familiar](docs/microsoft-graph.md)**: the Entra registration, the first sync, and the backfill that offers older mail to the heuristic.
 - **[Testing the heuristic on real mail](docs/second-pc.md)**: the two-machine ritual that ends in a precision/recall number, without real mail ever touching this repository.
 - **[Summoning Jira](docs/jira-setup.md)**: connecting a real Jira Cloud site and checking what comes back.
+- **[Summoning Freshservice](docs/freshservice-setup.md)**: the API key, the settings, the check command, and what is still unverified.
 - **[The agent's pact](docs/agent-protocol.md)**: what a local agent may read, propose, and report.
 - **[The tower's plan](docs/architecture.md)**: components, boundaries, and how a sync moves through them.
 - **[Where the tower stands](docs/status.md)**: what works today, what's never touched a real account, and the gaps before daily use.
