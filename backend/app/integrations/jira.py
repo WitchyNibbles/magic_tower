@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
@@ -29,20 +30,45 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:
     from ..config import Settings
 
+logger = logging.getLogger(__name__)
+
 JIRA_API_ROOT = "/rest/api/3"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
 
 # AC8: the participation query -- every issue the token owner is assigned,
-# reported, created, watches or voted on, bounded to a 15-minute relative
-# window. The search index is eventually consistent (seconds to minutes) and
-# ``updated`` is relative to the token owner's Jira profile timezone rather
-# than UTC, so a relative window is safe where an absolute watermark would
-# need a timezone conversion this connector does not do.
-JIRA_PARTICIPATION_JQL = (
+# reported, created, watches or voted on, bounded to a relative window of the
+# last N minutes. The sync works out N from its cursor (the start of the last
+# successful sync, ``app/services/sync_cursor.py``): the gap since then plus a
+# small overlap, or the configured lookback when there is no cursor or the gap
+# is longer.
+#
+# The window is *relative* on purpose. ``updated`` is evaluated in the token
+# owner's Jira profile timezone rather than UTC, so an absolute ``updated >=
+# "2026-10-24 09:00"`` built from the cursor would need a timezone conversion
+# this connector does not do, and would be wrong by the profile's UTC offset
+# whenever it guessed. Jira measures ``-{N}m`` back from its own "now", so the
+# cursor only ever has to supply a duration, which is the same in every zone.
+# The search index is also eventually consistent (seconds to minutes), which is
+# why the sync pads the gap with an overlap instead of asking for exactly it.
+_PARTICIPATION_JQL = (
     "(assignee = currentUser() OR reporter = currentUser() OR creator = currentUser() "
-    "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -15m "
+    "OR watcher = currentUser() OR voter = currentUser()) AND updated >= -{window_minutes}m "
     "ORDER BY updated DESC"
 )
+
+
+def participation_jql(window_minutes: int) -> str:
+    """The participation query over the last ``window_minutes`` minutes.
+
+    Refuses anything but a positive ``int``: the value is spliced into the JQL
+    text, so a string would be injected as written, and zero or a negative number
+    would not be a window into the past at all. ``bool`` is an ``int`` subclass
+    and is refused too, since ``True`` is never a duration anyone meant.
+    """
+    if isinstance(window_minutes, bool) or not isinstance(window_minutes, int) or window_minutes < 1:
+        raise ValueError(f"window_minutes must be an int of at least 1, got {window_minutes!r}")
+    return _PARTICIPATION_JQL.format(window_minutes=window_minutes)
+
 
 # ``GET /rest/api/3/search/jql`` defaults ``fields`` to ``id`` alone; everything
 # the queue needs to render a Jira issue must be named here explicitly.
@@ -52,8 +78,18 @@ JIRA_SEARCH_PAGE_SIZE = 100
 # Cap on how many ``nextPageToken`` pages a single call follows. This endpoint
 # returns no ``total``, so nothing else stops a server that always returns a
 # token (buggy, or worse) from paging forever; 20 pages of 100 issues each is
-# far beyond what one account's 15-minute participation window will ever hold.
+# far beyond what one account's participation window will ever hold.
 JIRA_SEARCH_MAX_PAGES = 20
+
+
+class SearchResult(list[dict[str, Any]]):
+    """The issues a search returned, plus whether the page cap cut it short.
+
+    A ``list`` so every caller that only iterates keeps working; ``truncated`` is
+    true when the last page allowed still offered a ``nextPageToken``.
+    """
+
+    truncated: bool = False
 
 
 class JiraError(RuntimeError):
@@ -136,7 +172,7 @@ class JiraClient:
     def myself(self) -> dict[str, Any]:
         return self._get(f"{JIRA_API_ROOT}/myself")
 
-    def _search(self, jql: str) -> list[dict[str, Any]]:
+    def _search(self, jql: str, query_kind: str) -> SearchResult:
         """Fetch up to ``JIRA_SEARCH_MAX_PAGES`` pages of ``jql`` via
         ``GET /rest/api/3/search/jql`` -- the old ``/rest/api/3/search`` is removed
         (CHANGE-2046) and stays removed. Requests ``JIRA_SEARCH_FIELDS`` explicitly, since this
@@ -149,8 +185,11 @@ class JiraClient:
         :meth:`search_project_issues` (T09) -- the two differ only in which JQL
         they hand this method, and every pagination rule ``test_jira_query.py``
         pins applies identically to both.
+
+        Stopping at the cap with a ``nextPageToken`` still on offer is truncation: the
+        result says so (``truncated``) and a WARNING names ``query_kind``, never the JQL.
         """
-        issues: list[dict[str, Any]] = []
+        issues = SearchResult()
         next_page_token: str | None = None
         for _ in range(JIRA_SEARCH_MAX_PAGES):
             params: dict[str, str] = {
@@ -169,27 +208,30 @@ class JiraClient:
             next_page_token = response.get("nextPageToken")
             if not next_page_token:
                 break
+        else:
+            issues.truncated = True
+            logger.warning("Jira %s search stopped after %s pages; older issues were not fetched", query_kind, JIRA_SEARCH_MAX_PAGES)
         return issues
 
-    def search_participation_issues(self) -> list[dict[str, Any]]:
-        """Every issue in the caller's participation window
-        (``JIRA_PARTICIPATION_JQL``); see :meth:`_search`."""
-        return self._search(JIRA_PARTICIPATION_JQL)
+    def search_participation_issues(self, window_minutes: int) -> SearchResult:
+        """Every issue in the caller's participation window over the last
+        ``window_minutes`` minutes (:func:`participation_jql`); see :meth:`_search`."""
+        return self._search(participation_jql(window_minutes), "participation")
 
-    def search_project_issues(self, project_key: str) -> list[dict[str, Any]]:
+    def search_project_issues(self, project_key: str) -> SearchResult:
         """The most recently updated issues in one named project (T09, AC10) --
         the management visibility sync, unbounded by participation.
 
-        **Capped, and the truncation is silent.** The clause orders by ``updated
-        DESC`` and :meth:`_search` follows at most ``JIRA_SEARCH_MAX_PAGES`` pages
-        of ``JIRA_SEARCH_PAGE_SIZE``, so this returns at most the 2000 most
-        recently updated issues in the project; anything past that is dropped with
-        no error and no marker on the result. Measured against a stub that always
+        **Capped.** The clause orders by ``updated DESC`` and :meth:`_search`
+        follows at most ``JIRA_SEARCH_MAX_PAGES`` pages of ``JIRA_SEARCH_PAGE_SIZE``,
+        so this returns at most the 2000 most recently updated issues in the
+        project; anything past that is dropped with no error. The result's
+        ``truncated`` flag and a WARNING say so. Measured against a stub that always
         returns a ``nextPageToken``: 2000 issues, 20 pages, no raise. The cap's
-        justification where it is defined is about one account's 15-minute
-        participation window, and that reasoning does not carry here -- a
-        management project holding more than 2000 issues is ordinary, so this
-        call's callers get a recent-issues view of a project, not the whole of it.
+        justification where it is defined is about one account's participation
+        window, and that reasoning does not carry here -- a management project
+        holding more than 2000 issues is ordinary, so this call's callers get a
+        recent-issues view of a project, not the whole of it.
 
         Its issues are stored and browsable, and never promoted on that ground
         alone: ``promotion.should_promote``'s Jira rule (rule A) decides Jira
@@ -201,14 +243,13 @@ class JiraClient:
         quotes first would let the second pass double the escaper's own
         backslash, so an embedded quote reopens the literal, and escaping quotes
         alone would let a trailing backslash consume the closing quote). This
-        matters because -- unlike
-        ``JIRA_PARTICIPATION_JQL`` -- the clause is built from
+        matters because -- unlike the participation query -- the clause is built from
         ``JIRA_MANAGEMENT_PROJECT_KEY``, a configured value rather than a fixed
         literal; ``test_jira_project_visibility.py`` pins both replacements with
         keys that carry a backslash and a quote.
         """
         escaped_key = project_key.replace("\\", "\\\\").replace('"', '\\"')
-        return self._search(f'project = "{escaped_key}" ORDER BY updated DESC')
+        return self._search(f'project = "{escaped_key}" ORDER BY updated DESC', "project")
 
 
 def extract_adf_plain_text(document: dict[str, Any] | None) -> str | None:

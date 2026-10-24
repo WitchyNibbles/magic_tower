@@ -37,7 +37,9 @@ export const beginMicrosoftConnect = async () => {
   const response = await request<{ authorization_url: string }>('/api/auth/microsoft/start')
   window.location.assign(response.authorization_url)
 }
-export const syncNow = () => request<{ created?: number; updated?: number; detail?: string }>('/api/sync', { method: 'POST' })
+// One entry per configured source: its sync envelope, or { error } when that source failed (backend/app/services/sync_all.py).
+export interface SyncResult { count?: number; new_sources?: number; new_work_items?: number; mode?: string; synced_at?: string; window_minutes?: number; error?: string }
+export const syncNow = () => request<{ results: Record<string, SyncResult> }>('/api/sync/all', { method: 'POST' })
 export const createDispatch = (id: string, client: 'codex' | 'claude-code', instruction: string) => request(`/api/work-items/${id}/dispatch`, { method: 'POST', body: JSON.stringify({ client, instruction }) })
 
 export const getHealth = () => request<Health>('/api/health')

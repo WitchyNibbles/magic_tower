@@ -1,3 +1,7 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import StatementError
@@ -6,12 +10,56 @@ from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
 from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
+from .services.scheduler import SyncScheduler, run_scheduled_sync
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
 
-app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+APP_LOGGER_NAME = "app"
+
+
+def _configure_app_logging() -> None:
+    """Make the app's own INFO lines (the scheduler's per-source results) visible.
+
+    uvicorn configures only its own loggers; ``app.*`` propagates to a root logger
+    with no handler and the default WARNING level, so INFO would be dropped. A
+    handler and level on the ``app`` logger alone fixes that without touching the
+    root logger or uvicorn's setup. It is skipped when something upstream already
+    handles logging (a configured root logger), which also keeps repeated calls
+    from stacking handlers.
+    """
+    app_logger = logging.getLogger(APP_LOGGER_NAME)
+    if app_logger.hasHandlers():
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s: %(message)s"))
+    app_logger.addHandler(handler)
+    app_logger.setLevel(logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Run the sync scheduler for as long as the app is up.
+
+    Off when ``SYNC_INTERVAL_MINUTES`` is 0. The scheduler is stopped in a
+    ``finally`` so a failing app still shuts its thread down.
+    """
+    _configure_app_logging()
+    interval_minutes = get_settings().sync_interval_minutes
+    scheduler: SyncScheduler | None = None
+    if interval_minutes > 0:
+        scheduler = SyncScheduler(interval_minutes * 60, run_scheduled_sync)
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.stop()
+
+
+app = FastAPI(title="Magic Tower API", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 
 @app.middleware("http")

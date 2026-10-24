@@ -9,35 +9,93 @@ connector lives, without touching ``sync()``.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import logging
+import threading
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 # A handler receives the same shape ``sync()`` always did (settings, an optional
 # db session, and a limit) plus any connector-specific extras as keyword-only
 # args (e.g. Graph's ``client``), and returns the same result envelope ``sync()``
 # has always returned.
 SyncHandler = Callable[..., dict[str, Any]]
+# Whether a kind is set up well enough to sync without being asked for by name.
+ReadyCheck = Callable[["Settings"], bool]
+
+logger = logging.getLogger(__name__)
 
 _handlers: dict[str, SyncHandler] = {}
+_ready_checks: dict[str, ReadyCheck] = {}
+# One lock per kind, created at registration and never dropped: a sync that is
+# holding it must not lose it to an ``unregister`` or a re-registration.
+_locks: dict[str, threading.Lock] = {}
 
 
 class UnknownSourceKindError(RuntimeError):
     """Raised when nothing is registered for the requested source kind."""
 
 
-def register_sync_handler(kind: str, handler: SyncHandler) -> None:
+def register_sync_handler(kind: str, handler: SyncHandler, ready: ReadyCheck | None = None) -> None:
+    """Register ``handler`` for ``kind``.
+
+    ``ready(settings)`` says whether the kind is configured; only kinds with a
+    ``ready`` check are ever synced unprompted (:func:`ready_kinds`), so a handler
+    that cannot say when it is usable is reachable by name alone.
+    """
     _handlers[kind] = handler
+    _locks.setdefault(kind, threading.Lock())
+    if ready is None:
+        _ready_checks.pop(kind, None)
+    else:
+        _ready_checks[kind] = ready
 
 
 def unregister_sync_handler(kind: str) -> None:
     _handlers.pop(kind, None)
+    _ready_checks.pop(kind, None)
+
+
+def _unknown_kind(kind: str) -> UnknownSourceKindError:
+    return UnknownSourceKindError(f"no sync handler registered for source kind {kind!r}")
 
 
 def get_sync_handler(kind: str) -> SyncHandler:
     try:
         return _handlers[kind]
     except KeyError as error:
-        raise UnknownSourceKindError(f"no sync handler registered for source kind {kind!r}") from error
+        raise _unknown_kind(kind) from error
 
 
 def registered_kinds() -> tuple[str, ...]:
     return tuple(_handlers)
+
+
+def ready_kinds(settings: "Settings") -> tuple[str, ...]:
+    """The registered kinds whose ``ready`` check passes for ``settings``, in registration order.
+
+    A check that raises counts as not ready (:func:`_is_ready`); this never raises for one.
+    """
+    return tuple(kind for kind in _handlers if kind in _ready_checks and _is_ready(kind, settings))
+
+
+def _is_ready(kind: str, settings: "Settings") -> bool:
+    """Run ``kind``'s check; one that raises means not ready and must not hide the other kinds.
+
+    A check can touch the disk (Graph reads its token store), so an ``OSError`` is
+    possible. Only the exception's type is logged: its message may carry a path.
+    """
+    try:
+        return _ready_checks[kind](settings)
+    except Exception as error:
+        logger.warning("readiness check for %s failed (%s); treating it as not ready", kind, type(error).__name__)
+        return False
+
+
+def sync_lock(kind: str) -> threading.Lock:
+    """The lock that serialises syncs of ``kind``; ``sync()`` holds it around the handler call."""
+    try:
+        return _locks[kind]
+    except KeyError as error:
+        raise _unknown_kind(kind) from error

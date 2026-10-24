@@ -63,6 +63,23 @@ def test_run_check_reports_the_owner_identity_and_participation_count() -> None:
     assert "management_project_key" not in report
 
 
+@pytest.mark.parametrize(("lookback_days", "window_minutes"), [(14, 20_160), (3, 4_320)])
+def test_run_check_searches_the_whole_lookback_window(lookback_days: int, window_minutes: int) -> None:
+    """The check has no cursor, so it counts what a first sync would fetch: the
+    configured lookback, in minutes."""
+    jqls: list[str] = []
+    inner = _transport([ISSUE])
+
+    def recording(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        jqls.append(parse_qs(urlparse(url).query).get("jql", [""])[0])
+        return inner(method, url, headers, payload)
+
+    jira_check.run_check(_configured_settings(jira_sync_lookback_days=lookback_days), transport=recording)
+
+    (jql,) = [jql for jql in jqls if jql]
+    assert f"updated >= -{window_minutes}m " in jql
+
+
 def test_run_check_reports_the_management_project_count_when_configured() -> None:
     settings = _configured_settings(jira_management_project_key="OPS")
 

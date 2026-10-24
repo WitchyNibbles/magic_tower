@@ -10,7 +10,7 @@ owner -- and never by the mail rules, none of which have anything to read on it.
 API token belongs to, read from ``GET /rest/api/3/myself`` at sync time. Jira
 identifies people by ``accountId``, never by email, so ``JIRA_ACCOUNT_EMAIL``
 cannot be compared against ``fields.assignee``; and the participation window is
-already defined by ``currentUser()`` in ``JIRA_PARTICIPATION_JQL``, so the token
+already defined by ``currentUser()`` in ``participation_jql``, so the token
 owner is the only identity this connector has ever meant by "the owner".
 Recognising them from the same account the JQL already speaks of keeps the two
 from drifting, and costs the owner no extra setting to fill in with an opaque ID.

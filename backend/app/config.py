@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Optional settings that a documented ``.env`` may list with an empty value to show
@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # promoting its issues into the actionable queue. Optional: absent means no
     # project gets that extra visibility.
     jira_management_project_key: str | None = None
+    # How far back a Jira sync looks when it has no cursor (the first sync) and the
+    # most it ever looks after a long gap since the last successful one.
+    jira_sync_lookback_days: int = Field(default=14, ge=1)
+    # Minutes between scheduled syncs of every configured source; 0 turns the
+    # scheduler off, which is also how the test suite keeps background threads out.
+    sync_interval_minutes: int = Field(default=10, ge=0)
     # Addresses whose mail the promotion heuristic treats as work whatever its rules
     # decide, comma-separated. Tenant-specific by nature -- an internal robot one
     # owner acts on is noise to the next -- so it is configuration, not a constant.

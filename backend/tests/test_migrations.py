@@ -178,6 +178,19 @@ def test_an_empty_database_is_migrated_not_alembic_stamped_and_matches_the_model
     assert drift == [], f"the migration chain has drifted from app.models: {drift}"
 
 
+def test_the_chain_creates_the_sync_cursor_table_the_jira_window_reads(tmp_path):
+    database_path = tmp_path / "cursors.db"
+
+    _upgrade_to_head(database_path)
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        columns = {column["name"] for column in inspect(engine).get_columns("sync_cursors")}
+    finally:
+        engine.dispose()
+    assert columns == {"kind", "last_success_at"}
+
+
 def test_application_startup_writes_no_schema_of_its_own(tmp_path):
     database_path = tmp_path / "startup.db"
 

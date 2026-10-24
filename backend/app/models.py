@@ -216,3 +216,20 @@ class BrowserSession(Base):
     id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     csrf_token: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[float] = mapped_column(Float, index=True)
+
+
+class SyncCursor(Base):
+    """When a source kind last synced successfully, so the next sync can ask its
+    upstream only for what changed since.
+
+    One row per kind that keeps a cursor; today only ``"jira"`` does. Graph syncs
+    without one (it reads the latest inbox messages up to a limit), so it has no row.
+    ``last_success_at`` is the moment that sync *started*, not when it finished:
+    anything updated while it ran then falls inside the next window instead of in
+    a gap between two.
+    """
+
+    __tablename__ = "sync_cursors"
+
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    last_success_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

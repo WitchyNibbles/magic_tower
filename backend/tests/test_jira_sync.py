@@ -16,23 +16,31 @@ No test here reaches the network -- everything goes through the injectable
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.database import engine
-from app.integrations.jira import JiraClient
+from app.main import app
+from app.integrations.jira import JiraClient, JiraError
 from app.models import Source, SourceKind, WorkItem
-from app.services.jira_sync import JIRA_SOURCE_KIND, _sync_jira
+from app.services import jira_sync
+from app.services.jira_sync import JIRA_SOURCE_KIND, _sync_jira, lookback_window_minutes, participation_window_minutes
+from app.services.sync_cursor import last_success, record_success
 from app.services.sync import SyncError, sync
+from app.services.sync_all import sync_ready_sources
 from app.services.sync_registry import get_sync_handler, registered_kinds
 
 
@@ -147,7 +155,7 @@ def test_jira_sync_stores_an_issue_with_no_key_and_no_fields_block() -> None:
 def test_jira_sync_keeps_one_signal_for_an_issue_repeated_across_two_pages() -> None:
     """``search_participation_issues`` follows ``nextPageToken`` cursors, and
     ``/search/jql`` guarantees nothing about consistency across pages while the
-    ``updated >= -15m`` window is re-evaluated per request -- so the same ``id``
+    ``updated >= -{N}m`` window is re-evaluated per request -- so the same ``id``
     can arrive twice. This pins the handling, not any particular cause: the dedup
     in ``_fetch_issue_signals`` is what keeps the envelope's ``count`` honest."""
     settings = _configured_settings()
@@ -242,3 +250,275 @@ def test_jira_sync_handler_registers_via_the_main_import_alone() -> None:
         timeout=25,
     )
     assert result.returncode == 0, result.stderr
+
+
+# --- the search window and the sync cursor ----------------------------------
+
+NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
+
+
+def _window_of(jql: str) -> int:
+    match = re.search(r"updated >= -(\d+)m", jql)
+    assert match is not None, jql
+    return int(match.group(1))
+
+
+class _WindowRecordingTransport:
+    """Answers like ``_client_with`` and remembers the window each participation
+    search asked for; ``fail`` makes the search raise a ``JiraError`` and
+    ``myself_fails`` does the same for the ``/myself`` lookup."""
+
+    def __init__(self, issues: list[dict[str, Any]] | None = None, fail: bool = False, myself_fails: bool = False) -> None:
+        self.windows: list[int] = []
+        self._issues = issues or []
+        self._fail = fail
+        self._myself_fails = myself_fails
+
+    def __call__(self, method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        if url.endswith("/myself"):
+            if self._myself_fails:
+                raise JiraError("Jira request failed with status 503")
+            return {"accountId": OWNER_ACCOUNT_ID}
+        jql = parse_qs(urlparse(url).query)["jql"][0]
+        if jql.startswith("project ="):
+            return {"issues": []}
+        self.windows.append(_window_of(jql))
+        if self._fail:
+            raise JiraError("Jira request failed with status 500")
+        return {"issues": self._issues}
+
+    def client(self, **settings_overrides: Any) -> JiraClient:
+        return JiraClient.from_settings(_configured_settings(**settings_overrides), transport=self)
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Freeze ``jira_sync``'s notion of now at ``NOW``. Set ``step`` to make every
+    reading later than the one before, to tell the start of a sync from its end."""
+    state: dict[str, Any] = {"now": NOW, "step": timedelta(0)}
+
+    def now() -> datetime:
+        reading = state["now"]
+        state["now"] = reading + state["step"]
+        return reading
+
+    monkeypatch.setattr(jira_sync, "_utc_now", now)
+    return state
+
+
+@pytest.mark.parametrize(
+    ("gap", "expected_minutes"),
+    [
+        (timedelta(minutes=30), 35),
+        (timedelta(seconds=90), 7),
+        (timedelta(seconds=60), 6),
+        (timedelta(0), 5),
+        (timedelta(seconds=-1), 14 * 1440),
+        (timedelta(days=-1), 14 * 1440),
+        (timedelta(days=14), 14 * 1440),
+        (timedelta(days=60), 14 * 1440),
+    ],
+)
+def test_participation_window_is_the_gap_plus_overlap_capped_at_the_lookback(gap: timedelta, expected_minutes: int) -> None:
+    assert participation_window_minutes(NOW - gap, NOW, lookback_days=14) == expected_minutes
+
+
+def test_the_lookback_window_is_the_configured_days_in_minutes() -> None:
+    assert lookback_window_minutes(3) == 4320
+    assert participation_window_minutes(None, NOW, lookback_days=3) == lookback_window_minutes(3)
+
+
+def test_participation_window_without_a_cursor_is_the_whole_lookback() -> None:
+    assert participation_window_minutes(None, NOW, lookback_days=3) == 3 * 1440
+
+
+def test_jira_sync_without_a_cursor_searches_the_lookback_window(clock) -> None:
+    transport = _WindowRecordingTransport()
+
+    with Session(engine) as session:
+        result = _sync_jira(_configured_settings(jira_sync_lookback_days=3), db=session, jira_client=transport.client())
+
+    assert transport.windows == [4320]
+    assert result["window_minutes"] == 4320
+
+
+def test_jira_sync_uses_the_gap_since_the_last_success_plus_overlap(clock) -> None:
+    transport = _WindowRecordingTransport()
+
+    with Session(engine) as session:
+        record_success(session, JIRA_SOURCE_KIND, NOW - timedelta(minutes=30))
+        result = _sync_jira(_configured_settings(), db=session, jira_client=transport.client())
+
+    assert transport.windows == [35]
+    assert result["window_minutes"] == 35
+
+
+def test_jira_sync_after_a_long_gap_is_capped_at_the_lookback(clock) -> None:
+    transport = _WindowRecordingTransport()
+
+    with Session(engine) as session:
+        record_success(session, JIRA_SOURCE_KIND, NOW - timedelta(days=90))
+        result = _sync_jira(_configured_settings(jira_sync_lookback_days=2), db=session, jira_client=transport.client())
+
+    assert transport.windows == [2 * 1440]
+    assert result["window_minutes"] == 2 * 1440
+
+
+def test_jira_sync_without_a_database_searches_the_lookback_window_and_keeps_no_cursor(clock) -> None:
+    transport = _WindowRecordingTransport()
+
+    result = _sync_jira(_configured_settings(), db=None, jira_client=transport.client())
+
+    assert transport.windows == [14 * 1440]
+    assert result["window_minutes"] == 14 * 1440
+    with Session(engine) as session:
+        assert last_success(session, JIRA_SOURCE_KIND) is None
+
+
+def test_jira_sync_records_the_moment_it_started_as_the_cursor(clock) -> None:
+    """Not the moment it finished: an issue updated while the sync ran has to fall
+    inside the next window rather than in the gap between the two."""
+    clock["step"] = timedelta(minutes=1)
+
+    with Session(engine) as session:
+        result = _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport().client())
+        assert last_success(session, JIRA_SOURCE_KIND) == NOW
+
+    assert result["synced_at"] > NOW.isoformat()
+
+
+def test_jira_sync_advances_the_cursor_so_the_next_sync_asks_for_less(clock) -> None:
+    transport = _WindowRecordingTransport()
+
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=transport.client())
+        clock["now"] = NOW + timedelta(minutes=10)
+        _sync_jira(_configured_settings(), db=session, jira_client=transport.client())
+
+    assert transport.windows == [14 * 1440, 15]
+
+
+def test_jira_sync_that_fails_leaves_the_cursor_where_it_was(clock) -> None:
+    previous = NOW - timedelta(hours=2)
+    failing = _WindowRecordingTransport(fail=True)
+
+    with Session(engine) as session:
+        record_success(session, JIRA_SOURCE_KIND, previous)
+        with pytest.raises(SyncError, match="Jira request failed with status 500"):
+            _sync_jira(_configured_settings(), db=session, jira_client=failing.client())
+        assert last_success(session, JIRA_SOURCE_KIND) == previous
+
+        # and the retry still covers everything since the last success
+        retry = _WindowRecordingTransport()
+        _sync_jira(_configured_settings(), db=session, jira_client=retry.client())
+
+    assert retry.windows == [125]
+
+
+def test_jira_sync_that_fails_with_no_cursor_does_not_invent_one(clock) -> None:
+    with Session(engine) as session:
+        with pytest.raises(SyncError, match="Jira request failed with status 500"):
+            _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport(fail=True).client())
+        assert last_success(session, JIRA_SOURCE_KIND) is None
+
+
+def test_jira_sync_keeps_the_envelope_keys_it_always_had_beside_the_window(clock) -> None:
+    with Session(engine) as session:
+        result = _sync_jira(_configured_settings(), db=session, jira_client=_client_with([ISSUE]))
+
+    assert set(("mode", "synced_at", "count", "new_sources", "new_work_items", "window_minutes")) <= result.keys()
+
+
+def test_jira_sync_whose_owner_lookup_fails_stores_the_issues_but_leaves_the_cursor(clock) -> None:
+    """Nothing was judged for promotion without the owner's id, so the window is not
+    covered: moving the cursor would make the next sync skip these issues for good."""
+    previous = NOW - timedelta(hours=2)
+    lookup_down = _WindowRecordingTransport(issues=[ASSIGNED_ISSUE], myself_fails=True)
+
+    with Session(engine) as session:
+        record_success(session, JIRA_SOURCE_KIND, previous)
+        result = _sync_jira(_configured_settings(), db=session, jira_client=lookup_down.client())
+
+        assert result["new_sources"] == 1 and result["new_work_items"] == 0
+        assert last_success(session, JIRA_SOURCE_KIND) == previous
+
+        # the next sync, with /myself back, re-covers the same window and promotes
+        recovered = _WindowRecordingTransport(issues=[ASSIGNED_ISSUE])
+        retry = _sync_jira(_configured_settings(), db=session, jira_client=recovered.client())
+        assert last_success(session, JIRA_SOURCE_KIND) == NOW
+
+    assert recovered.windows == [125]
+    assert retry["new_work_items"] == 1
+
+
+def test_jira_sync_whose_owner_lookup_fails_with_no_cursor_does_not_invent_one(clock) -> None:
+    with Session(engine) as session:
+        _sync_jira(_configured_settings(), db=session, jira_client=_WindowRecordingTransport(myself_fails=True).client())
+        assert last_success(session, JIRA_SOURCE_KIND) is None
+
+
+@pytest.fixture
+def jira_search_down(monkeypatch: pytest.MonkeyPatch) -> str:
+    """The registered Jira handler, with a client whose search fails; returns the message Jira's error carries."""
+    failing = _WindowRecordingTransport(fail=True).client()
+    monkeypatch.setattr(jira_sync, "JiraClient", SimpleNamespace(from_settings=lambda settings: failing))
+    return "Jira request failed with status 500"
+
+
+def test_a_jira_search_failure_is_a_sync_error_carrying_jiras_message(jira_search_down: str) -> None:
+    with pytest.raises(SyncError, match=jira_search_down) as raised:
+        _sync_jira(_configured_settings(), db=None)
+
+    assert isinstance(raised.value.__cause__, JiraError)
+
+
+def test_post_sync_for_jira_answers_409_with_the_reason_when_the_search_fails(jira_search_down: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.api.sync.get_settings", _configured_settings)
+
+    with TestClient(app) as client:
+        response = client.post("/api/sync", params={"kind": "jira"}, headers={"Authorization": "Bearer test-local-agent-token"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": jira_search_down}
+
+
+def test_sync_all_reports_a_jira_search_failure_as_jiras_message_without_logging_a_traceback(
+    jira_search_down: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with Session(engine) as session, caplog.at_level(logging.ERROR):
+        results = sync_ready_sources(_configured_settings(), session)
+
+    assert results["jira"] == {"error": jira_search_down}
+    assert not [record for record in caplog.records if record.exc_info]
+
+
+def _always_another_page(include_project: bool, include_participation: bool = True):
+    """A transport whose project and/or participation search never runs out of pages."""
+
+    def transport(method: str, url: str, headers: dict[str, str], payload: object) -> dict:
+        if url.endswith("/myself"):
+            return {"accountId": OWNER_ACCOUNT_ID}
+        is_project = parse_qs(urlparse(url).query)["jql"][0].startswith("project =")
+        if (is_project and include_project) or (not is_project and include_participation):
+            return {"issues": [], "nextPageToken": "more"}
+        return {"issues": []}
+
+    return JiraClient.from_settings(_configured_settings(), transport=transport)
+
+
+@pytest.mark.parametrize(
+    ("project_key", "client", "truncated"),
+    [
+        (None, _always_another_page(include_project=False), True),
+        ("OPS", _always_another_page(include_project=True, include_participation=False), True),
+        ("OPS", _always_another_page(include_project=False, include_participation=False), False),
+    ],
+    ids=["participation-cut-off", "project-cut-off", "neither-cut-off"],
+)
+def test_jira_sync_envelope_says_whether_either_search_was_cut_off(project_key: str | None, client: JiraClient, truncated: bool) -> None:
+    settings = _configured_settings(**({"jira_management_project_key": project_key} if project_key else {}))
+
+    with Session(engine) as session:
+        result = _sync_jira(settings, db=session, jira_client=client)
+
+    assert result["truncated"] is truncated
