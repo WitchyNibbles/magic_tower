@@ -27,14 +27,14 @@ export function MailList({ items, total, selectedId, query, onQuery, onSelect, h
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={e => onQuery(e.target.value)} className="pl-8" placeholder="Search tasks" aria-label="Search tasks" />
         </div>
-        <span className="text-xs text-muted-foreground">{items.length} items</span>
+        <span className="text-xs text-muted-foreground">{items.length === 1 ? '1 item' : `${items.length} items`}</span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-2">
         {groups.map(group => (
           <div key={group.key} role="group" aria-label={group.label} className="flex flex-col gap-1">
             <div className="flex items-center gap-2 px-3">
-              <h3 className="truncate text-[0.68rem] font-semibold tracking-[0.16em] text-primary">{group.label}</h3>
+              <h3 className="truncate text-xs font-semibold text-primary">{group.label}</h3>
               <Badge
                 className="ml-auto bg-transparent px-0 text-muted-foreground"
                 aria-label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`}
