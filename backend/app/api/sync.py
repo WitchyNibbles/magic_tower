@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..services.backfill import backfill_promoted_sources
+from ..services.sync_all import sync_ready_sources
 from ..services.sync import GRAPH_SOURCE_KIND, SyncError, status, sync
 from ..security import require_local_write_access
 
@@ -36,6 +37,19 @@ def run_sync(
         return sync(get_settings(), db, limit=limit, kind=kind)
     except SyncError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/all", dependencies=[Depends(require_local_write_access)])
+def run_sync_all(db: Session = Depends(get_db)) -> dict[str, object]:
+    """Sync every source that is set up, and report each one under its kind.
+
+    A source failing is a result, not an HTTP error: the response is 200 with
+    ``{"error": ...}`` under that kind, so the UI can show what worked next to
+    what did not. Nothing set up gives ``{"results": {}}``. ``POST /api/sync``
+    keeps its one-kind behaviour; the literal ``/all`` and ``/backfill`` paths
+    cannot collide because this router has no ``/{kind}`` path parameter.
+    """
+    return {"results": sync_ready_sources(get_settings(), db)}
 
 
 @router.post("/backfill", dependencies=[Depends(require_local_write_access)])
