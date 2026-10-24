@@ -21,6 +21,9 @@ _BLANKABLE_OPTIONAL_FIELDS = (
     "jira_account_email",
     "jira_api_token",
     "jira_management_project_key",
+    "freshservice_url",
+    "freshservice_api_key",
+    "freshservice_agent_email",
 )
 
 
@@ -54,6 +57,16 @@ class Settings(BaseSettings):
     # How far back a Jira sync looks when it has no cursor (the first sync) and the
     # most it ever looks after a long gap since the last successful one.
     jira_sync_lookback_days: int = Field(default=14, ge=1)
+    # Freshservice: a read-only source like Jira. The API key authenticates as Basic
+    # auth (key as the username, ``X`` as the password) against
+    # ``https://<domain>.freshservice.com``.
+    freshservice_url: str | None = None
+    freshservice_api_key: SecretStr | None = None
+    # Optional: the agent whose assigned tickets are the owner's. Unset, the owner is
+    # whoever the API key belongs to.
+    freshservice_agent_email: str | None = None
+    # How far back a first Freshservice sync looks for recently updated tickets.
+    freshservice_sync_lookback_days: int = Field(default=14, ge=1)
     # Minutes between scheduled syncs of every configured source; 0 turns the
     # scheduler off, which is also how the test suite keeps background threads out.
     sync_interval_minutes: int = Field(default=10, ge=0)
@@ -131,6 +144,22 @@ class Settings(BaseSettings):
             "JIRA_SITE_URL": self.jira_site_url,
             "JIRA_ACCOUNT_EMAIL": self.jira_account_email,
             "JIRA_API_TOKEN": self.jira_api_token,
+        }
+        def present(value: str | SecretStr | None) -> bool:
+            if isinstance(value, SecretStr):
+                return bool(value.get_secret_value().strip())
+            return bool(value and value.strip())
+        return [name for name, value in required.items() if not present(value)]
+
+    def freshservice_configuration_errors(self) -> list[str]:
+        """Names of missing or blank core Freshservice settings, fail-closed.
+
+        The agent email is a choice of owner, not part of the connection, so it is
+        deliberately excluded here.
+        """
+        required = {
+            "FRESHSERVICE_URL": self.freshservice_url,
+            "FRESHSERVICE_API_KEY": self.freshservice_api_key,
         }
         def present(value: str | SecretStr | None) -> bool:
             if isinstance(value, SecretStr):
