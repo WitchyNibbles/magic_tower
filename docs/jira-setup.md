@@ -134,7 +134,7 @@ A healthy response reports how many Jira issues were seen and how many reached
 the queue, followed by the status code `-w` prints:
 
 ```
-{"mode":"read-only","synced_at":"...","count":1,"new_sources":1,"new_work_items":0}
+{"mode":"read-only","synced_at":"...","count":1,"new_sources":1,"new_work_items":0,"window_minutes":20160}
 200
 ```
 
@@ -143,6 +143,13 @@ the queue, followed by the status code `-w` prints:
 participation window or the management project returned is still stored and
 browsable, just not promoted. Reload the dashboard at `http://localhost:8787`
 (or the `WEB_PORT` above) and filter by source `jira` to see them.
+
+`window_minutes` is how far back the participation search looked. A first sync
+looks back `JIRA_SYNC_LOOKBACK_DAYS` (default 14 days, so `20160`). Every later
+sync looks back to the start of the last successful one, plus five minutes of
+overlap, capped at that same lookback. The window stays relative (`updated >=
+-<N>m`), so it never depends on the timezone in the token owner's Jira profile.
+The search still stops at 2000 issues per query.
 
 Two failures are worth telling apart, and step 2 is how you tell them apart.
 Jira simply not configured comes back from this endpoint cleanly:
@@ -158,6 +165,30 @@ only in `docker compose logs api` -- `backend/app/api/sync.py` answers `409` for
 a `SyncError` and lets every other exception escape, which that route's own
 docstring records as its pre-existing behaviour. Step 2 is the quicker way to
 read such a failure: it prints the reason straight to your terminal.
+
+## 4. Keep it synced
+
+The API syncs every configured source on its own: Jira once its three required
+settings are set, Outlook once its five are. The first run is 30 seconds after
+the API starts, then one every `SYNC_INTERVAL_MINUTES` (default 10). Set it to
+`0` to turn the schedule off. Each run logs one line per source to
+`docker compose logs api`.
+
+The dashboard's sync button runs the same thing on demand through
+`POST /api/sync/all`, and its toast says per source what came back. From a shell:
+
+```sh
+curl -s -X POST "http://localhost:8787/api/sync/all" \
+    -H "Authorization: Bearer $LOCAL_API_TOKEN"
+```
+
+```
+{"results":{"graph":{"error":"Microsoft Graph is not connected"},"jira":{"mode":"read-only",...}}}
+```
+
+Only configured sources appear in `results`; one failing source never stops the
+others. A scheduled run and a button press never sync the same source at the
+same time: the second one waits for the first.
 
 ## What actually needs real credentials
 
