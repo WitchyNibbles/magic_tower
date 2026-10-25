@@ -1,3 +1,4 @@
+import importlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,15 +10,24 @@ from sqlalchemy.exc import StatementError
 from .contracts import HealthResponse
 from .config import get_settings
 from .services.field_crypto import FieldEncryptionError
-from .services import jira_sync  # noqa: F401 -- side effect: registers the Jira sync handler
 from .services.scheduler import SyncScheduler, run_scheduled_sync
 from .api.routes import router
 from .api.auth import router as auth_router
 from .api.sync import router as sync_router
 from .api.session import router as session_router
+from .api.grimoire import router as grimoire_router
+from .api.projects import router as projects_router
 
 
 APP_LOGGER_NAME = "app"
+# Importing a connector's sync module is what registers its handler
+# (``register_sync_handler``), and nothing else in the app calls into them, so they
+# are imported by name here, once, when ``app.main`` is imported.
+# ``tests/test_jira_sync.py`` / ``tests/test_freshservice_sync.py`` pin that this
+# file alone is enough to register each kind.
+SYNC_CONNECTOR_MODULE_NAMES = ("jira_sync", "freshservice_sync")
+for _module_name in SYNC_CONNECTOR_MODULE_NAMES:
+    importlib.import_module(f".services.{_module_name}", package=__package__)
 
 
 def _configure_app_logging() -> None:
@@ -129,3 +139,5 @@ app.include_router(router)
 app.include_router(auth_router)
 app.include_router(sync_router)
 app.include_router(session_router)
+app.include_router(grimoire_router)
+app.include_router(projects_router)

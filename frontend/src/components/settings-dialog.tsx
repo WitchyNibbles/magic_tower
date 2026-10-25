@@ -15,8 +15,8 @@ export function SettingsDialog({ ready, open, onOpenChange }: { ready: boolean; 
           <p className="text-sm text-muted-foreground">{ready ? 'Connected to your local Magic Tower API.' : 'Nothing is read from your mailbox until you authorize access.'}</p>
         </div>
         <div className="flex flex-col gap-2 border-t border-border pt-4">
-          <b className="text-sm">Agent handoff</b>
-          <p className="text-sm text-muted-foreground">Codex and Claude Code commands are always shown for review; Magic Tower never launches them.</p>
+          <b className="text-sm">Grimoire</b>
+          <p className="text-sm text-muted-foreground">Analyses and the project list are written by grimoire with its own token; Magic Tower never launches an agent.</p>
         </div>
       </DialogContent>
     </Dialog>

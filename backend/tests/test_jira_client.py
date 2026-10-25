@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
+from collections.abc import Iterator
 from email.message import Message
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 from urllib.error import HTTPError
 
 import pytest
@@ -111,7 +115,7 @@ def test_jira_client_default_transport_handles_429_with_retry_after(monkeypatch:
     def fake_urlopen(request: object, **_: object) -> object:
         raise HTTPError("https://example.atlassian.net/rest/api/3/myself", 429, "Too Many Requests", headers, None)
 
-    monkeypatch.setattr(jira_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(jira_module._opener, "open", fake_urlopen)
 
     try:
         default_transport("GET", "https://example.atlassian.net/rest/api/3/myself", {}, None)
@@ -125,7 +129,7 @@ def test_jira_client_default_transport_wraps_non_2xx_errors(monkeypatch: pytest.
     def fake_urlopen(request: object, **_: object) -> object:
         raise HTTPError("https://example.atlassian.net/rest/api/3/myself", 404, "Not Found", Message(), None)
 
-    monkeypatch.setattr(jira_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(jira_module._opener, "open", fake_urlopen)
 
     try:
         default_transport("GET", "https://example.atlassian.net/rest/api/3/myself", {}, None)
@@ -136,15 +140,85 @@ def test_jira_client_default_transport_wraps_non_2xx_errors(monkeypatch: pytest.
         raise AssertionError("a non-2xx response was not raised as JiraError")
 
 
+class _RecordingServer:
+    """A throwaway HTTP server on 127.0.0.1 that records the headers of every request."""
+
+    def __init__(self, respond: Any) -> None:
+        self.requests: list[dict[str, str]] = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                outer.requests.append({key.lower(): value for key, value in self.headers.items()})
+                respond(self)
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def __enter__(self) -> "_RecordingServer":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+
+
+@pytest.fixture
+def redirect_target() -> Iterator[_RecordingServer]:
+    def answer(handler: BaseHTTPRequestHandler) -> None:
+        body = b'{"accountId": "abc"}'
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    with _RecordingServer(answer) as server:
+        yield server
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_jira_client_default_transport_refuses_a_redirect_and_never_follows_it(redirect_target: _RecordingServer, status: int) -> None:
+    """``urlopen`` would replay the Authorization header at the redirect's target, on any
+    host. The target here must never see a request, and the error must not name it."""
+
+    def redirect(handler: BaseHTTPRequestHandler) -> None:
+        handler.send_response(status)
+        handler.send_header("Location", f"{redirect_target.url}/stolen")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+
+    with _RecordingServer(redirect) as origin:
+        with pytest.raises(JiraError) as error:
+            default_transport("GET", f"{origin.url}/rest/api/3/myself", {"Authorization": "Basic a-real-token"}, None)
+
+    assert str(error.value) == "Jira request was redirected"
+    assert len(origin.requests) == 1
+    assert origin.requests[0]["authorization"] == "Basic a-real-token"
+    assert redirect_target.requests == []
+
+
+def test_jira_client_default_transport_still_returns_json_from_a_server_that_does_not_redirect(redirect_target: _RecordingServer) -> None:
+    result = default_transport("GET", f"{redirect_target.url}/rest/api/3/myself", {"Authorization": "Basic a-real-token"}, None)
+
+    assert result == {"accountId": "abc"}
+
+
 def test_jira_client_default_transport_never_reaches_the_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """The client is exercised end to end through a stub transport in every other
     test; this one pins that ``default_transport`` is the only path that would
     ever touch the network, and that path is never taken here."""
 
     def forbidden(*_: object, **__: object) -> object:
-        raise AssertionError("urlopen must never be called from a test")
+        raise AssertionError("the opener must never be called from a test")
 
-    monkeypatch.setattr(jira_module, "urlopen", forbidden)
+    monkeypatch.setattr(jira_module._opener, "open", forbidden)
 
     client = JiraClient("https://example.atlassian.net", "owner@example.com", "token", transport=lambda *_: {"accountId": "x"})
     client.myself()
@@ -161,7 +235,7 @@ def test_jira_client_default_transport_returns_parsed_json(monkeypatch: pytest.M
         def read(self) -> bytes:
             return json.dumps({"accountId": "abc"}).encode()
 
-    monkeypatch.setattr(jira_module, "urlopen", lambda request, **_: FakeResponse())
+    monkeypatch.setattr(jira_module._opener, "open", lambda request, **_: FakeResponse())
 
     result = default_transport("GET", "https://example.atlassian.net/rest/api/3/myself", {}, None)
 

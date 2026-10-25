@@ -48,8 +48,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import Settings
-from ..integrations.jira import JiraClient, JiraError
-from .graph import persist_signals
+from ..integrations.jira import JiraClient, JiraError, extract_adf_plain_text
+from .graph import persist_signals, single_line_excerpt
 from .promotion import promote_signals
 from .sync import SyncError
 from .sync_cursor import last_success, record_success
@@ -125,6 +125,7 @@ def _normalize_issue(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
         "external_id": f"{JIRA_SOURCE_KIND}:{issue.get('id')}",
         "source_kind": JIRA_SOURCE_KIND,
         "title": fields.get("summary") or FALLBACK_TITLE,
+        "excerpt": single_line_excerpt(extract_adf_plain_text(fields.get("description"))),
         "source_url": f"{base_url}/browse/{key}" if key else None,
         "observed_at": fields.get("updated"),
         "assignee_account_id": (fields.get("assignee") or {}).get("accountId"),

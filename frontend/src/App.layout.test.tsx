@@ -47,44 +47,13 @@ describe('Mail layout', () => {
     expect(screen.queryByText('Send the revised project estimate')).toBeNull()
   })
 
-  it('layout records an agent handoff without offering a shell command', async () => {
+  it('layout offers no agent handoff buttons or shell command', async () => {
     offline()
 
     render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Codex' }))
+    await screen.findByRole('heading', { level: 2, name: 'Send the revised project estimate' })
 
-    expect(await screen.findByText('Sample item. Nothing will be dispatched.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Codex|Claude Code/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Copy command' })).toBeNull()
-  })
-
-  it('layout says a handoff is only recorded, since no agent picks it up yet', async () => {
-    offline()
-
-    render(<App />)
-    await screen.findByRole('button', { name: 'Use Codex' })
-
-    expect(screen.getByText('Magic Tower only records the request. Nothing picks it up yet.')).toBeTruthy()
-    expect(screen.queryByText(/local agent client/)).toBeNull()
-  })
-
-  it('layout confirms a live handoff as recorded, not queued for an agent', async () => {
-    const item = { id: 'item-1', title: 'Check the export', summary: null, status: 'pending', priority: 'medium', source_kind: 'manual',
-      source_external_id: null, source_url: null, created_at: '2026-10-24T10:00:00Z', updated_at: '2026-10-24T10:00:00Z', evidence: [] }
-    vi.stubGlobal('fetch', vi.fn(async (path: string) => ({
-      ok: true,
-      status: 200,
-      json: async () => path === '/api/work-items' ? { items: [item], total: 1, limit: 50, offset: 0 }
-        : path === '/api/work-items/item-1' ? item
-        : path === '/api/session' ? { csrf_token: 'csrf-test' }
-        : path.startsWith('/api/sources') ? { items: [], total: 0, limit: 200, offset: 0 }
-        : path.endsWith('/dispatch') ? { id: 'dispatch-1' }
-        : { status: 'ok', service: 'workboard' },
-    })))
-
-    render(<App />)
-    fireEvent.click((await screen.findAllByText('Check the export'))[0])
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Codex' }))
-
-    expect(await screen.findByText('Recorded a codex handoff request. Nothing acts on it yet.')).toBeTruthy()
   })
 })

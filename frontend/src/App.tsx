@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
-import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
+import { ApiError, beginMicrosoftConnect, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
 import { CommandPalette } from '@/components/command-palette'
 import { MailDetail } from '@/components/mail-detail'
 import { MailList } from '@/components/mail-list'
-import { MailNav } from '@/components/mail-nav'
+import { MailNav, type View } from '@/components/mail-nav'
+import { ProjectsView } from '@/components/projects-view'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { UnlockPanel } from '@/components/unlock-panel'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { cn } from '@/lib/utils'
-import { demoItems } from '@/lib/work-items'
+import { demoItems, itemSummary } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
-const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira' }
+const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira', freshservice: 'Freshservice' }
 function describeNewItems(count: number): string {
   if (!count) return 'no new items'
   return `${count} new ${count === 1 ? 'item' : 'items'}`
@@ -22,12 +23,13 @@ function syncPart(kind: string, result: SyncResult): string {
   return `${SYNC_LABELS[kind] ?? kind}: ${result.error ?? describeNewItems(result.new_work_items ?? 0)}`
 }
 function syncSummary(results: Record<string, SyncResult>): string {
-  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
+  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or Freshservice, or connect Outlook.'
 }
 
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])
   const [selected, setSelected] = useState<WorkItem | null>(null)
+  const [view, setView] = useState<View>('work')
   const [filter, setFilter] = useState<WorkStatus | 'all'>('all')
   const [source, setSource] = useState<SourceKind | 'all'>('all')
   const [query, setQuery] = useState('')
@@ -104,9 +106,6 @@ export default function App() {
   const runSync = async () => {
     try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
-  const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
-    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Recorded a ${client} handoff request. Nothing acts on it yet.`) } catch { setToast('Could not record the handoff request.') }
-  }
   const showDemo = () => {
     setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items, not your queue.')
   }
@@ -151,7 +150,7 @@ export default function App() {
   }
 
   const visible = useMemo(
-    () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${i.summary ?? ''}`.toLowerCase().includes(query.toLowerCase())),
+    () => items.filter(i => (filter === 'all' || i.status === filter) && (source === 'all' || i.source_kind === source) && `${i.title} ${itemSummary(i)}`.toLowerCase().includes(query.toLowerCase())),
     [items, filter, source, query],
   )
 
@@ -177,29 +176,33 @@ export default function App() {
         </div>
       </header>
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+      <ResizablePanelGroup key={view} orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel defaultSize="19" minSize="14">
-          <MailNav items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} missed={missed} onPromote={promote} />
+          <MailNav view={view} onView={setView} items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} missed={missed} onPromote={promote} />
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
-          <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
-            hasMore={!demo && fetchedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel defaultSize="48" minSize="30">
-          <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
-            {selected
-              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onHandoff={handoff} onDismiss={dismiss} />
-              : locked
-                ? <UnlockPanel onUnlock={unlock} />
-                : <div className="m-auto max-w-sm p-8 text-center">
-                    <h2 className="font-serif text-xl">No work items</h2>
-                    <p className="mt-2 text-sm text-muted-foreground">Set up Jira or connect Outlook, then press Sync now. Or load the sample items.</p>
-                    <Button className="mt-4" onClick={showDemo}>Load sample items</Button>
-                  </div>}
-          </section>
-        </ResizablePanel>
+        {view === 'projects'
+          ? <ResizablePanel defaultSize="81" minSize="40"><ProjectsView /></ResizablePanel>
+          : <>
+            <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
+              <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
+                hasMore={!demo && fetchedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel defaultSize="48" minSize="30">
+              <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
+                {selected
+                  ? <MailDetail item={selected} onStatus={changeStatus} onDismiss={dismiss} />
+                  : locked
+                    ? <UnlockPanel onUnlock={unlock} />
+                    : <div className="m-auto max-w-sm p-8 text-center">
+                        <h2 className="font-serif text-xl">No work items</h2>
+                        <p className="mt-2 text-sm text-muted-foreground">Set up Jira or connect Outlook, then press Sync now. Or load the sample items.</p>
+                        <Button className="mt-4" onClick={showDemo}>Load sample items</Button>
+                      </div>}
+              </section>
+            </ResizablePanel>
+          </>}
       </ResizablePanelGroup>
 
       {toast && (

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { groupForTriage } from '@/lib/triage'
 import { cn } from '@/lib/utils'
-import { sourceTone, statusLabels, statusTone } from '@/lib/work-items'
+import { itemSummary, sourceTone, statusLabels, statusTone } from '@/lib/work-items'
 
 export function MailList({ items, total, selectedId, query, onQuery, onSelect, hasMore, loadingMore, onLoadMore }: {
   items: WorkItem[]
@@ -58,7 +58,7 @@ export function MailList({ items, total, selectedId, query, onQuery, onSelect, h
                   <span className="truncate text-sm font-semibold">{item.title}</span>
                   <Badge className={cn('ml-auto', statusTone[item.status])}>{statusLabels[item.status]}</Badge>
                 </span>
-                <span className="line-clamp-2 text-xs text-muted-foreground">{item.summary || 'No summary yet'}</span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">{itemSummary(item) || 'No summary yet'}</span>
               </button>
             ))}
           </div>

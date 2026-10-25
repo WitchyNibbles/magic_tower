@@ -43,9 +43,14 @@ def _configured_token(settings: Settings) -> str:
     return expected
 
 
+def _same_secret(supplied: str, expected: str) -> bool:
+    """Constant-time equality on UTF-8 bytes: ``compare_digest`` raises on a non-ASCII ``str``."""
+    return hmac.compare_digest(supplied.encode(), expected.encode())
+
+
 def _valid_bearer(authorization: str | None, expected: str) -> bool:
     scheme, _, supplied = (authorization or "").partition(" ")
-    return scheme.lower() == "bearer" and bool(supplied) and hmac.compare_digest(supplied, expected)
+    return scheme.lower() == "bearer" and bool(supplied) and _same_secret(supplied, expected)
 
 
 def require_local_agent_token(authorization: Annotated[str | None, Header()] = None,
@@ -54,6 +59,29 @@ def require_local_agent_token(authorization: Annotated[str | None, Header()] = N
     if not _valid_bearer(authorization, _configured_token(settings)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="A valid local API bearer token is required",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+
+def require_grimoire_token(authorization: Annotated[str | None, Header()] = None,
+                           settings: Settings = Depends(get_settings)) -> None:
+    """Authenticate the grimoire client on ``/api/grimoire/*`` with its own bearer token.
+
+    Deliberately not ``LOCAL_API_TOKEN`` and not a browser session: whoever holds one of
+    those cannot read source text or write analyses, and this token opens no other route.
+    """
+    configured = settings.grimoire_api_token
+    expected = configured.get_secret_value() if configured else ""
+    if not expected:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="grimoire API not configured")
+    local = settings.local_api_token
+    if local is not None and _same_secret(local.get_secret_value(), expected):
+        # Refused here, not when the settings load: a shared value must not take the whole app down,
+        # only open nothing -- otherwise the local bearer would be a grimoire credential.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="GRIMOIRE_API_TOKEN must differ from LOCAL_API_TOKEN")
+    if not _valid_bearer(authorization, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="A valid grimoire API bearer token is required",
                             headers={"WWW-Authenticate": "Bearer"})
 
 
@@ -117,6 +145,6 @@ def require_local_access(authorization: Annotated[str | None, Header()] = None,
 def require_local_write_access(access: LocalAccess = Depends(require_local_access),
                                csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None) -> LocalAccess:
     """Cookie-authenticated writes require CSRF; direct bearer calls do not."""
-    if not access.via_bearer and (not csrf_token or not hmac.compare_digest(csrf_token, access.csrf_token or "")):
+    if not access.via_bearer and (not csrf_token or not _same_secret(csrf_token, access.csrf_token or "")):
         raise HTTPException(status_code=403, detail="A valid X-CSRF-Token header is required")
     return access

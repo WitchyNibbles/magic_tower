@@ -25,7 +25,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -72,7 +72,7 @@ def participation_jql(window_minutes: int) -> str:
 
 # ``GET /rest/api/3/search/jql`` defaults ``fields`` to ``id`` alone; everything
 # the queue needs to render a Jira issue must be named here explicitly.
-JIRA_SEARCH_FIELDS = ("summary", "status", "priority", "assignee", "reporter", "updated", "project")
+JIRA_SEARCH_FIELDS = ("summary", "description", "status", "priority", "assignee", "reporter", "updated", "project")
 
 JIRA_SEARCH_PAGE_SIZE = 100
 # Cap on how many ``nextPageToken`` pages a single call follows. This endpoint
@@ -110,13 +110,27 @@ class JiraRateLimitError(JiraError):
         self.retry_after = retry_after
 
 
+class _RefuseRedirects(HTTPRedirectHandler):
+    """``urlopen`` follows a 3xx and copies the request's headers, Authorization
+    included, to wherever it points -- any host, even plain http. The API token must
+    only ever go to the configured site, so a redirect is an error, not a hop."""
+
+    def redirect_request(self, *_: object, **__: object) -> None:
+        raise JiraError("Jira request was redirected")
+
+
+_opener = build_opener(_RefuseRedirects)
+
+
 def default_transport(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> dict[str, Any]:
     if method != "GET":
         raise JiraError("Jira connector permits read-only GET requests")
     request = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(request, timeout=15) as response:  # nosec B310: fixed Atlassian Cloud host
+        with _opener.open(request, timeout=15) as response:
             return json.loads(response.read())
+    except JiraError:
+        raise
     except HTTPError as error:
         if error.code == 429:
             retry_after = error.headers.get("Retry-After") if error.headers is not None else None

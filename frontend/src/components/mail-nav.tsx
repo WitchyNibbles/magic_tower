@@ -1,13 +1,17 @@
-import { LinkIcon, ListChecksIcon, RefreshCwIcon } from 'lucide-react'
+import { FolderKanbanIcon, InboxIcon, LinkIcon, ListChecksIcon, RefreshCwIcon, SparklesIcon } from 'lucide-react'
 import type { Source, SourceKind, WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { sourceLabels, sourceTone, statusLabels, statuses } from '@/lib/work-items'
 
-const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'manual', 'jira']
+const sources: (SourceKind | 'all')[] = ['all', 'outlook_email', 'manual', 'jira', 'freshservice']
 
-export function MailNav({ items, filter, onFilter, source, onSource, onSync, onConnect, onDemo, missed, onPromote }: {
+export type View = 'work' | 'projects'
+
+export function MailNav({ view, onView, items, filter, onFilter, source, onSource, onSync, onConnect, onDemo, missed, onPromote }: {
+  view: View
+  onView: (value: View) => void
   items: WorkItem[]
   filter: WorkStatus | 'all'
   onFilter: (value: WorkStatus | 'all') => void
@@ -23,49 +27,62 @@ export function MailNav({ items, filter, onFilter, source, onSource, onSync, onC
 
   return (
     <section aria-label="Filters" className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-3">
-      <nav className="flex flex-col gap-1">
-        {(['all', ...statuses] as const).map(status => (
-          <Button
-            key={status}
-            variant={filter === status ? 'secondary' : 'ghost'}
-            size="sm"
-            className="justify-start"
-            aria-pressed={filter === status}
-            onClick={() => onFilter(status)}
-          >
-            <span className="flex-1 text-left">{status === 'all' ? 'All work' : statusLabels[status]}</span>
-            <Badge className="bg-transparent px-0 text-muted-foreground">{count(status)}</Badge>
-          </Button>
-        ))}
-      </nav>
-
-      <div className="flex flex-col gap-1 border-t border-border pt-4">
-        <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Sources</p>
-        {sources.map(kind => (
-          <Button
-            key={kind}
-            variant={source === kind ? 'secondary' : 'ghost'}
-            size="sm"
-            className="justify-start"
-            aria-pressed={source === kind}
-            onClick={() => onSource(kind)}
-          >
-            <span className={cn('size-2 rounded-full', kind === 'all' ? 'bg-primary' : sourceTone[kind])} />
-            {kind === 'all' ? 'All sources' : sourceLabels[kind]}
-          </Button>
-        ))}
+      <div className="flex flex-col gap-1">
+        <Button variant={view === 'work' ? 'secondary' : 'ghost'} size="sm" className="justify-start" aria-pressed={view === 'work'} onClick={() => onView('work')}>
+          <InboxIcon />Work
+        </Button>
+        <Button variant={view === 'projects' ? 'secondary' : 'ghost'} size="sm" className="justify-start" aria-pressed={view === 'projects'} onClick={() => onView('projects')}>
+          <FolderKanbanIcon />Projects
+        </Button>
       </div>
 
-      {missed.length > 0 && (
-        <div role="group" aria-label="Missed sources" className="flex flex-col gap-1 border-t border-border pt-4">
-          <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Missed</p>
-          {missed.map(candidate => (
-            <div key={candidate.id} className="flex items-center gap-2 px-3">
-              <span className="flex-1 truncate text-xs text-muted-foreground">{candidate.subject || '(no subject)'}</span>
-              <Button size="sm" variant="ghost" onClick={() => onPromote(candidate)}>Promote</Button>
+      {view === 'work' && (
+        <>
+          <nav aria-label="Work status" className="flex flex-col gap-1 border-t border-border pt-4">
+            {(['all', ...statuses] as const).map(status => (
+              <Button
+                key={status}
+                variant={filter === status ? 'secondary' : 'ghost'}
+                size="sm"
+                className="justify-start"
+                aria-pressed={filter === status}
+                onClick={() => onFilter(status)}
+              >
+                <span className="flex-1 text-left">{status === 'all' ? 'All work' : statusLabels[status]}</span>
+                <Badge className="bg-transparent px-0 text-muted-foreground">{count(status)}</Badge>
+              </Button>
+            ))}
+          </nav>
+
+          <div className="flex flex-col gap-1 border-t border-border pt-4">
+            <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Sources</p>
+            {sources.map(kind => (
+              <Button
+                key={kind}
+                variant={source === kind ? 'secondary' : 'ghost'}
+                size="sm"
+                className="justify-start"
+                aria-pressed={source === kind}
+                onClick={() => onSource(kind)}
+              >
+                <span className={cn('size-2 rounded-full', kind === 'all' ? 'bg-primary' : sourceTone[kind])} />
+                {kind === 'all' ? 'All sources' : sourceLabels[kind]}
+              </Button>
+            ))}
+          </div>
+
+          {missed.length > 0 && (
+            <div role="group" aria-label="Missed sources" className="flex flex-col gap-1 border-t border-border pt-4">
+              <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Missed</p>
+              {missed.map(candidate => (
+                <div key={candidate.id} className="flex items-center gap-2 px-3">
+                  <span className="flex-1 truncate text-xs text-muted-foreground">{candidate.subject || '(no subject)'}</span>
+                  <Button size="sm" variant="ghost" onClick={() => onPromote(candidate)}>Promote</Button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">

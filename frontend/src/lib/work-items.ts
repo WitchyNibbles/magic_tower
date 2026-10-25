@@ -4,7 +4,7 @@ import type { SourceKind, WorkItem, WorkStatus } from '@/api'
 // through the dismiss action (B51), never picked from a filter or a status dropdown.
 export const statuses: WorkStatus[] = ['pending', 'in_progress', 'blocked', 'done']
 export const statusLabels: Record<WorkStatus, string> = { pending: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done', dismissed: 'Dismissed' }
-export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual', jira: 'Jira' }
+export const sourceLabels: Record<SourceKind, string> = { outlook_email: 'Outlook', manual: 'Manual', jira: 'Jira', freshservice: 'Freshservice' }
 
 export const statusTone: Record<WorkStatus, string> = {
   pending: 'bg-secondary text-secondary-foreground',
@@ -18,6 +18,7 @@ export const sourceTone: Record<SourceKind, string> = {
   outlook_email: 'bg-sky-400',
   manual: 'bg-muted-foreground',
   jira: 'bg-indigo-400',
+  freshservice: 'bg-teal-400',
 }
 
 // The `.../browse/{KEY}` path segment jira_sync.py's `_normalize_issue` builds `source_url`
@@ -29,6 +30,11 @@ export const jiraIssueKey = (item: Pick<WorkItem, 'source_kind' | 'source_url'>)
   if (item.source_kind !== 'jira' || !item.source_url) return null
   return item.source_url.match(/\/browse\/([^/?#]+)/)?.[1] ?? null
 }
+
+// The short text for an item: grimoire's summary, else the item's own, else the first evidence
+// excerpt with text (a connector's description, a mail's preview). '' when there is none.
+export const itemSummary = (item: Pick<WorkItem, 'summary' | 'evidence' | 'analysis'>): string =>
+  item.analysis?.summary || item.summary || item.evidence?.map(entry => entry.excerpt?.trim() ?? '').find(Boolean) || ''
 
 export const demoItems: WorkItem[] = [
   { id: 'demo-email', title: 'Send the revised project estimate', summary: 'The client asked for an updated estimate before Friday.', status: 'pending', source_kind: 'outlook_email', source_external_id: 'demo-001', source_url: null, assigned_agent: null, due_at: null, created_at: '', updated_at: '', evidence: [{ source_kind: 'outlook_email', external_id: 'demo-001', excerpt: 'Could you send the revised estimate before Friday?', observed_at: '' }] },

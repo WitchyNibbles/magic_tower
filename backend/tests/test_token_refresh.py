@@ -1,6 +1,6 @@
 """Graph access tokens last about an hour; sync must refresh them itself.
 
-The token endpoint is faked by monkeypatching ``urlopen`` in ``app.services.oauth``
+The token endpoint is faked by monkeypatching the opener in ``app.services.oauth``
 and Graph by swapping the ``GraphClient`` that ``app.services.sync`` builds for one
 with a recording transport, so every test drives the real refresh code and can see
 which bearer token each Graph request actually carried.
@@ -91,12 +91,12 @@ def _store(settings: Settings) -> EncryptedTokenStore:
 
 
 def _install(monkeypatch: pytest.MonkeyPatch, endpoint: FakeTokenEndpoint, graph: FakeGraph) -> None:
-    monkeypatch.setattr(oauth_module, "urlopen", endpoint)
+    monkeypatch.setattr(oauth_module._opener, "open", endpoint)
     monkeypatch.setattr(sync_module, "GraphClient", graph.client)
 
 
 def test_exchange_code_records_an_absolute_expiry(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(oauth_module, "urlopen", FakeTokenEndpoint({"access_token": "a1", "refresh_token": "r1", "expires_in": 3600}))
+    monkeypatch.setattr(oauth_module._opener, "open", FakeTokenEndpoint({"access_token": "a1", "refresh_token": "r1", "expires_in": 3600}))
     before = time.time()
     token = exchange_code(settings, "code", "verifier")
     assert before + 3600 <= token["expires_at"] <= time.time() + 3600
@@ -104,7 +104,7 @@ def test_exchange_code_records_an_absolute_expiry(settings: Settings, monkeypatc
 
 def test_refresh_posts_the_refresh_grant(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     endpoint = FakeTokenEndpoint({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600})
-    monkeypatch.setattr(oauth_module, "urlopen", endpoint)
+    monkeypatch.setattr(oauth_module._opener, "open", endpoint)
     token = refresh_access_token(settings, "r1")
     form = endpoint.forms[0]
     assert form["grant_type"] == ["refresh_token"]
@@ -115,7 +115,7 @@ def test_refresh_posts_the_refresh_grant(settings: Settings, monkeypatch: pytest
 
 
 def test_refresh_keeps_the_old_refresh_token_when_microsoft_does_not_rotate_it(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(oauth_module, "urlopen", FakeTokenEndpoint({"access_token": "a2", "expires_in": 3600}))
+    monkeypatch.setattr(oauth_module._opener, "open", FakeTokenEndpoint({"access_token": "a2", "expires_in": 3600}))
     assert refresh_access_token(settings, "r1")["refresh_token"] == "r1"
 
 
@@ -205,6 +205,6 @@ def test_default_transport_reports_401_as_an_auth_error(monkeypatch: pytest.Monk
     def unauthorized(request: Any, **_: object) -> None:
         raise HTTPError(request.full_url, 401, "Unauthorized", {}, io.BytesIO(b""))
 
-    monkeypatch.setattr(graph_module, "urlopen", unauthorized)
+    monkeypatch.setattr(graph_module._opener, "open", unauthorized)
     with pytest.raises(GraphAuthError):
         default_transport("GET", "https://graph.microsoft.com/v1.0/me", {}, None)

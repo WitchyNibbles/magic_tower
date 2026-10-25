@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Source, SourceKind, SourcePromotion, WorkItem
 from ..schemas import EvidenceInput, WorkItemCreate
-from .graph import parse_observed_at
+from .graph import EXCERPT_LIMIT, parse_observed_at
 from .jira_dedupe import issue_key, link_issue, merge_into, work_item_for_issue
 from .work_items import conflict, create_work_item
 
@@ -48,10 +48,10 @@ BULK_PRECEDENCE = frozenset({"bulk", "list", "junk"})
 # kept on disk for nothing.
 HEURISTIC_HEADERS = frozenset(BULK_HEADERS) | {PRECEDENCE_HEADER, AUTO_SUBMITTED_HEADER}
 
+# Freshservice ticket statuses 4 (Resolved) and 5 (Closed): the ones that mean finished.
+FRESHSERVICE_DONE_STATUSES = (4, 5)
+
 TITLE_LIMIT = 500
-# The same bound ``persist_signals`` puts on ``Source.excerpt``; the evidence copy
-# is the same text and should not be able to grow past it.
-EXCERPT_LIMIT = 2_000
 FALLBACK_TITLE = "(no subject)"
 
 # The same validator ``WorkItemCreate.source_url`` applies; a link it would reject
@@ -109,6 +109,24 @@ def _is_assigned_to_owner(signal: dict[str, Any], owner_account_id: str | None) 
     return bool(owner_account_id) and signal.get("assignee_account_id") == owner_account_id
 
 
+def _is_owed_by_owner(signal: dict[str, Any], owner_agent_id: int | None) -> bool:
+    """True when this ticket is assigned to the owner agent and not yet finished.
+
+    Ids are compared as the integers Freshservice reports. The ``is not None`` check is
+    the fail-closed half and is not redundant with the comparison: an unassigned ticket
+    has no ``responder_id`` and an unresolved owner has no id, and absent equals absent
+    -- without it, every unassigned ticket in the window promotes on exactly the sync
+    where the owner could not be named.
+
+    Only Resolved (4) and Closed (5) end a ticket's claim on the owner. Any other
+    status, a custom one included, is still owed; the search returns recently updated
+    tickets in every status, so this is what drops the one the owner just resolved.
+    """
+    return (owner_agent_id is not None
+            and signal.get("responder_id") == owner_agent_id
+            and signal.get("ticket_status") not in FRESHSERVICE_DONE_STATUSES)
+
+
 def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) -> bool:
     """True when the owner is known, there is a To list, and none of the owner's addresses is in it."""
     recipients = signal.get("to_recipients") or []
@@ -120,7 +138,7 @@ def _is_only_copied(signal: dict[str, Any], owner_addresses: Collection[str]) ->
 
 def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = (),
                    allowlisted_senders: Collection[str] = (),
-                   owner_account_id: str | None = None) -> bool:
+                   owner_account_id: str | None = None, owner_agent_id: int | None = None) -> bool:
     """Decide whether one normalized signal belongs in the triage queue.
 
     The rules, in order; the first that matches decides:
@@ -133,6 +151,11 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
        each of those reads a mail field -- sender, headers, recipients -- that a
        Jira signal does not carry: left to them, an issue falls through to rule 5
        and promotes unconditionally, which is what this rule replaces.
+    B. A Freshservice signal (``source_kind`` is ``freshservice``) is decided by one
+       question -- is the ticket assigned to the owner agent and not yet Resolved or
+       Closed -- and by nothing else. It has the same reasons to sit ahead of the mail
+       rules as rule A: it carries no sender, headers or recipients, and would fall
+       through to rule 5. Without a known ``owner_agent_id`` it promotes nothing.
     0. Promote an allowlisted sender, whatever every later rule would say. This is
        the owner naming a mailbox the rules get wrong -- an internal robot whose
        output they act on -- and it overrides even rule 4, because such mail often
@@ -181,9 +204,18 @@ def should_promote(signal: dict[str, Any], owner_addresses: Collection[str] = ()
     is the mirror image of rule 4's tolerance: without a recognised owner it
     promotes nothing rather than everything, because the permissive fallback it
     exists to remove is exactly the failure a missing identity would restore.
+
+    ``owner_agent_id`` is the Freshservice agent id of the owner, resolved by the caller
+    (``app/services/freshservice_sync.py``) from ``FRESHSERVICE_AGENT_EMAIL`` or the
+    API key's own agent. It is its own keyword, not ``owner_account_id``: a Jira
+    ``accountId`` and a Freshservice agent id are different identities and neither
+    may stand in for the other.
     """
-    if str(signal.get("source_kind") or "") == SourceKind.jira.value:
+    source_kind = str(signal.get("source_kind") or "")
+    if source_kind == SourceKind.jira.value:
         return _is_assigned_to_owner(signal, owner_account_id)
+    if source_kind == SourceKind.freshservice.value:
+        return _is_owed_by_owner(signal, owner_agent_id)
     sender = signal.get("sender")
     if _is_allowlisted(sender, allowlisted_senders):
         return True
@@ -278,7 +310,8 @@ def promote_source(db: Session, source: Source) -> WorkItem:
 
 
 def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses: Collection[str] = (),
-                    allowlisted_senders: Collection[str] = (), owner_account_id: str | None = None) -> int:
+                    allowlisted_senders: Collection[str] = (), owner_account_id: str | None = None,
+                    owner_agent_id: int | None = None) -> int:
     """Create a pending work item for every actionable signal; return how many are new.
 
     Idempotent through ``work_items.source_external_id``: a signal already promoted
@@ -303,7 +336,7 @@ def promote_signals(db: Session, signals: list[dict[str, Any]], owner_addresses:
     for signal in signals:
         external_id = str(signal["external_id"])
         _record_considered(db, external_id)
-        if not should_promote(signal, owner_addresses, allowlisted_senders, owner_account_id):
+        if not should_promote(signal, owner_addresses, allowlisted_senders, owner_account_id, owner_agent_id):
             continue
         if db.scalar(select(WorkItem.id).where(WorkItem.source_external_id == external_id)) is not None:
             continue

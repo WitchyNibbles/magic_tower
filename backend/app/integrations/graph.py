@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], dict[str, Any]]
@@ -49,14 +49,28 @@ def _retry_after(value: str | None) -> float | None:
     return seconds if 0 <= seconds < float("inf") else None
 
 
+class _RefuseRedirects(HTTPRedirectHandler):
+    """``urlopen`` follows a 3xx and copies the request's headers, Authorization
+    included, to wherever it points -- any host, even plain http. The bearer token
+    must only ever go to Graph, so a redirect is an error, not a hop."""
+
+    def redirect_request(self, *_: object, **__: object) -> None:
+        raise GraphError("Microsoft Graph request was redirected")
+
+
+_opener = build_opener(_RefuseRedirects)
+
+
 def default_transport(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> dict[str, Any]:
     if method != "GET":
         raise GraphError("Graph connector permits read-only GET requests")
     request = Request(url, headers=headers, method="GET")
     try:
         import json
-        with urlopen(request, timeout=15) as response:  # nosec B310: fixed Microsoft endpoint
+        with _opener.open(request, timeout=15) as response:
             return json.loads(response.read())
+    except GraphError:
+        raise
     except HTTPError as error:
         if error.code == 401:
             raise GraphAuthError("Microsoft Graph rejected the access token") from error

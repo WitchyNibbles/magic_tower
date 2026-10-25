@@ -55,22 +55,33 @@ describe('Sync now', () => {
     stubApi(() => ({ results: {
       jira: { count: 3, new_sources: 0, new_work_items: 1 },
       graph: { count: 0, new_sources: 0, new_work_items: 0 },
-      freshservice: { count: 0, new_sources: 0, new_work_items: 0 },
+      zendesk: { count: 0, new_sources: 0, new_work_items: 0 },
     } }))
 
     render(<App />)
     await pressSync()
 
-    expect(await screen.findByText('Jira: 1 new item. Outlook: no new items. freshservice: no new items')).toBeTruthy()
+    expect(await screen.findByText('Jira: 1 new item. Outlook: no new items. zendesk: no new items')).toBeTruthy()
   })
 
-  it('points the owner to Jira and Outlook setup when nothing is configured', async () => {
+  it('labels the Freshservice result by its name, not its raw kind', async () => {
+    stubApi(() => ({ results: {
+      freshservice: { count: 4, new_sources: 4, new_work_items: 2 },
+    } }))
+
+    render(<App />)
+    await pressSync()
+
+    expect(await screen.findByText('Freshservice: 2 new items')).toBeTruthy()
+  })
+
+  it('points the owner to Jira, Freshservice and Outlook setup when nothing is configured', async () => {
     stubApi(() => ({ results: {} }))
 
     render(<App />)
     await pressSync()
 
-    expect(await screen.findByText('Nothing to sync yet. Set up Jira or connect Outlook.')).toBeTruthy()
+    expect(await screen.findByText('Nothing to sync yet. Set up Jira or Freshservice, or connect Outlook.')).toBeTruthy()
   })
 
   it('keeps the generic message when the request fails', async () => {
