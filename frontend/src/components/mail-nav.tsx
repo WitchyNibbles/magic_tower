@@ -1,4 +1,4 @@
-import { FolderKanbanIcon, InboxIcon, LinkIcon, RefreshCwIcon, SparklesIcon } from 'lucide-react'
+import { FolderKanbanIcon, InboxIcon, LinkIcon, ListChecksIcon, RefreshCwIcon, SparklesIcon } from 'lucide-react'
 import type { Source, SourceKind, WorkItem, WorkStatus } from '@/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -48,7 +48,6 @@ export function MailNav({ view, onView, items, filter, onFilter, source, onSourc
                 aria-pressed={filter === status}
                 onClick={() => onFilter(status)}
               >
-                <InboxIcon />
                 <span className="flex-1 text-left">{status === 'all' ? 'All work' : statusLabels[status]}</span>
                 <Badge className="bg-transparent px-0 text-muted-foreground">{count(status)}</Badge>
               </Button>
@@ -56,7 +55,7 @@ export function MailNav({ view, onView, items, filter, onFilter, source, onSourc
           </nav>
 
           <div className="flex flex-col gap-1 border-t border-border pt-4">
-            <p className="px-3 pb-1 text-xs font-semibold tracking-[0.16em] text-primary">SOURCES</p>
+            <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Sources</p>
             {sources.map(kind => (
               <Button
                 key={kind}
@@ -74,7 +73,7 @@ export function MailNav({ view, onView, items, filter, onFilter, source, onSourc
 
           {missed.length > 0 && (
             <div role="group" aria-label="Missed sources" className="flex flex-col gap-1 border-t border-border pt-4">
-              <p className="px-3 pb-1 text-xs font-semibold tracking-[0.16em] text-primary">MISSED</p>
+              <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">Missed</p>
               {missed.map(candidate => (
                 <div key={candidate.id} className="flex items-center gap-2 px-3">
                   <span className="flex-1 truncate text-xs text-muted-foreground">{candidate.subject || '(no subject)'}</span>
@@ -89,7 +88,7 @@ export function MailNav({ view, onView, items, filter, onFilter, source, onSourc
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
         <Button variant="outline" size="sm" onClick={onSync}><RefreshCwIcon />Sync now</Button>
         <Button variant="outline" size="sm" onClick={onConnect}><LinkIcon />Connect Microsoft</Button>
-        <Button variant="ghost" size="sm" onClick={onDemo}><SparklesIcon />View sample</Button>
+        <Button variant="ghost" size="sm" onClick={onDemo}><ListChecksIcon />View sample</Button>
       </div>
     </section>
   )

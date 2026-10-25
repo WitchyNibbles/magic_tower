@@ -10,6 +10,7 @@ import { SettingsDialog } from '@/components/settings-dialog'
 import { UnlockPanel } from '@/components/unlock-panel'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { cn } from '@/lib/utils'
 import { demoItems, itemSummary } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
@@ -106,7 +107,7 @@ export default function App() {
     try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
   const showDemo = () => {
-    setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items — connect the API for your work queue.')
+    setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items, not your queue.')
   }
   const choose = async (item: WorkItem) => {
     setSelected(item)
@@ -160,7 +161,6 @@ export default function App() {
           <img src="/magic-tower-logo.png" alt="Magic Tower" className="size-8 object-contain" />
           <div>
             <h1 className="font-serif text-base leading-tight">Magic Tower</h1>
-            <p className="text-[0.68rem] text-muted-foreground">A private task grimoire</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -168,8 +168,9 @@ export default function App() {
             <SearchIcon />Search
             <kbd className="ml-2 rounded-sm bg-secondary px-1.5 py-0.5 text-[0.65rem] text-muted-foreground">⌘K</kbd>
           </Button>
-          <span className={state === 'ready' ? 'text-xs text-emerald-300' : 'text-xs text-muted-foreground'}>
-            {state === 'ready' ? '● Synced locally' : state === 'checking' ? 'Reading the stars' : '● Offline'}
+          <span className={cn('flex items-center gap-1.5 text-xs', state === 'ready' ? 'text-emerald-300' : 'text-muted-foreground')}>
+            {state !== 'checking' && <span aria-hidden className={cn('size-1.5 rounded-full', state === 'ready' ? 'bg-emerald-300' : 'bg-muted-foreground')} />}
+            {state === 'ready' ? 'API connected' : state === 'checking' ? 'Connecting…' : locked ? 'Locked' : 'API offline'}
           </span>
           <Button variant="ghost" size="icon" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon /></Button>
         </div>
@@ -195,9 +196,9 @@ export default function App() {
                   : locked
                     ? <UnlockPanel onUnlock={unlock} />
                     : <div className="m-auto max-w-sm p-8 text-center">
-                        <h2 className="font-serif text-xl">Your tower is quiet.</h2>
-                        <p className="mt-2 text-sm text-muted-foreground">Connect Microsoft Graph or explore the sample queue.</p>
-                        <Button className="mt-4" onClick={showDemo}>Explore sample tasks</Button>
+                        <h2 className="font-serif text-xl">No work items</h2>
+                        <p className="mt-2 text-sm text-muted-foreground">Set up Jira or connect Outlook, then press Sync now. Or load the sample items.</p>
+                        <Button className="mt-4" onClick={showDemo}>Load sample items</Button>
                       </div>}
               </section>
             </ResizablePanel>

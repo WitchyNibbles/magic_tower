@@ -1,4 +1,4 @@
-import { LinkIcon, RefreshCwIcon, SettingsIcon, SparklesIcon } from 'lucide-react'
+import { LinkIcon, ListChecksIcon, RefreshCwIcon, SettingsIcon } from 'lucide-react'
 import type { WorkItem } from '@/api'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { itemSummary, sourceLabels } from '@/lib/work-items'
@@ -34,7 +34,7 @@ export function CommandPalette({ open, onOpenChange, items, onSelect, onSync, on
         <CommandGroup heading="Actions">
           <CommandItem value="Sync now" onSelect={run(onSync)}><RefreshCwIcon />Sync now</CommandItem>
           <CommandItem value="Connect Microsoft" onSelect={run(onConnect)}><LinkIcon />Connect Microsoft</CommandItem>
-          <CommandItem value="View sample queue" onSelect={run(onDemo)}><SparklesIcon />View sample</CommandItem>
+          <CommandItem value="View sample queue" onSelect={run(onDemo)}><ListChecksIcon />View sample</CommandItem>
           <CommandItem value="Open settings" onSelect={run(onSettings)}><SettingsIcon />Settings</CommandItem>
         </CommandGroup>
       </CommandList>

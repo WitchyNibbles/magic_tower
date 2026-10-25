@@ -49,17 +49,17 @@ export function MailDetail({ item, onStatus, onDismiss }: {
         {analysis && <AnalysisDetails analysis={analysis} />}
 
         <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Why this is here <span className="font-normal text-muted-foreground">Source evidence</span></h3>
+          <h3 className="text-sm font-semibold">Source evidence</h3>
           {item.evidence?.length
             ? item.evidence.map((entry, index) => entry.excerpt
               ? (
-                <blockquote key={index} className="rounded-r-md border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed">
+                <blockquote key={index} className="rounded-md bg-muted px-4 py-3 text-sm leading-relaxed">
                   {entry.excerpt}
                   <footer className="mt-2 text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</footer>
                 </blockquote>
               )
               : <p key={index} className="text-xs text-muted-foreground">{sourceLabels[entry.source_kind]} conversation</p>)
-            : <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">This task was added manually, so no message evidence is available.</p>}
+            : <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">Added by hand, so there is no source message.</p>}
         </section>
       </div>
     </div>
