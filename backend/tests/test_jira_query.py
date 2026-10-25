@@ -109,7 +109,7 @@ def test_jira_query_sends_the_participation_jql_as_a_query_parameter() -> None:
 
 
 def test_jira_query_requests_fields_explicitly_instead_of_the_id_only_default() -> None:
-    assert JIRA_SEARCH_FIELDS == ("summary", "status", "priority", "assignee", "reporter", "updated", "project")
+    assert JIRA_SEARCH_FIELDS == ("summary", "description", "status", "priority", "assignee", "reporter", "updated", "project")
 
     calls: list[str] = []
 
