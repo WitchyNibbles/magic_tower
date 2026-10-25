@@ -12,7 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { demoItems } from '@/lib/work-items'
 
 const PAGE_LIMIT = 50
-const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira' }
+const SYNC_LABELS: Record<string, string> = { graph: 'Outlook', jira: 'Jira', freshservice: 'Freshservice' }
 function describeNewItems(count: number): string {
   if (!count) return 'no new items'
   return `${count} new ${count === 1 ? 'item' : 'items'}`
@@ -21,7 +21,7 @@ function syncPart(kind: string, result: SyncResult): string {
   return `${SYNC_LABELS[kind] ?? kind}: ${result.error ?? describeNewItems(result.new_work_items ?? 0)}`
 }
 function syncSummary(results: Record<string, SyncResult>): string {
-  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or connect Outlook.'
+  return Object.entries(results).map(([kind, result]) => syncPart(kind, result)).join('. ') || 'Nothing to sync yet. Set up Jira or Freshservice, or connect Outlook.'
 }
 
 export default function App() {

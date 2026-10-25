@@ -4,15 +4,16 @@ Snapshot of 2026-10-24, taken from `main` at `fc3e536`. Things will drift from h
 
 ## What it does today
 
-Magic Tower is a local task queue. It reads your Outlook inbox (Microsoft Graph) and your Jira Cloud issues, keeps the ones a fixed rule set calls "work" as review items with their evidence, and shows them in a React UI on `127.0.0.1:8787`. Local agent clients can read the queue and post proposals and dispatch records through a loopback API guarded by `LOCAL_API_TOKEN`. It never writes to Microsoft 365 or Jira.
+Magic Tower is a local task queue. It reads your Outlook inbox (Microsoft Graph), your Jira Cloud issues and the Freshservice tickets assigned to you, keeps the ones a fixed rule set calls "work" as review items with their evidence, and shows them in a React UI on `127.0.0.1:8787`. Local agent clients can read the queue and post proposals and dispatch records through a loopback API guarded by `LOCAL_API_TOKEN`. It never writes to Microsoft 365, Jira or Freshservice.
 
 ## What works end to end
 
-Proven by the test suite and CI, with fake or stubbed Graph and Jira:
+Proven by the test suite and CI, with fake or stubbed Graph, Jira and Freshservice:
 
 - Local UI sign-in with `LOCAL_API_TOKEN`, an HttpOnly session kept in SQLite, and CSRF on writes.
 - Outlook connector: PKCE sign-in, token refresh, paging, 429/503 backoff, encrypted token store and excerpts.
 - Jira connector: participation search (assigned, reported, created, watched, voted) over the whole gap since the last good sync, an optional browse-only management project, dedupe, and promotion of issues assigned to you.
+- Freshservice connector (`docs/freshservice-setup.md`): read-only search of the tickets assigned to you (open and pending ones of any age, plus anything updated within the lookback), dedupe, promotion of the ones assigned to you and not Resolved or Closed, and a connectivity check (`app.tools.freshservice_check`).
 - Scheduled sync of every ready source every 10 minutes, and the Sync now button for all of them (`POST /api/sync/all`).
 - Promotion rules, the backfill endpoint, review queue actions (filter, update, dismiss, promote, hand off).
 - Alembic migrations, also on a database that predates Alembic.
@@ -22,6 +23,7 @@ Never run against real accounts:
 
 - A Microsoft sign-in and sync against a real tenant (`docs/second-pc.md`, step 4).
 - A Jira check or sync against a real site (`docs/jira-setup.md`, "What actually needs real credentials").
+- A Freshservice check or sync against a real site (`docs/freshservice-setup.md`, "What is not verified yet").
 - The promotion heuristic scored on real mail (precision and recall are still unknown).
 
 ## Gaps before daily use
@@ -30,7 +32,7 @@ Ranked by how much they block real daily use at work (Jira Cloud, Freshservice, 
 
 PR #4 fixed the two that blocked Jira: each sync now covers the whole gap since the last good one (14 days on a first run, `JIRA_SYNC_LOOKBACK_DAYS`), every ready source syncs every 10 minutes on its own (`SYNC_INTERVAL_MINUTES`), and the UI's Sync now button syncs all of them through `POST /api/sync/all`, with a per-source toast.
 
-1. **No Freshservice connector.** See [Freshservice](#freshservice) below for what it would take.
+1. **Freshservice is only partly proven on a real site.** The connector exists and is tested against stubs; one real check (2026-10-24) confirmed the lookup by email and the ticket filter. A full sync, the key's own-agent lookup and the `/a/tickets/<id>` link are unconfirmed. See [Freshservice](#freshservice) below.
 2. **Outlook needs IT.** Outlook needs an Entra app registration, and this tenant doesn't let users create one without the Application Developer role (`docs/work-setup.md`, step 5). Once connected, each sync reads only the newest 50 messages in the Inbox folder, so mail that rules file elsewhere is missed.
 3. **Image builds can't trust a company root CA.** The Dockerfiles have no hook for an extra CA, so behind TLS inspection `docker compose build` fails at `npm ci` or `uv sync`. The no-Docker dev loop still works.
 4. **A big Jira can outgrow one sync.** Each query stops at 2000 issues. A first 14-day sync for a busy account, or a large management project, can hit that; the API log then warns and the Jira result says `"truncated": true`, but the oldest issues are skipped.
@@ -41,14 +43,15 @@ PR #4 fixed the two that blocked Jira: each sync now covers the whole gap since 
 
 ### Freshservice
 
-A connector would follow the Jira shape:
+The connector follows the Jira shape and is read-only (`docs/freshservice-setup.md` is the setup guide):
 
-- a read-only GET client for `https://<domain>.freshservice.com/api/v2`, with Basic auth (the agent's own API key as username, any dummy password);
-- its own sync module that calls `register_sync_handler` and is imported by `backend/app/main.py` (the way `jira_sync` is), a promotion rule (tickets where `agent_id` is you), and three settings;
-- a `freshservice` source kind in `backend/app/models.py` (no migration: the kind columns are `VARCHAR(13)` with no CHECK, and `freshservice` is 12 characters), plus the frontend source union;
-- a connectivity check like `jira_check`.
+- a GET-only client for `https://<domain>.freshservice.com/api/v2` with Basic auth (your own API key as username, a dummy password), in `backend/app/integrations/freshservice.py`;
+- a sync handler in `backend/app/services/freshservice_sync.py`, a promotion rule (assigned to you and not Resolved or Closed; an unknown owner promotes nothing), and the `freshservice` source kind with no migration;
+- `FRESHSERVICE_URL`, `FRESHSERVICE_API_KEY`, optional `FRESHSERVICE_AGENT_EMAIL` and `FRESHSERVICE_SYNC_LOOKBACK_DAYS`, a compose passthrough so shell variables reach the `api` container, and a check command, `app.tools.freshservice_check`;
+- an optional custom-field filter for a shared team agent (`FRESHSERVICE_TICKET_FIELD` and `FRESHSERVICE_TICKET_FIELD_VALUE`, set together): added to the search and checked again client-side, with the dropped count in the sync answer as `filtered_out`; on a real site the server applied the field clause itself and narrowed a 364-ticket shared agent to 16 tickets; not in `.env.example`;
+- the UI lists "Freshservice" as a source.
 
-Useful API facts: `GET /api/v2/tickets/filter?query="agent_id:<id>"`, `updated_since` on the list endpoint (it otherwise returns only the last 30 days), `per_page` up to 100 on the list endpoint (the filter endpoint pages at 30), and per-minute rate limits by plan with `Retry-After` on 429. Jira's connector is about 700 lines of backend code plus tests (`integrations/jira.py`, `services/jira_sync.py`, `services/jira_dedupe.py`, `tools/jira_check.py`). Freshservice can skip the dedupe part, so expect roughly 1 to 2 days of agent work with tests. It stays read-only: nothing is ever written back to Freshservice.
+Run against a real site once (2026-10-24, with the check command): the lookup by `FRESHSERVICE_AGENT_EMAIL` (`/api/v2/agents?email=`) and the ticket filter both worked, and an account with 364 matching tickets showed that the first cap of 300 was too low. Still unverified: the lookup by the key's own agent (`/api/v2/agents/me`, used when no email is set) and the agent-portal ticket link; a wrong guess there shows up as a `Freshservice agent lookup ... failed` message in the check. A search reads at most 1500 tickets (50 pages of 30), then says `"truncated": true`.
 
 ## Repo housekeeping
 

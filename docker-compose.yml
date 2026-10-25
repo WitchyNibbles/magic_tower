@@ -7,6 +7,11 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/workboard.db}
+      # Passthrough, so a variable exported in the shell reaches the container as well as
+      # a value written in the dotenv file. Unset becomes empty, which means "not configured".
+      FRESHSERVICE_URL: ${FRESHSERVICE_URL:-}
+      FRESHSERVICE_API_KEY: ${FRESHSERVICE_API_KEY:-}
+      FRESHSERVICE_AGENT_EMAIL: ${FRESHSERVICE_AGENT_EMAIL:-}
     volumes:
       - workboard-data:/data
     read_only: true
