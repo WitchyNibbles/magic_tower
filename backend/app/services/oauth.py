@@ -10,18 +10,32 @@ import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 import json
 
 from .crypto import EncryptedTokenStore, TokenStoreError
 
 from ..config import Settings
 
+LOGIN_ROOT = "https://login.microsoftonline.com"
 GRAPH_SCOPES = ("offline_access", "User.Read", "Mail.Read")
 
 
 class OAuthError(RuntimeError):
     pass
+
+
+class _RefuseRedirects(HTTPRedirectHandler):
+    """``urlopen`` follows a 3xx, copying the request's headers to wherever it points
+    and, for a POST answered with 301/302/303, re-issuing it as a GET. The token
+    request carries the client secret, authorization code and refresh token, so a
+    redirect is an error, not a hop."""
+
+    def redirect_request(self, *_: object, **__: object) -> None:
+        raise OAuthError("Microsoft token exchange was redirected")
+
+
+_opener = build_opener(_RefuseRedirects)
 
 
 def _state_key(settings: Settings) -> bytes:
@@ -93,7 +107,7 @@ def authorization_url(settings: Settings) -> str:
         "code_challenge_method": "S256",
     }
     tenant = settings.microsoft_tenant_id
-    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?{urlencode(params)}"
+    return f"{LOGIN_ROOT}/{tenant}/oauth2/v2.0/authorize?{urlencode(params)}"
 
 
 def _request_token(settings: Settings, grant: dict[str, str]) -> dict[str, object]:
@@ -112,15 +126,17 @@ def _request_token(settings: Settings, grant: dict[str, str]) -> dict[str, objec
         **grant,
     }).encode()
     request = Request(
-        f"https://login.microsoftonline.com/{settings.microsoft_tenant_id}/oauth2/v2.0/token",
+        f"{LOGIN_ROOT}/{settings.microsoft_tenant_id}/oauth2/v2.0/token",
         data=body,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
     requested_at = time.time()
     try:
-        with urlopen(request, timeout=15) as response:  # nosec B310: fixed Microsoft identity endpoint
+        with _opener.open(request, timeout=15) as response:
             token = json.loads(response.read())
+    except OAuthError:
+        raise
     except Exception as error:
         raise OAuthError("Microsoft token exchange failed") from error
     if not isinstance(token, dict) or not token.get("access_token"):

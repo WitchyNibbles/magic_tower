@@ -132,7 +132,7 @@ def test_default_transport_reports_throttling_with_its_retry_after(status: int, 
     def throttled(request: Any, **_: object) -> None:
         raise HTTPError(request.full_url, status, "Too Many Requests", {"Retry-After": "7"}, io.BytesIO(b""))
 
-    monkeypatch.setattr(graph_module, "urlopen", throttled)
+    monkeypatch.setattr(graph_module._opener, "open", throttled)
     with pytest.raises(GraphThrottledError) as raised:
         default_transport("GET", f"{GRAPH_ROOT}/me", {}, None)
     assert raised.value.retry_after == 7
@@ -142,7 +142,7 @@ def test_default_transport_ignores_an_unparseable_retry_after(monkeypatch: pytes
     def throttled(request: Any, **_: object) -> None:
         raise HTTPError(request.full_url, 429, "Too Many Requests", {"Retry-After": "soon"}, io.BytesIO(b""))
 
-    monkeypatch.setattr(graph_module, "urlopen", throttled)
+    monkeypatch.setattr(graph_module._opener, "open", throttled)
     with pytest.raises(GraphThrottledError) as raised:
         default_transport("GET", f"{GRAPH_ROOT}/me", {}, None)
     assert raised.value.retry_after is None
