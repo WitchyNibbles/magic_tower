@@ -18,6 +18,7 @@ _BLANKABLE_OPTIONAL_FIELDS = (
     "microsoft_target_user_id",
     "app_encryption_key",
     "local_api_token",
+    "grimoire_api_token",
     "jira_site_url",
     "jira_account_email",
     "jira_api_token",
@@ -61,6 +62,10 @@ class Settings(BaseSettings):
     # Distinct from Graph/OAuth secrets. Installed local agents use this only
     # as ``Authorization: Bearer ...`` when accessing the agent protocol.
     local_api_token: SecretStr | None = None
+    # A second, narrower credential for the grimoire client: accepted only on
+    # ``/api/grimoire/*`` and refused everywhere else (``security.require_grimoire_token``).
+    # Unset, those routes answer 503 and nothing else is affected.
+    grimoire_api_token: SecretStr | None = None
     # Jira: optional settings mirroring the Graph ones above. A classic API token
     # authenticates as Basic auth over ``email:token`` against
     # ``https://<site>.atlassian.net`` (not the scoped-token host).

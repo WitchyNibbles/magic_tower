@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -8,6 +7,8 @@ from sqlalchemy.orm import Session, selectinload
 from ..models import AgentDispatch, DispatchStatus, Source, SourceKind, WorkEvidence, WorkItem, WorkStatus
 from ..schemas import (AgentDispatchRequest, AgentDispatchUpdate, EvidenceInput, SourceCreate, SourceUpdate,
                        WorkItemCreate, WorkItemUpdate)
+from .grimoire_view import mark_stale_analyses
+from .http_errors import conflict, not_found
 
 # The default and cap every paginated list endpoint applies. A page this size is
 # small enough that an unindexed sort would still have been usable during
@@ -17,18 +18,12 @@ DEFAULT_PAGE_LIMIT = 50
 MAX_PAGE_LIMIT = 200
 
 
-def not_found(entity: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{entity} not found")
-
-
-def conflict(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
-
-
 def get_work_item(db: Session, item_id: UUID) -> WorkItem:
-    item = db.scalar(select(WorkItem).options(selectinload(WorkItem.evidence)).where(WorkItem.id == item_id))
+    item = db.scalar(select(WorkItem).options(selectinload(WorkItem.evidence), selectinload(WorkItem.analysis))
+                     .where(WorkItem.id == item_id))
     if item is None:
         raise not_found("Work item")
+    mark_stale_analyses(db, [item])
     return item
 
 
@@ -42,9 +37,11 @@ def list_work_items(db: Session, status_filter: WorkStatus | None, source_kind: 
     if assigned_agent:
         conditions.append(WorkItem.assigned_agent == assigned_agent)
     total = db.scalar(select(func.count()).select_from(WorkItem).where(*conditions))
-    query = (select(WorkItem).options(selectinload(WorkItem.evidence)).where(*conditions)
-             .order_by(WorkItem.updated_at.desc()).limit(limit).offset(offset))
-    return list(db.scalars(query)), total
+    query = (select(WorkItem).options(selectinload(WorkItem.evidence), selectinload(WorkItem.analysis))
+             .where(*conditions).order_by(WorkItem.updated_at.desc()).limit(limit).offset(offset))
+    items = list(db.scalars(query))
+    mark_stale_analyses(db, items)
+    return items, total
 
 
 def create_work_item(db: Session, payload: WorkItemCreate) -> WorkItem:

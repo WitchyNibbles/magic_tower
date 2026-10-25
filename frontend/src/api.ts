@@ -1,13 +1,24 @@
 export type WorkStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'dismissed'
 export type SourceKind = 'outlook_email' | 'manual' | 'jira' | 'freshservice'
 
-export interface WorkItem { id: string; title: string; summary: string | null; status: WorkStatus; source_kind: SourceKind; source_external_id: string | null; source_url: string | null; assigned_agent: string | null; due_at: string | null; created_at: string; updated_at: string; evidence?: Evidence[] }
+// grimoire's analysis of a work item (backend/app/schemas.py AnalysisRead). Its text is plain text: render it as text, never as markup.
+interface AnalysisDetails { asked: string; systems: string[]; known: string; next_step: string; open_questions: string[] }
+export interface Analysis { summary: string; details: AnalysisDetails; analyzed_at: string; analyzer: string; stale: boolean }
+
+export interface WorkItem { id: string; title: string; summary: string | null; status: WorkStatus; source_kind: SourceKind; source_external_id: string | null; source_url: string | null; assigned_agent: string | null; due_at: string | null; created_at: string; updated_at: string; evidence?: Evidence[]; analysis?: Analysis | null }
 export interface Evidence { id?: string; source_kind: SourceKind; external_id: string; excerpt: string | null; observed_at: string }
 export interface Health { status: string; service: string }
 // The envelope every paginated list endpoint returns (backend/app/schemas.py WorkItemPage) — never a bare array.
 export interface WorkItemPage { items: WorkItem[]; total: number; limit: number; offset: number }
 export interface Source { id: string; kind: SourceKind; external_id: string; subject: string | null; url: string | null; excerpt: string | null; observed_at: string }
 export interface SourcePage { items: Source[]; total: number; limit: number; offset: number }
+
+// grimoire's read-only project snapshot (backend/app/schemas.py ProjectSnapshotRead). Text and links come from grimoire: render as text.
+export type ProjectStatus = 'active' | 'waiting' | 'done'
+export type ProjectTaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done'
+interface ProjectTask { title: string; status: ProjectTaskStatus; pr_url: string | null }
+export interface ProjectItem { code: string; name: string; status: ProjectStatus; tasks: ProjectTask[]; open_questions: number; pending_prod_steps: string[] }
+export interface ProjectSnapshot { projects: ProjectItem[]; updated_at: string | null }
 
 export class ApiError extends Error { constructor(public status: number) { super(`Request failed (${status})`) } }
 let csrfToken: string | null = null
@@ -40,7 +51,6 @@ export const beginMicrosoftConnect = async () => {
 // One entry per configured source: its sync envelope, or { error } when that source failed (backend/app/services/sync_all.py).
 export interface SyncResult { count?: number; new_sources?: number; new_work_items?: number; mode?: string; synced_at?: string; window_minutes?: number; error?: string }
 export const syncNow = () => request<{ results: Record<string, SyncResult> }>('/api/sync/all', { method: 'POST' })
-export const createDispatch = (id: string, client: 'codex' | 'claude-code', instruction: string) => request(`/api/work-items/${id}/dispatch`, { method: 'POST', body: JSON.stringify({ client, instruction }) })
 
 export const getHealth = () => request<Health>('/api/health')
 export const getWorkItems = (params: { limit?: number; offset?: number; status?: WorkStatus; source_kind?: SourceKind } = {}) => {
@@ -63,3 +73,4 @@ export const getSources = (params: { limit?: number; offset?: number } = {}) => 
   return request<SourcePage>(`/api/sources${query ? `?${query}` : ''}`)
 }
 export const promoteSource = (sourceId: string) => request<WorkItem>(`/api/sources/${sourceId}/promote`, { method: 'POST' })
+export const getProjects = () => request<ProjectSnapshot>('/api/projects')

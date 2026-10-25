@@ -19,7 +19,7 @@ Everything runs on your own machine. Nothing is fetched until you connect a sour
 - **Freshservice ingestion** of the tickets assigned to you, read-only (`docs/freshservice-setup.md`). Only the ones that aren't Resolved or Closed become work items; its check has run once against a real site, and `docs/freshservice-setup.md` lists what is still unverified.
 - **Scheduled sync** of every ready source every `SYNC_INTERVAL_MINUTES` (default 10), plus a sync button that runs all of them on demand.
 - **Rule-based promotion** (`backend/app/services/promotion.py`): no LLM and no network, so the same message always gets the same decision, and the rules can be scored against a hand-labeled sample of real mail.
-- **Review queue UI** to filter, inspect, update, dismiss, and hand off work items, each with its source evidence.
+- **Review queue UI** to filter, inspect, update, dismiss, and promote work items, each with its source evidence, plus the summary and details an analysing client writes and a read-only Projects view.
 - **Agent API** on loopback: clients read bounded context, propose work items, and record dispatch progress (`docs/agent-protocol.md`).
 
 ## Architecture
@@ -69,6 +69,7 @@ Settings live in `.env`; [`.env.example`](.env.example) lists them with a commen
 | Variable | Needed for |
 | --- | --- |
 | `LOCAL_API_TOKEN` | Signing in to the UI and authenticating agent clients. Generate a random value. |
+| `GRIMOIRE_API_TOKEN` | Optional. Lets one analysing client use `/api/grimoire/*` and nothing else, to write analyses and a project snapshot that the UI shows. See [`docs/agent-protocol.md`](docs/agent-protocol.md). Generate a random value. |
 | `APP_ENCRYPTION_KEY` | Encrypting the Graph token store and stored message excerpts. Without it the API refuses to store or serve them. |
 | `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TARGET_USER_ID`, `MICROSOFT_REDIRECT_URI` | Outlook sync. See [`docs/microsoft-graph.md`](docs/microsoft-graph.md). |
 | `JIRA_SITE_URL`, `JIRA_ACCOUNT_EMAIL`, `JIRA_API_TOKEN`, `JIRA_MANAGEMENT_PROJECT_KEY` | Jira sync. See [`docs/jira-setup.md`](docs/jira-setup.md). |
@@ -85,7 +86,7 @@ Magic Tower is designed for a trusted local host, not for exposure to a network.
 - **Loopback only.** The web service publishes on `127.0.0.1`; the API has no published port at all.
 - **Encryption at rest.** Graph tokens and stored message excerpts are AES-GCM encrypted under `APP_ENCRYPTION_KEY`, with separate associated data so one can never be decrypted as the other. Writes fail closed (503) without a key.
 - **Least-privilege Graph access.** Exactly three delegated scopes (`offline_access`, `User.Read`, `Mail.Read`), `/me` endpoints only, and a sign-in whose object ID differs from `MICROSOFT_TARGET_USER_ID` is rejected. The connector never sends mail or writes to Microsoft 365.
-- **No credentials in the browser or agents.** OAuth uses PKCE with a one-time encrypted state; tokens never leave the backend. Agents get a separate `LOCAL_API_TOKEN`, never a Graph token.
+- **No credentials in the browser or agents.** OAuth uses PKCE with a one-time encrypted state; tokens never leave the backend. Agents get a separate `LOCAL_API_TOKEN`, never a Graph token, and the analysing client's `GRIMOIRE_API_TOKEN` opens only `/api/grimoire/*`.
 - **Browser session hardening.** An HttpOnly session cookie stored only as a SHA-256 hash in SQLite (so sessions survive an API restart but a copy of the database cannot be replayed), CSRF protection on cookie-backed writes, `no-store` caching, `nosniff`, `X-Frame-Options: DENY`, and a JSON body size limit.
 - **Hardened containers.** The API container runs read-only with all capabilities dropped and `no-new-privileges`.
 

@@ -47,13 +47,13 @@ describe('Mail layout', () => {
     expect(screen.queryByText('Send the revised project estimate')).toBeNull()
   })
 
-  it('layout records an agent handoff without offering a shell command', async () => {
+  it('layout offers no agent handoff buttons or shell command', async () => {
     offline()
 
     render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Codex' }))
+    await screen.findByRole('heading', { level: 2, name: 'Send the revised project estimate' })
 
-    expect(await screen.findByText('Sample item only — nothing will be dispatched.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Codex|Claude Code/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Copy command' })).toBeNull()
   })
 })

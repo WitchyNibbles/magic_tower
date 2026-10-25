@@ -31,10 +31,10 @@ export const jiraIssueKey = (item: Pick<WorkItem, 'source_kind' | 'source_url'>)
   return item.source_url.match(/\/browse\/([^/?#]+)/)?.[1] ?? null
 }
 
-// What stands in for a summary: the item's own, else the first evidence excerpt with text
-// (a connector's description, a mail's preview). '' when there is neither.
-export const itemSummary = (item: Pick<WorkItem, 'summary' | 'evidence'>): string =>
-  item.summary || item.evidence?.map(entry => entry.excerpt?.trim() ?? '').find(Boolean) || ''
+// The short text for an item: grimoire's summary, else the item's own, else the first evidence
+// excerpt with text (a connector's description, a mail's preview). '' when there is none.
+export const itemSummary = (item: Pick<WorkItem, 'summary' | 'evidence' | 'analysis'>): string =>
+  item.analysis?.summary || item.summary || item.evidence?.map(entry => entry.excerpt?.trim() ?? '').find(Boolean) || ''
 
 export const demoItems: WorkItem[] = [
   { id: 'demo-email', title: 'Send the revised project estimate', summary: 'The client asked for an updated estimate before Friday.', status: 'pending', source_kind: 'outlook_email', source_external_id: 'demo-001', source_url: null, assigned_agent: null, due_at: null, created_at: '', updated_at: '', evidence: [{ source_kind: 'outlook_email', external_id: 'demo-001', excerpt: 'Could you send the revised estimate before Friday?', observed_at: '' }] },

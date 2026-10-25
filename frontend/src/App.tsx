@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SearchIcon, SettingsIcon, XIcon } from 'lucide-react'
-import { ApiError, beginMicrosoftConnect, createDispatch, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
+import { ApiError, beginMicrosoftConnect, dismissWorkItem, getHealth, getSources, getWorkItem, getWorkItems, promoteSource, restoreLocalSession, startLocalSession, syncNow, updateWorkItem, type Source, type SourceKind, type SyncResult, type WorkItem, type WorkStatus } from './api'
 import { CommandPalette } from '@/components/command-palette'
 import { MailDetail } from '@/components/mail-detail'
 import { MailList } from '@/components/mail-list'
-import { MailNav } from '@/components/mail-nav'
+import { MailNav, type View } from '@/components/mail-nav'
+import { ProjectsView } from '@/components/projects-view'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { UnlockPanel } from '@/components/unlock-panel'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,7 @@ function syncSummary(results: Record<string, SyncResult>): string {
 export default function App() {
   const [items, setItems] = useState<WorkItem[]>([])
   const [selected, setSelected] = useState<WorkItem | null>(null)
+  const [view, setView] = useState<View>('work')
   const [filter, setFilter] = useState<WorkStatus | 'all'>('all')
   const [source, setSource] = useState<SourceKind | 'all'>('all')
   const [query, setQuery] = useState('')
@@ -103,9 +105,6 @@ export default function App() {
   const runSync = async () => {
     try { const { results } = await syncNow(); await loadWork(); setToast(syncSummary(results)) } catch { setToast('Sync could not be completed.') }
   }
-  const handoff = async (item: WorkItem, client: 'codex' | 'claude-code') => {
-    try { await createDispatch(item.id, client, 'Review the local Magic Tower item and propose the next safe action.'); setToast(`Queued a ${client} handoff.`) } catch { setToast('Could not queue the agent handoff.') }
-  }
   const showDemo = () => {
     setDemo(true); setItems(demoItems); setSelected(demoItems[0]); setToast('Showing sample items — connect the API for your work queue.')
   }
@@ -176,29 +175,33 @@ export default function App() {
         </div>
       </header>
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+      <ResizablePanelGroup key={view} orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel defaultSize="19" minSize="14">
-          <MailNav items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} missed={missed} onPromote={promote} />
+          <MailNav view={view} onView={setView} items={items} filter={filter} onFilter={setFilter} source={source} onSource={setSource} onSync={runSync} onConnect={connectMicrosoft} onDemo={showDemo} missed={missed} onPromote={promote} />
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
-          <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
-            hasMore={!demo && fetchedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel defaultSize="48" minSize="30">
-          <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
-            {selected
-              ? <MailDetail item={selected} demo={demo} onStatus={changeStatus} onHandoff={handoff} onDismiss={dismiss} />
-              : locked
-                ? <UnlockPanel onUnlock={unlock} />
-                : <div className="m-auto max-w-sm p-8 text-center">
-                    <h2 className="font-serif text-xl">Your tower is quiet.</h2>
-                    <p className="mt-2 text-sm text-muted-foreground">Connect Microsoft Graph or explore the sample queue.</p>
-                    <Button className="mt-4" onClick={showDemo}>Explore sample tasks</Button>
-                  </div>}
-          </section>
-        </ResizablePanel>
+        {view === 'projects'
+          ? <ResizablePanel defaultSize="81" minSize="40"><ProjectsView /></ResizablePanel>
+          : <>
+            <ResizablePanel defaultSize="33" minSize="22" className="bg-card/40">
+              <MailList items={visible} total={items.length} selectedId={selected?.id ?? null} query={query} onQuery={setQuery} onSelect={choose}
+                hasMore={!demo && fetchedCount < remoteTotal} loadingMore={loadingMore} onLoadMore={loadMore} />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel defaultSize="48" minSize="30">
+              <section aria-label="Work item detail" className="flex h-full min-h-0 flex-col bg-card/60">
+                {selected
+                  ? <MailDetail item={selected} onStatus={changeStatus} onDismiss={dismiss} />
+                  : locked
+                    ? <UnlockPanel onUnlock={unlock} />
+                    : <div className="m-auto max-w-sm p-8 text-center">
+                        <h2 className="font-serif text-xl">Your tower is quiet.</h2>
+                        <p className="mt-2 text-sm text-muted-foreground">Connect Microsoft Graph or explore the sample queue.</p>
+                        <Button className="mt-4" onClick={showDemo}>Explore sample tasks</Button>
+                      </div>}
+              </section>
+            </ResizablePanel>
+          </>}
       </ResizablePanelGroup>
 
       {toast && (
